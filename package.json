@@ -1,0 +1,29 @@
+{
+  "name": "aggr-server",
+  "version": "1.0.2",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tucsky/aggr-server.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Tucsky/aggr-server/issues"
+  },
+  "homepage": "https://github.com/Tucsky/aggr-server#readme",
+  "dependencies": {
+    "axios": "^0.18.0",
+    "decamelize": "^4.0.0",
+    "express": "^4.17.1",
+    "express-rate-limit": "^5.1.1",
+    "influx": "^5.0.7",
+    "pako": "^1.0.6",
+    "pmx": "^1.6.4",
+    "ws": "^5.0.0"
+  }
+}
