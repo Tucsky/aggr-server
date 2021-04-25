@@ -87,7 +87,7 @@ class InfluxStorage {
 
       const query_from = `${this.options.influxDatabase}.autogen.${this.options.influxMeasurement}_${sourceTimeframe}`
       const query_into = `${this.options.influxDatabase}.autogen.${this.options.influxMeasurement}_${destinationTimeframe}`
-      const coverage = `WHERE time > ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
+      const coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
       const group = `GROUP BY time(${destinationTimeframe}), market fill(none)`
 
       await this.influx
