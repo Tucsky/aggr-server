@@ -8,24 +8,28 @@ class InfluxStorage {
     this.name = this.constructor.name
     this.format = 'point'
 
-    if (!options.influxUrl) {
-      throw `Please set the influxdb url using influxURL property in config.json`
-    }
-
     this.lastBar = {}
     this.lastClose = {}
     this.options = options
   }
 
   async connect() {
-    console.log(`[storage/${this.name}] connecting`)
-
     if (/\-/.test(this.options.influxDatabase)) {
       throw new Error('dashes not allowed inside influxdb database')
     }
 
+    let host = this.options.influxHost
+    let port = this.options.influxPort
+
+    if (typeof this.options.influxUrl === 'string' && this.options.influxUrl.length) {
+      ;[host, port] = this.options.influxUrl.split(':')
+    }
+
+    console.log(`[storage/${this.name}] connecting to ${host}:${port}`)
+
     this.influx = new Influx.InfluxDB({
-      host: this.options.influxUrl,
+      host: host || 'localhost',
+      port: port || '8086',
       database: this.options.influxDatabase,
     })
 
@@ -56,10 +60,7 @@ class InfluxStorage {
       }
 
       for (let i = this.options.influxResampleTo.indexOf(timeframe); i >= 0; i--) {
-        if (
-          timeframe <= this.options.influxResampleTo[i] ||
-          timeframe % this.options.influxResampleTo[i] !== 0
-        ) {
+        if (timeframe <= this.options.influxResampleTo[i] || timeframe % this.options.influxResampleTo[i] !== 0) {
           if (i === 0) {
             sourceTimeframe = getHms(this.options.influxTimeframe)
           }
@@ -90,15 +91,9 @@ class InfluxStorage {
       const coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
       const group = `GROUP BY time(${destinationTimeframe}), market fill(none)`
 
-      await this.influx
-        .query(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
-        .catch((err) => {
-          console.log(
-            err.message,
-            '\nquery:\n',
-            `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`
-          )
-        })
+      await this.influx.query(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`).catch((err) => {
+        console.log(err.message, '\nquery:\n', `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
+      })
     }
   }
 
@@ -210,8 +205,7 @@ class InfluxStorage {
         break
       } else {
         tradeIdentifier = trade.exchange + ':' + trade.pair
-        tradeFlooredTime =
-          Math.floor(trade.timestamp / this.options.influxTimeframe) * this.options.influxTimeframe
+        tradeFlooredTime = Math.floor(trade.timestamp / this.options.influxTimeframe) * this.options.influxTimeframe
 
         if (!activeBars[tradeIdentifier] || activeBars[tradeIdentifier].time < tradeFlooredTime) {
           if (activeBars[tradeIdentifier]) {
@@ -225,10 +219,7 @@ class InfluxStorage {
           if (trade) {
             // create bar required
 
-            if (
-              this.lastBar[tradeIdentifier] &&
-              this.lastBar[tradeIdentifier].time === tradeFlooredTime
-            ) {
+            if (this.lastBar[tradeIdentifier] && this.lastBar[tradeIdentifier].time === tradeFlooredTime) {
               // trades passed in save() contains some of the last batch (trade time = last bar time)
               // recover exchange point of lastbar
               activeBars[tradeIdentifier] = this.lastBar[tradeIdentifier]
@@ -252,9 +243,9 @@ class InfluxStorage {
 
               if (typeof this.lastClose[tradeIdentifier] === 'number') {
                 // this bar open = last bar close (from last save or getReferencePoint on startup)
-                activeBars[tradeIdentifier].open = activeBars[tradeIdentifier].high = activeBars[
+                activeBars[tradeIdentifier].open = activeBars[tradeIdentifier].high = activeBars[tradeIdentifier].low = activeBars[
                   tradeIdentifier
-                ].low = activeBars[tradeIdentifier].close = this.lastClose[tradeIdentifier]
+                ].close = this.lastClose[tradeIdentifier]
               }
             }
           }
@@ -272,9 +263,9 @@ class InfluxStorage {
         if (activeBars[tradeIdentifier].open === null) {
           // new bar without close in db, should only happen once
           console.log(`[storage/${this.name}] register new serie ${tradeIdentifier}`)
-          activeBars[tradeIdentifier].open = activeBars[tradeIdentifier].high = activeBars[
+          activeBars[tradeIdentifier].open = activeBars[tradeIdentifier].high = activeBars[tradeIdentifier].low = activeBars[
             tradeIdentifier
-          ].low = activeBars[tradeIdentifier].close = +trade.price
+          ].close = +trade.price
         }
 
         activeBars[tradeIdentifier].high = Math.max(activeBars[tradeIdentifier].high, +trade.price)
@@ -313,16 +304,11 @@ class InfluxStorage {
             }
 
             if (bar.close !== null) {
-              ;(fields.open = bar.open),
-                (fields.high = bar.high),
-                (fields.low = bar.low),
-                (fields.close = bar.close)
+              ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
             }
-            
+
             return {
-              measurement:
-                'trades' +
-                (this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''),
+              measurement: 'trades' + (this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''),
               tags: {
                 market: bar.exchange + ':' + bar.pair,
               },

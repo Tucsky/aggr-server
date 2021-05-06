@@ -73,7 +73,8 @@ const DEFAULTS = {
   backupInterval: 1000 * 10,
 
   // influx db server to use when storage is set to "influx"
-  influxUrl: 'localhost:8086',
+  influxHost: 'localhost',
+  influxPort: 8086,
 
   // influx database
   influxDatabase: 'significant_trades',

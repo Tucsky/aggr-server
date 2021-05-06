@@ -1,8 +1,12 @@
 ## How to install
-1. Clone the repo
+1. Clone the repo and get into the working dir
 
 ```bash
-git clone https://github.com/Tucsky/aggr-server api/
+git clone https://github.com/Tucsky/aggr-server
+```
+
+```bash
+cd aggr-server
 ```
 
 2. Install dependencies
@@ -11,13 +15,21 @@ git clone https://github.com/Tucsky/aggr-server api/
 npm install
 ```
 
+3. If you want to configure server using json, move exemple as "config.json" inside root directory and edit configuration.
+
+```bash
+cp config.json.example config.json
+```
+
+```bash
+nano config.json
+```
+
 3. Run server
 
 ```bash
 node index
 ```
-
-...
 
 ## How to install: Docker
 
@@ -33,7 +45,7 @@ Uncomment `influx` part in `docker-compose.yml` and set `STORAGE=influx` in `.en
 5. Profit !
 
 ## Configuration
-All settings are optional and can be changed in the [server configuration file](config.json.example) (rename config.json.example into config.json as the real config file is untracked on github).
+All settings are optional and can be changed in the [server configuration file](config.json.example) (rename config.json.example into config.json).
 
 ```js
 // see [server configuration file](src/config.js) for all server options
@@ -43,6 +55,8 @@ All options can be set using CLI
 - Setting port `node index port=3001`
 - Setting port & pair `node index port=3002 pairs="COINBASE:ETH-USD"`
 - Setting port & multiple pairs `node index port=3002 pair="COINBASE:ETH-USD,BINANCE:ethusdt"`
-
-*Like whats been done here ?* Donate<br>
-[3NuLQsrphzgKxTBU3Vunj87XADPvZqZ7gc](bitcoin:3NuLQsrphzgKxTBU3Vunj87XADPvZqZ7gc)
+## If you like what is being done here, consider supporting this project !
+BTC [3PK1bBK8sG3zAjPBPD7g3PL14Ndux3zWEz](bitcoin:3PK1bBK8sG3zAjPBPD7g3PL14Ndux3zWEz)<br>
+XMR 48NJj3RJDo33zMLaudQDdM8G6MfPrQbpeZU2YnRN2Ep6hbKyYRrS2ZSdiAKpkUXBcjD2pKiPqXtQmSZjZM7fC6YT6CMmoX6<br>
+COINBASE
+https://commerce.coinbase.com/checkout/c58bd003-5e47-4cfb-ae25-5292f0a0e1e8
