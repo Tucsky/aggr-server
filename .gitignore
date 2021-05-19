@@ -4,7 +4,7 @@ clients.txt
 banned.txt
 admin.txt
 /products
-persistence.json
+/symbols
 data/*
 .DS_Store
 .vscode

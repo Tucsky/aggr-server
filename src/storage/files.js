@@ -1,6 +1,5 @@
 const fs = require('fs')
-const path = require('path')
-const { getHms, groupTrades } = require('../helper')
+const { groupTrades, ensureDirectoryExists } = require('../helper')
 
 class FilesStorage {
   constructor(options) {
@@ -37,9 +36,7 @@ class FilesStorage {
     pair = pair.replace(/[/:]/g, '-')
 
     const folderPart = `${this.options.filesLocation}/${exchange}/${pair}`
-    const datePart = `${date.getFullYear()}-${('0' + (date.getMonth() + 1)).slice(-2)}-${(
-      '0' + date.getDate()
-    ).slice(-2)}`
+    const datePart = `${date.getFullYear()}-${('0' + (date.getMonth() + 1)).slice(-2)}-${('0' + date.getDate()).slice(-2)}`
 
     let file = `${folderPart}/${datePart}`
 
@@ -58,44 +55,23 @@ class FilesStorage {
     return file.replace(/\s+/g, '')
   }
 
-  async ensureDirectoryExists(target) {
-    const folder = target.substring(0, target.lastIndexOf('/'))
-
-    return new Promise((resolve, reject) => {
-      fs.stat(folder, (err) => {
-        if (!err) {
-          resolve()
-        } else if (err.code === 'ENOENT') {
-          fs.mkdir(folder, { recursive: true }, (err) => {
-            if (err) {
-              reject(err)
-            }
-
-            console.log(`[storage/${this.name}] created target directory ${folder}`)
-
-            resolve()
-          })
-        } else {
-          reject(err)
-        }
-      })
-    })
-  }
-
   async addWritableStream(identifier, ts) {
     const date = new Date(+ts)
-    const filename = this.getBackupFilename(identifier, date)
+    const path = this.getBackupFilename(identifier, date)
 
-    await this.ensureDirectoryExists(filename)
+    try {
+      await ensureDirectoryExists(path)
+      console.log(`[storage/${this.name}] created target directory ${path}`)
+    } catch (error) {
+      console.error(`[storage/${this.name}] failed to create target directory ${path}`, error)
+    }
 
     this.writableStreams[identifier + ts] = {
       updatedAt: null,
-      stream: fs.createWriteStream(filename, { flags: 'a' }),
+      stream: fs.createWriteStream(path, { flags: 'a' }),
     }
 
-    console.log(
-      `[storage/${this.name}] created writable stream ${date.toUTCString()} => ${filename}`
-    )
+    console.log(`[storage/${this.name}] created writable stream ${date.toUTCString()} => ${path}`)
   }
 
   reviewStreams() {
@@ -151,20 +127,15 @@ class FilesStorage {
               }
 
               promiseOfWritableStram.then(() => {
-                this.writableStreams[identifier + ts].stream.write(
-                  output[identifier][ts],
-                  (err) => {
-                    if (err) {
-                      console.log(
-                        `[storage/${this.name}] stream.write encountered an error\n\t${err}`
-                      )
-                    } else {
-                      this.writableStreams[identifier + ts].updatedAt = now
-                    }
-
-                    resolve()
+                this.writableStreams[identifier + ts].stream.write(output[identifier][ts], (err) => {
+                  if (err) {
+                    console.log(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
+                  } else {
+                    this.writableStreams[identifier + ts].updatedAt = now
                   }
-                )
+
+                  resolve()
+                })
               })
             })
           )

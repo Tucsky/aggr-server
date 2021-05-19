@@ -185,7 +185,7 @@ class Server extends EventEmitter {
           }
         }
 
-        this.dumpIndex()
+        // this.dumpSymbolsByExchanges() 
       })
 
       exchange.on('open', (event) => {
@@ -572,7 +572,7 @@ class Server extends EventEmitter {
           return Promise.resolve()
         }
 
-        return exchange.fetchProductsAndConnect(exchangePairs)
+        return exchange.getProductsAndConnect(exchangePairs)
       })
     )
 
@@ -927,11 +927,14 @@ class Server extends EventEmitter {
     }
   }
 
-  dumpIndex() {
+  /**
+   * For debug only 
+   */
+  dumpSymbolsByExchanges() {
     const symbols = Object.keys(this.indexedProducts)
 
     fs.writeFileSync(
-      './products',
+      './symbols',
       symbols.reduce((output, symbol) => {
         output += `${symbol} (${this.indexedProducts[symbol].exchanges.join(',')})\n`
 

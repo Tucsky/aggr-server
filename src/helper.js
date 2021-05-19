@@ -1,4 +1,4 @@
-const config = require('./config')
+const fs = require('fs')
 
 module.exports = {
   getIp(req) {
@@ -113,4 +113,27 @@ module.exports = {
       return amount
     }
   },
+
+  async ensureDirectoryExists(target) {
+    const folder = target.substring(0, target.lastIndexOf('/'))
+
+    return new Promise((resolve, reject) => {
+      fs.stat(folder, (err) => {
+        if (!err) {
+          resolve()
+        } else if (err.code === 'ENOENT') {
+          fs.mkdir(folder, { recursive: true }, (err) => {
+            if (err) {
+              reject(err)
+            }
+
+
+            resolve()
+          })
+        } else {
+          reject(err)
+        }
+      })
+    })
+  }
 }
