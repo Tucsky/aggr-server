@@ -145,7 +145,7 @@ class Exchange extends EventEmitter {
 
     if (this.pairs.indexOf(pair) === -1) {
       console.debug(`[${this.id}.unlink] "${pair}" does not exist on exchange ${this.id} (resolved immediatly)`)
-      return Promise.resolve()
+      return
     }
 
     if (!api) {
@@ -164,7 +164,7 @@ class Exchange extends EventEmitter {
       console.debug(`[${this.id}.unlink] ${pair}'s api is now empty (trigger close api)`)
       return this.unbindApi(api)
     } else {
-      return Promise.resolve()
+      return
     }
   }
 

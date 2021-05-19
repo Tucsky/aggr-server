@@ -1,5 +1,5 @@
 const Influx = require('influx')
-const { getHms, groupTrades } = require('../helper')
+const { getHms, sleep } = require('../helper')
 
 require('../typedef')
 
@@ -27,19 +27,25 @@ class InfluxStorage {
 
     console.log(`[storage/${this.name}] connecting to ${host}:${port}`)
 
-    this.influx = new Influx.InfluxDB({
-      host: host || 'localhost',
-      port: port || '8086',
-      database: this.options.influxDatabase,
-    })
+    try {
+      this.influx = new Influx.InfluxDB({
+        host: host || 'localhost',
+        port: port || '8086',
+        database: this.options.influxDatabase,
+      })
 
-    const databases = await this.influx.getDatabaseNames()
+      const databases = await this.influx.getDatabaseNames()
 
-    if (!databases.includes(this.options.influxDatabase)) {
-      await this.influx.createDatabase(this.options.influxDatabase)
+      if (!databases.includes(this.options.influxDatabase)) {
+        await this.influx.createDatabase(this.options.influxDatabase)
+      }
+
+      await this.getPreviousCloses()
+    } catch (error) {
+      await sleep()
+
+      return this.connect()
     }
-
-    await this.getPreviousCloses()
   }
 
   /**
@@ -243,9 +249,11 @@ class InfluxStorage {
 
               if (typeof this.lastClose[tradeIdentifier] === 'number') {
                 // this bar open = last bar close (from last save or getReferencePoint on startup)
-                activeBars[tradeIdentifier].open = activeBars[tradeIdentifier].high = activeBars[tradeIdentifier].low = activeBars[
-                  tradeIdentifier
-                ].close = this.lastClose[tradeIdentifier]
+                activeBars[tradeIdentifier].open =
+                  activeBars[tradeIdentifier].high =
+                  activeBars[tradeIdentifier].low =
+                  activeBars[tradeIdentifier].close =
+                    this.lastClose[tradeIdentifier]
               }
             }
           }
@@ -263,9 +271,11 @@ class InfluxStorage {
         if (activeBars[tradeIdentifier].open === null) {
           // new bar without close in db, should only happen once
           console.log(`[storage/${this.name}] register new serie ${tradeIdentifier}`)
-          activeBars[tradeIdentifier].open = activeBars[tradeIdentifier].high = activeBars[tradeIdentifier].low = activeBars[
-            tradeIdentifier
-          ].close = +trade.price
+          activeBars[tradeIdentifier].open =
+            activeBars[tradeIdentifier].high =
+            activeBars[tradeIdentifier].low =
+            activeBars[tradeIdentifier].close =
+              +trade.price
         }
 
         activeBars[tradeIdentifier].high = Math.max(activeBars[tradeIdentifier].high, +trade.price)

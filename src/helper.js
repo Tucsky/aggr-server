@@ -114,6 +114,14 @@ module.exports = {
     }
   },
 
+  sleep(delay = 1000) {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        resolve()
+      }, delay)
+    })
+  },
+
   async ensureDirectoryExists(target) {
     const folder = target.substring(0, target.lastIndexOf('/'))
 
