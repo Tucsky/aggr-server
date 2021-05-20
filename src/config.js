@@ -158,27 +158,24 @@ Object.keys(config).forEach((k) => {
   }
 })
 
-/* Node arg based configuration
- */
-
 if (process.argv.length > 2) {
-  let exchanges = []
+  let exchanges = [];
   process.argv.slice(2).forEach((arg) => {
-    const keyvalue = arg.split('=')
+    const keyvalue = arg.split("=");
 
-    if (keyvalue.length === 1) {
-      exchanges.push(arg)
-    } else {
+    if (keyvalue.length > 1) {
       try {
-        config[keyvalue[0]] = JSON.parse(keyvalue[1])
+        config[keyvalue[0]] = JSON.parse(keyvalue[1]);
       } catch (error) {
-        config[keyvalue[0]] = keyvalue[1]
+        config[keyvalue[0]] = keyvalue[1];
       }
+    } else if (/^\w+$/.test(keyvalue[0])) {
+      exchanges.push(keyvalue[0]);
     }
-  })
+  });
 
   if (exchanges.length) {
-    config.exchanges = exchanges
+    config.exchanges = exchanges;
   }
 }
 

@@ -60,30 +60,6 @@ if (process.env.pmx) {
   server.on('quotas', (n) => {
     stored_quotas.set(n)
   })
-
-  pmx.action('notice', function (message, reply) {
-    if (!message || typeof message !== 'string' || !message.trim().length) {
-      server.notice = null
-
-      server.broadcast({
-        type: 'message',
-      })
-
-      reply(`Notice deleted`)
-    } else {
-      const alert = {
-        type: 'message',
-        message: message,
-        timestamp: +new Date(),
-      }
-
-      server.broadcast(alert)
-
-      server.notice = alert
-
-      reply(`Notice pinned "${message}"`)
-    }
-  })
 }
 
 /* Backup server on SIGINT

@@ -223,9 +223,9 @@ class Exchange extends EventEmitter {
       }
 
       api.onmessage = (event) => {
-        if (this.onMessage(event, api) === true) {
-          api.timestamp = +new Date()
-        } else {
+        const wasBadData = !this.onMessage(event, api)
+
+        if (wasBadData) {
           let json
 
           try {

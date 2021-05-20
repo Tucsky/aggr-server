@@ -51,8 +51,14 @@ class Server extends EventEmitter {
       if (this.options.collect) {
         console.log(
           `\n[server] collect is enabled`,
-          this.options.broadcast && this.options.broadcastAggr ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)' : '',
-          this.options.broadcast && this.options.broadcastDebounce ? `\n\twill broadcast trades every ${this.options.broadcastDebounce}ms` : (this.options.broadcast ? `will broadcast trades instantly` : '')
+          this.options.broadcast && this.options.broadcastAggr
+            ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)'
+            : '',
+          this.options.broadcast && this.options.broadcastDebounce
+            ? `\n\twill broadcast trades every ${this.options.broadcastDebounce}ms`
+            : this.options.broadcast
+            ? `will broadcast trades instantly`
+            : ''
         )
         console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
 
@@ -160,13 +166,13 @@ class Server extends EventEmitter {
 
   handleExchangesEvents() {
     this.exchanges.forEach((exchange) => {
-      if (this.options.broadcastAggr) {
-        exchange.on('trades', this.aggregateTrades.bind(this, exchange.id))
+      if (this.options.broadcast && this.options.broadcastAggr) {
+        exchange.on('trades', this.dispatchAggregateTrade.bind(this, exchange.id))
       } else {
-        exchange.on('trades', this.dispatchTrades.bind(this, exchange.id))
+        exchange.on('trades', this.dispatchRawTrades.bind(this, exchange.id))
       }
 
-      exchange.on('liquidations', this.dispatchTrades.bind(this, exchange.id))
+      exchange.on('liquidations', this.dispatchRawTrades.bind(this, exchange.id))
 
       exchange.on('index', (pairs) => {
         for (let pair of pairs) {
@@ -185,7 +191,7 @@ class Server extends EventEmitter {
           }
         }
 
-        // this.dumpSymbolsByExchanges() 
+        // this.dumpSymbolsByExchanges()
       })
 
       exchange.on('open', (event) => {
@@ -431,7 +437,6 @@ class Server extends EventEmitter {
       let to = req.params.to
       let timeframe = req.params.timeframe
 
-      
       let markets = req.params.markets || []
 
       if (typeof markets === 'string') {
@@ -850,11 +855,20 @@ class Server extends EventEmitter {
     })
   }
 
-  dispatchTrades(exchange, { source, data }) {
+  dispatchRawTrades(exchange, { source, data }) {
+    const now = +new Date()
+
     for (let i = 0; i < data.length; i++) {
-      // push for storage...
+      const trade = data[i]
+      const identifier = exchange + ':' + trade.pair
+
+      // ping connection
+      this.connections[identifier].hit++
+      this.connections[identifier].timestamp = now
+
+      // save trade
       if (this.storages) {
-        this.chunk.push(data[i])
+        this.chunk.push(trade)
       }
     }
 
@@ -865,7 +879,7 @@ class Server extends EventEmitter {
     }
   }
 
-  aggregateTrades(exchange, { source, data }) {
+  dispatchAggregateTrade(exchange, { source, data }) {
     const now = +new Date()
     const length = data.length
 
@@ -873,18 +887,19 @@ class Server extends EventEmitter {
       const trade = data[i]
       const identifier = exchange + ':' + trade.pair
 
+      // ping connection
+      this.connections[identifier].hit++
+      this.connections[identifier].timestamp = now
+
+      // save trade
+      if (this.storages) {
+        this.chunk.push(trade)
+      }
+
       if (!this.connections[identifier]) {
         console.error(`UNKNOWN TRADE SOURCE`, trade)
         console.info('This trade will be ignored.')
         continue
-      }
-
-      this.connections[identifier].hit++
-      this.connections[identifier].timestamp = now
-
-      // push for storage...
-      if (this.storages) {
-        this.chunk.push(data[i])
       }
 
       if (this.aggregating[identifier]) {
@@ -908,6 +923,7 @@ class Server extends EventEmitter {
 
   broadcastAggregatedTrades() {
     const now = +new Date()
+
     const onGoingAggregation = Object.keys(this.aggregating)
 
     for (let i = 0; i < onGoingAggregation.length; i++) {
@@ -928,7 +944,7 @@ class Server extends EventEmitter {
   }
 
   /**
-   * For debug only 
+   * For debug only
    */
   dumpSymbolsByExchanges() {
     const symbols = Object.keys(this.indexedProducts)
