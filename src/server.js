@@ -28,10 +28,10 @@ class Server extends EventEmitter {
     this.connections = {}
 
     /**
-     * delayed trades ready to be broadcasted next interval (see _broadcastDelayedTradesInterval)
+     * delayedForBroadcast trades ready to be broadcasted next interval (see _broadcastDelayedTradesInterval)
      * @type Trade[]
      */
-    this.delayed = []
+    this.delayedForBroadcast = []
 
     /**
      * active trades aggregations
@@ -134,17 +134,26 @@ class Server extends EventEmitter {
 
     return Promise.all(
       this.storages.map((storage) =>
-        storage.save(chunk).then(() => {
-          if (exitBackup) {
-            console.log(`[server/exit] performed backup of ${chunk.length} trades into ${storage.constructor.name}`)
-          }
-        })
+        storage
+          .save(chunk)
+          .then(() => {
+            if (exitBackup) {
+              console.log(`[server/exit] performed backup of ${chunk.length} trades into ${storage.constructor.name}`)
+            }
+          })
+          .catch((err) => {
+            console.log(`[server] ${storage.name} save FAILED`, err)
+          })
       )
-    ).then(() => {
-      if (!exitBackup) {
-        this.scheduleNextBackup()
-      }
-    })
+    )
+      .then(() => {
+        if (!exitBackup) {
+          this.scheduleNextBackup()
+        }
+      })
+      .catch((err) => {
+        console.log(`[server] something went wrong while backuping trades...`, err)
+      })
   }
 
   scheduleNextBackup() {
@@ -585,15 +594,15 @@ class Server extends EventEmitter {
       this.dumpConnections()
     })
 
-    if (this.options.broadcastDebounce && !this.options.broadcastAggr) {
+    if (this.options.broadcast && this.options.broadcastDebounce && !this.options.broadcastAggr) {
       this._broadcastDelayedTradesInterval = setInterval(() => {
-        if (!this.delayed.length) {
+        if (!this.delayedForBroadcast.length) {
           return
         }
 
-        this.broadcastTrades(this.delayed)
+        this.broadcastTrades(this.delayedForBroadcast)
 
-        this.delayed = []
+        this.delayedForBroadcast = []
       }, this.options.broadcastDebounce || 1000)
     }
   }
@@ -872,10 +881,12 @@ class Server extends EventEmitter {
       }
     }
 
-    if (!this.options.broadcastDebounce || this.options.broadcastAggr) {
-      this.broadcastTrades(data)
-    } else {
-      Array.prototype.push.apply(this.delayed, data)
+    if (this.options.broadcast) {
+      if (this.options.broadcastAggr && !this.options.broadcastDebounce) {
+        this.broadcastTrades(data)
+      } else {
+        Array.prototype.push.apply(this.delayedForBroadcast, data)
+      }
     }
   }
 
