@@ -23,11 +23,18 @@ class Bitmex extends Exchange {
   }
 
   formatProducts(data) {
-    return data.map((product) => {
-      this.pairCurrencies[product.symbol] = product.quoteCurrency
+    const products = []
+    const pairCurrencies = {}
 
-      return product.symbol
-    })
+    for (const product of data) {
+      pairCurrencies[product.symbol] = product.quoteCurrency
+      products.push(product.symbol)
+    }
+
+    return {
+      products,
+      pairCurrencies
+    }
   }
 
   /**
