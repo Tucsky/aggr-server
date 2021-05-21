@@ -142,7 +142,7 @@ class Server extends EventEmitter {
             }
           })
           .catch((err) => {
-            console.log(`[server] ${storage.name} save FAILED`, err)
+            console.error(`[storage/${storage.name}] saving failure`, err)
           })
       )
     )
@@ -152,7 +152,7 @@ class Server extends EventEmitter {
         }
       })
       .catch((err) => {
-        console.log(`[server] something went wrong while backuping trades...`, err)
+        console.error(`[server] something went wrong while backuping trades...`, err)
       })
   }
 
@@ -214,7 +214,7 @@ class Server extends EventEmitter {
         const id = exchange.id + ':' + pair
 
         if (!this.connections[id]) {
-          throw new Error(`[server] couldn't delete connection ${id} because the connections[${id}] does not exists`)
+          console.error(`[server] couldn't delete connection ${id} because the connections[${id}] does not exists`)
           return
         }
 
@@ -685,7 +685,7 @@ class Server extends EventEmitter {
       return
     }
 
-    const groups = groupTrades(trades, true)
+    const groups = groupTrades(trades, true, true)
 
     this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {

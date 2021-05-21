@@ -97,9 +97,7 @@ class InfluxStorage {
       const coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
       const group = `GROUP BY time(${destinationTimeframe}), market fill(none)`
 
-      await this.influx.query(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`).catch((err) => {
-        console.log(err.message, '\nquery:\n', `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
-      })
+      await this.executeQuery(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
     }
   }
 
@@ -164,7 +162,7 @@ class InfluxStorage {
     }>}
    * @memberof InfluxStorage
    */
-  import(trades, identifier) {
+  async import(trades, identifier) {
     /**
      * Current bars
      * @type {{[identifier: string]: Bar}}
@@ -298,71 +296,106 @@ class InfluxStorage {
       }
     }
 
-    const promises = []
-
     if (closedBars.length) {
-      promises.push(
-        this.influx.writePoints(
-          closedBars.map((bar, index) => {
-            const fields = {
-              cbuy: bar.cbuy,
-              csell: bar.csell,
-              vbuy: bar.vbuy,
-              vsell: bar.vsell,
-              lbuy: bar.lbuy,
-              lsell: bar.lsell,
-            }
-
-            if (bar.close !== null) {
-              ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
-            }
-
-            return {
-              measurement: 'trades' + (this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''),
-              tags: {
-                market: bar.exchange + ':' + bar.pair,
-              },
-              fields: fields,
-              timestamp: +bar.time,
-            }
-          }),
-          {
-            precision: 'ms',
+      await this.writePoints(
+        closedBars.map((bar, index) => {
+          const fields = {
+            cbuy: bar.cbuy,
+            csell: bar.csell,
+            vbuy: bar.vbuy,
+            vsell: bar.vsell,
+            lbuy: bar.lbuy,
+            lsell: bar.lsell,
           }
-        )
+
+          if (bar.close !== null) {
+            ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
+          }
+
+          return {
+            measurement: 'trades' + (this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''),
+            tags: {
+              market: bar.exchange + ':' + bar.pair,
+            },
+            fields: fields,
+            timestamp: +bar.time,
+          }
+        }),
+        {
+          precision: 'ms',
+        }
       )
     }
 
     if (liquidations.length) {
-      promises.push(
-        this.influx
-          .writePoints(
-            liquidations.map((trade, index) => {
-              const fields = {
-                size: +trade.price,
-                price: +trade.size,
-                side: trade[4] == 1 ? 'buy' : 'sell',
-              }
+      await this.writePoints(
+        liquidations.map((trade, index) => {
+          const fields = {
+            size: +trade.price,
+            price: +trade.size,
+            side: trade[4] == 1 ? 'buy' : 'sell',
+          }
 
-              return {
-                measurement: 'liquidations',
-                tags: {
-                  market: trade.exchange + ':' + trade.pair,
-                },
-                fields: fields,
-                timestamp: +trade.timestamp,
-              }
-            })
-          )
-          .catch((err) => {
-            console.error('influx write failed (liquidation)', err.message)
-          })
+          return {
+            measurement: 'liquidations',
+            tags: {
+              market: trade.exchange + ':' + trade.pair,
+            },
+            fields: fields,
+            timestamp: +trade.timestamp,
+          }
+        }),
+        {
+          precision: 'ms',
+        }
       )
     }
 
-    return Promise.all(promises).then(() => ({
-      ...totalRange,
-    }))
+    return totalRange
+  }
+
+  async writePoints(points, options, attempt = 0) {
+    try {
+      await this.influx.writePoints(points, options)
+
+      if (attempt > 0) {
+        console.debug(`[storage/${this.name}] successfully wrote points after ${attempt} attempt(s)`)
+      }
+    } catch (error) {
+      attempt++
+
+      console.debug(`[storage/${this.name}] write points failed (${attempt} attempt(s))`, error)
+
+      if (attempt > 5) {
+        throw new Error('failed to write points (too many attempts), abort')
+      }
+
+      await sleep(500)
+
+      return this.writePoints(points, options, attempt)
+    }
+  }
+
+  async executeQuery(query, attempt = 0) {
+    try {
+      await this.influx.query(query)
+
+      if (attempt > 0) {
+        console.debug(`[storage/${this.name}] successfully executed query ${attempt} attempt(s)`)
+      }
+    } catch (error) {
+      attempt++
+
+      console.debug(`[storage/${this.name}] query failed (${attempt} attempt(s))`, error)
+
+      if (attempt > 5) {
+        throw new Error('failed to execute query (too many attempts), abort')
+      }
+
+      await sleep(500)
+
+      return this.executeQuery(query, attempt)
+    }
   }
 
   fetch({ from, to, timeframe = 60000, markets = [] }) {

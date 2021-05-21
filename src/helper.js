@@ -63,7 +63,7 @@ module.exports = {
     return output
   },
 
-  groupTrades(trades, toArray = false) {
+  groupTrades(trades, includeMarket, toArray = false) {
     const groups = {}
 
     for (let i = 0; i < trades.length; i++) {
@@ -77,7 +77,13 @@ module.exports = {
       if (!toArray) {
         groups[identifier].push(trade)
       } else {
-        const toPush = [trade.pair, trade.timestamp, trade.price, trade.size, trade.side]
+        let toPush;
+
+        if (includeMarket) {
+          toPush = [trade.exchange, trade.pair, trade.timestamp, trade.price, trade.size, trade.side]
+        } else {
+          toPush = [trade.timestamp, trade.price, trade.size, trade.side]
+        }
 
         if (trade.liquidation) {
           toPush.push(1)

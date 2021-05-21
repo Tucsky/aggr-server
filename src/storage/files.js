@@ -88,7 +88,7 @@ class FilesStorage {
   save(trades) {
     const now = +new Date()
 
-    const groups = groupTrades(trades, true)
+    const groups = groupTrades(trades, false, true)
 
     const output = Object.keys(groups).reduce((obj, pair) => {
       obj[pair] = {}
