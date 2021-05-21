@@ -104,7 +104,7 @@ class FilesStorage {
         for (let i = 0; i < groups[identifier].length; i++) {
           const trade = groups[identifier][i]
 
-          const ts = Math.floor(trade[1] / this.options.filesInterval) * this.options.filesInterval
+          const ts = Math.floor(trade[0] / this.options.filesInterval) * this.options.filesInterval
 
           if (!output[identifier][ts]) {
             output[identifier][ts] = ''
