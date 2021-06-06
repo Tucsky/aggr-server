@@ -44,24 +44,24 @@ class Exchange extends EventEmitter {
      */
     this.disconnecting = {}
 
+
     /**
-     * Reconnection timeout delay by apiUrl
+     * Operations timeout delay by operationId
+     * @type {{[operationId: string]: number]}}
+     */
+    this.scheduledOperations = {}
+
+    /**
+     * Operation timeout delay by operationId
+     * @type {{[operationId: string]: number]}}
+     */
+    this.scheduledOperationsDelays = {}
+
+    /**
+     * Clear reconnection delay timeout by apiUrl
      * @type {{[apiUrl: string]: number]}}
      */
-    this.reconnectionDelay = {}
-
-    /**
-     * Cached active timeouts by pair
-     * 1 timeout = 1 trade being aggregated for 1 pair
-     * @type {{[localPair: string]: number]}}
-     */
-    this.aggrTradeTimeouts = {}
-
-    /**
-     * Trades being aggregated
-     * @type {{[localPair: string]: Trade]}}
-     */
-    this.aggrTrades = {}
+    this.clearReconnectionDelayTimeout = {}
 
     this.options = Object.assign(
       {
@@ -260,9 +260,12 @@ class Exchange extends EventEmitter {
       }
 
       api.onopen = (event) => {
-        if (typeof this.reconnectionDelay[url] !== 'undefined') {
-          console.debug(`[${this.id}.bindApi] clear reconnection delay (${url})`)
-          delete this.reconnectionDelay[url]
+        if (typeof this.scheduledOperationsDelays[url] !== 'undefined') {
+          this.clearReconnectionDelayTimeout[url] = setTimeout(() => {
+            delete this.clearReconnectionDelayTimeout[url]
+            console.debug(`[${this.id}.bindApi] 10s since api opened: clear reconnection delay (${url})`)
+            delete this.scheduledOperationsDelays[url]
+          }, 10000)
         }
 
         if (this.connecting[url]) {
@@ -274,6 +277,11 @@ class Exchange extends EventEmitter {
       }
 
       api.onclose = async (event) => {
+        if (this.clearReconnectionDelayTimeout[url]) {
+          clearTimeout(this.clearReconnectionDelayTimeout[url])
+          delete this.clearReconnectionDelayTimeout[url]
+        }
+
         if (this.connecting[url]) {
           this.connecting[url].resolver(false)
           delete this.connecting[url]
@@ -295,11 +303,11 @@ class Exchange extends EventEmitter {
 
           console.log(`[${this.id}] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(',')})`)
 
-          this.reconnectionDelay[api.url] = this.schedule(
+          this.scheduledOperationsDelays[api.url] = this.schedule(
             () => {
               this.reconnectPairs(pairsToReconnect)
             },
-            this.reconnectionDelay[api.url],
+            api.url,
             500,
             1.5,
             1000 * 30
@@ -422,11 +430,11 @@ class Exchange extends EventEmitter {
     try {
       await this.getProducts()
     } catch (error) {
-      this.reconnectionDelay.getProducts = this.schedule(
+      this.scheduledOperationsDelays.getProducts = this.schedule(
         () => {
           this.getProductsAndConnect(pairs)
         },
-        this.reconnectionDelay.getProducts,
+        'getProducts',
         4000,
         1.5,
         1000 * 60 * 3
@@ -521,8 +529,8 @@ class Exchange extends EventEmitter {
       )
     }
 
-    if (this.reconnectionDelay.fetch) {
-      delete this.reconnectionDelay.fetch
+    if (this.scheduledOperationsDelays.getProducts) {
+      delete this.scheduledOperationsDelays.getProducts
     }
 
     if (data.length === 1) {
@@ -751,24 +759,28 @@ class Exchange extends EventEmitter {
     delete this.keepAliveIntervals[api.url]
   }
 
-  schedule(fn, currentDelay, minDelay, multiplier, maxDelay) {
-    if (this.scheduleTimeout) {
-      clearTimeout(this.scheduleTimeout)
+  schedule(operationFunction, operationId, minDelay, delayMultiplier, maxDelay, currentDelay) {
+    if (this.scheduledOperations[operationId]) {
+      clearTimeout(this.scheduledOperations[operationId])
+    }
+
+    if (typeof currentDelay === 'undefined') {
+      currentDelay = this.scheduledOperationsDelays[operationId]
     }
 
     currentDelay = Math.max(minDelay, currentDelay || 0)
 
     console.log(`[${this.id}] schedule operation in ${getHms(currentDelay)}`)
 
-    this.scheduleTimeout = setTimeout(() => {
+    this.scheduledOperations[operationId] = setTimeout(() => {
       console.log(`[${this.id}] schedule timer fired`)
 
-      delete this.scheduleTimeout
+      delete this.scheduledOperations[operationId]
 
-      fn()
+      operationFunction()
     }, currentDelay)
 
-    currentDelay *= multiplier
+    currentDelay *= delayMultiplier
 
     if (typeof maxDelay === 'number' && minDelay > 0) {
       currentDelay = Math.min(maxDelay, currentDelay)

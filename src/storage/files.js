@@ -61,7 +61,6 @@ class FilesStorage {
 
     try {
       await ensureDirectoryExists(path)
-      console.log(`[storage/${this.name}] created target directory ${path}`)
     } catch (error) {
       console.error(`[storage/${this.name}] failed to create target directory ${path}`, error)
     }
