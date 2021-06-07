@@ -357,7 +357,7 @@ class Exchange extends EventEmitter {
 
     if (!api._connected.length) {
       console.debug(`[${this.id}.unlink] ${pair}'s api is now empty (trigger close api)`)
-      return this.removeApi(api)
+      return this.removeWs(api)
     } else {
       return
     }
