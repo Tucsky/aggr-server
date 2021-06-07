@@ -205,8 +205,6 @@ class Exchange extends EventEmitter {
           return
         }
 
-        console.log(api.url, json)
-
         this.lastMessages.push(json)
 
         const jsonString = JSON.stringify(json)
