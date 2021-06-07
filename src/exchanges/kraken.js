@@ -166,13 +166,13 @@ class Kraken extends Exchange {
     return false
   }
 
-  onApiBinded(api) {
+  onApiCreated(api) {
     if (/futures/.test(api.url)) {
       this.startKeepAlive(api)
     }
   }
 
-  onApiUnbinded(api) {
+  onApiRemoved(api) {
     if (/futures/.test(api.url)) {
       this.stopKeepAlive(api)
     }

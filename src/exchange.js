@@ -44,7 +44,6 @@ class Exchange extends EventEmitter {
      */
     this.disconnecting = {}
 
-
     /**
      * Operations timeout delay by operationId
      * @type {{[operationId: string]: number]}}
@@ -117,20 +116,198 @@ class Exchange extends EventEmitter {
       return Promise.reject(`${this.id} couldn't match with ${pair}`)
     }
 
-    if (this.pairs.indexOf(pair) !== -1) {
+    /* if (this.pairs.indexOf(pair) !== -1) {
       return Promise.reject(`${this.id} already connected to ${pair}`)
-    }
+    } */
 
-    this.pairs.push(pair)
+    // this.pairs.push(pair)
 
     console.debug(`[${this.id}.link] linking ${pair}`)
 
-    const api = await this.bindApi(pair)
+    this.resolveApi(pair)
+  }
 
-    this.emit('connected', pair, api.id)
-    await this.subscribe(api, pair)
+  resolveApi(pair) {
+    let api = this.getActiveApiByPair(pair)
+
+    if (!api) {
+      api = this.createWs(pair)
+    }
+
+    if (api._pending.indexOf(pair) !== -1) {
+      return Promise.reject(`${this.id} ${pair}'s api is already connecting to ${pair}`)
+    }
+
+    api._pending.push(pair)
+
+    /* if (this.connecting[api.url]) {
+      console.log(`[${this.id}.resolveApi] attach ${pair} to connecting api ${api.url}`)
+      //return this.connecting[api.url].promise
+    } else {
+      console.log(`[${this.id}.resolveApi] attach ${pair} to already opened api ${api.url}`)
+      //return Promise.resolve(api)
+    } */
+
+    // return immediately
+    // return Promise.resolve(api)
+  }
+
+  createWs(pair) {
+    const url = this.getUrl(pair)
+
+    const api = new WebSocket(url)
+    api.id = ID()
+
+    console.debug(`[${this.id}.createWs] initiate new ws connection ${url} (${api.id}) for pair ${pair}`)
+
+    api.binaryType = 'arraybuffer'
+
+    api._connected = []
+    api._pending = []
+
+    this.apis.push(api)
+
+    api._send = api.send
+    api.send = (data) => {
+      if (api.readyState !== WebSocket.OPEN) {
+        console.error(`[${this.id}.createWs] attempted to send data to an non-OPEN websocket api`, data)
+        return
+      }
+
+      if (!/ping|pong/.test(data)) {
+        console.debug(`[${this.id}.createWs] sending ${data.substr(0, 64)}${data.length > 64 ? '...' : ''} to ${api.url}`)
+      }
+
+      api._send.apply(api, [data])
+    }
+
+    api.onmessage = (event) => {
+      const wasBadData = !this.onMessage(event, api)
+
+      if (wasBadData) {
+        let json
+
+        try {
+          json = JSON.parse(event.data)
+        } catch (error) {
+          try {
+            json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
+          } catch (error) {
+            try {
+              json = JSON.parse(pako.inflateRaw(event.data, { to: 'string' }))
+            } catch (error) {
+              //
+            }
+          }
+        }
+
+        if (!json) {
+          return
+        }
+
+        console.log(api.url, json)
+
+        this.lastMessages.push(json)
+
+        const jsonString = JSON.stringify(json)
+        if (/(unrecognized|failure|invalid|error|expired|cannot|exceeded|error)/.test(jsonString)) {
+          console.log(`[${this.id}] error message intercepted\n`, json)
+        }
+
+        if (this.lastMessages.length > 10) {
+          this.lastMessages.splice(0, this.lastMessages.length - 10)
+        }
+      }
+    }
+
+    api.onopen = (event) => {
+      if (typeof this.scheduledOperationsDelays[url] !== 'undefined') {
+        this.clearReconnectionDelayTimeout[url] = setTimeout(() => {
+          delete this.clearReconnectionDelayTimeout[url]
+          console.debug(`[${this.id}.createWs] 10s since api opened: clear reconnection delay (${url})`)
+          delete this.scheduledOperationsDelays[url]
+        }, 10000)
+      }
+
+      if (this.connecting[url]) {
+        console.log('call connecting resolver', url)
+        this.connecting[url].resolver(true)
+        delete this.connecting[url]
+      }
+
+      this.subscribePendingPairs(api)
+
+      this.onOpen(event, api._connected)
+    }
+
+    api.onclose = async (event) => {
+      if (this.clearReconnectionDelayTimeout[url]) {
+        clearTimeout(this.clearReconnectionDelayTimeout[url])
+        delete this.clearReconnectionDelayTimeout[url]
+      }
+
+      if (this.connecting[url]) {
+        this.connecting[url].resolver(false)
+        delete this.connecting[url]
+      }
+
+      this.onClose(event, api._connected)
+
+      if (this.disconnecting[url]) {
+        this.disconnecting[url].resolver(true)
+        delete this.disconnecting[url]
+      }
+
+      const pairsToReconnect = [...api._pending, ...api._connected]
+
+      if (pairsToReconnect.length) {
+        for (let pair of api._connected) {
+          await this.unlink(this.id + ':' + pair)
+        }
+
+        console.log(`[${this.id}] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(',')})`)
+
+        this.scheduledOperationsDelays[api.url] = this.schedule(
+          () => {
+            this.reconnectPairs(pairsToReconnect)
+          },
+          api.url,
+          500,
+          1.5,
+          1000 * 30
+        )
+
+        if (this.lastMessages.length) {
+          console.log(`[${this.id}] last ${this.lastMessages.length} messages`)
+          console.log(this.lastMessages)
+        }
+      }
+    }
+
+    api.onerror = (event) => {
+      this.onError(event, api._connected)
+    }
+
+    console.log('create connecting', url)
+
+    this.connecting[url] = {}
+
+    this.connecting[url].promise = new Promise((resolve, reject) => {
+      this.connecting[url].resolver = (success) => (success ? resolve(api) : reject())
+    })
+
+    this.onApiCreated(api)
 
     return api
+  }
+
+  async subscribePendingPairs(api) {
+    console.debug(
+      `[${this.id}.subscribePendingPairs] subscribe to ${api._pending.length} pairs of api ${api.url} (${api._pending.join(', ')})`
+    )
+    for (const pair of api._pending) {
+      await this.subscribe(api, pair)
+    }
   }
 
   /**
@@ -143,7 +320,7 @@ class Exchange extends EventEmitter {
 
     const api = this.getActiveApiByPair(pair)
 
-    if (this.pairs.indexOf(pair) === -1) {
+    if (api._connected.indexOf(pair) === -1 && api._pending.indexOf(pair) === -1) {
       console.debug(`[${this.id}.unlink] "${pair}" does not exist on exchange ${this.id} (resolved immediatly)`)
       return
     }
@@ -156,13 +333,11 @@ class Exchange extends EventEmitter {
 
     await this.unsubscribe(api, pair)
 
-    this.pairs.splice(this.pairs.indexOf(pair), 1)
-
-    this.emit('disconnected', pair, api.id)
+    // this.pairs.splice(this.pairs.indexOf(pair), 1)
 
     if (!api._connected.length) {
       console.debug(`[${this.id}.unlink] ${pair}'s api is now empty (trigger close api)`)
-      return this.unbindApi(api)
+      return this.removeApi(api)
     } else {
       return
     }
@@ -184,207 +359,36 @@ class Exchange extends EventEmitter {
   }
 
   /**
-   * Create or attach a pair subscription to active websocket api
-   * @param {*} pair
-   * @returns {Promise<WebSocket>}
-   */
-  bindApi(pair) {
-    let api = this.getActiveApiByPair(pair)
-
-    let toResolve
-
-    if (!api) {
-      const url = this.getUrl(pair)
-
-      api = new WebSocket(url)
-      api.id = ID()
-
-      console.debug(`[${this.id}.bindApi] initiate new ws connection ${url} (${api.id}) for pair ${pair}`)
-
-      api.binaryType = 'arraybuffer'
-
-      api._connected = []
-      api._connecting = [pair]
-
-      this.apis.push(api)
-
-      api._send = api.send
-      api.send = (data) => {
-        if (api.readyState !== WebSocket.OPEN) {
-          console.error(`[${this.id}.bindApi] attempted to send data to an non-OPEN websocket api`, data)
-          return
-        }
-
-        if (!/ping|pong/.test(data)) {
-          console.debug(`[${this.id}.bindApi] sending ${data.substr(0, 64)}${data.length > 64 ? '...' : ''} to ${api.url}`)
-        }
-
-        api._send.apply(api, [data])
-      }
-
-      api.onmessage = (event) => {
-        const wasBadData = !this.onMessage(event, api)
-
-        if (wasBadData) {
-          let json
-
-          try {
-            json = JSON.parse(event.data)
-          } catch (error) {
-            try {
-              json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
-            } catch (error) {
-              try {
-                json = JSON.parse(pako.inflateRaw(event.data, { to: 'string' }))
-              } catch (error) {
-                //
-              }
-            }
-          }
-
-          if (!json) {
-            return
-          }
-
-          this.lastMessages.push(json)
-
-          const jsonString = JSON.stringify(json)
-          if (/(unrecognized|failure|invalid|error|expired|cannot|exceeded|error)/.test(jsonString)) {
-            console.log(`[${this.id}] error message intercepted\n`, json)
-          }
-
-          if (this.lastMessages.length > 10) {
-            this.lastMessages.splice(0, this.lastMessages.length - 10)
-          }
-        }
-      }
-
-      api.onopen = (event) => {
-        if (typeof this.scheduledOperationsDelays[url] !== 'undefined') {
-          this.clearReconnectionDelayTimeout[url] = setTimeout(() => {
-            delete this.clearReconnectionDelayTimeout[url]
-            console.debug(`[${this.id}.bindApi] 10s since api opened: clear reconnection delay (${url})`)
-            delete this.scheduledOperationsDelays[url]
-          }, 10000)
-        }
-
-        if (this.connecting[url]) {
-          this.connecting[url].resolver(true)
-          delete this.connecting[url]
-        }
-
-        this.onOpen(event, api._connected)
-      }
-
-      api.onclose = async (event) => {
-        if (this.clearReconnectionDelayTimeout[url]) {
-          clearTimeout(this.clearReconnectionDelayTimeout[url])
-          delete this.clearReconnectionDelayTimeout[url]
-        }
-
-        if (this.connecting[url]) {
-          this.connecting[url].resolver(false)
-          delete this.connecting[url]
-        }
-
-        this.onClose(event, api._connected)
-
-        if (this.disconnecting[url]) {
-          this.disconnecting[url].resolver(true)
-          delete this.disconnecting[url]
-        }
-
-        const pairsToReconnect = [...api._connecting, ...api._connected]
-
-        if (pairsToReconnect.length) {
-          for (let pair of api._connected) {
-            await this.unlink(this.id + ':' + pair)
-          }
-
-          console.log(`[${this.id}] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(',')})`)
-
-          this.scheduledOperationsDelays[api.url] = this.schedule(
-            () => {
-              this.reconnectPairs(pairsToReconnect)
-            },
-            api.url,
-            500,
-            1.5,
-            1000 * 30
-          )
-
-          if (this.lastMessages.length) {
-            console.log(`[${this.id}] last ${this.lastMessages.length} messages`)
-            console.log(this.lastMessages)
-          }
-        }
-      }
-
-      api.onerror = (event) => {
-        this.onError(event, api._connected)
-      }
-
-      this.connecting[url] = {}
-
-      toResolve = new Promise((resolve, reject) => {
-        this.connecting[url].resolver = (success) => (success ? resolve(api) : reject())
-      })
-
-      this.connecting[url].promise = toResolve
-
-      this.onApiBinded(api)
-    } else {
-      if (api._connecting.indexOf(pair) !== -1) {
-        return Promise.reject(`${this.id} ${pair}'s api is already connecting to ${pair}`)
-      }
-
-      api._connecting.push(pair)
-
-      if (this.connecting[api.url]) {
-        console.log(`[${this.id}] attach ${pair} to connecting api ${api.url}`)
-        toResolve = this.connecting[api.url].promise
-      } else {
-        console.log(`[${this.id}] attach ${pair} to already connected api ${api.url}`)
-        toResolve = Promise.resolve(api)
-      }
-    }
-
-    return toResolve
-  }
-
-  /**
    * Close websocket api
    * @param {WebSocket} api
    * @returns {Promise<void>}
    */
-  unbindApi(api) {
-    console.debug(`[${this.id}.unbindApi] unbind api ${api.url}`)
-
-    if (api._connected.length) {
-      throw new Error(`cannot unbind api that still has pairs linked to it`)
-    }
-
+  removeWs(api) {
     let promiseOfClose
 
     if (api.readyState !== WebSocket.CLOSED) {
+      if (api._connected.length) {
+        throw new Error(`cannot unbind api that still has pairs linked to it`)
+      }
+
+      console.debug(`[${this.id}.removeWs] close api ${api.url}`)
+
       this.disconnecting[api.url] = {}
 
-      promiseOfClose = new Promise((resolve, reject) => {
+      this.disconnecting[api.url].promise = new Promise((resolve, reject) => {
         if (api.readyState < WebSocket.CLOSING) {
           api.close()
         }
 
         this.disconnecting[api.url].resolver = (success) => (success ? resolve() : reject())
       })
-
-      this.disconnecting[api.url].promise = promiseOfClose
     } else {
       promiseOfClose = Promise.resolve()
     }
 
     return promiseOfClose.then(() => {
-      console.debug(`[${this.id}] splice api ${api.url} from exchange`)
-      this.onApiUnbinded(api)
+      console.debug(`[${this.id}] remove api ${api.url}`)
+      this.onApiRemoved(api)
       this.apis.splice(this.apis.indexOf(api), 1)
     })
   }
@@ -619,7 +623,7 @@ class Exchange extends EventEmitter {
    * Fire when a new websocket connection is created
    * @param {WebSocket} api WebSocket instance
    */
-  onApiBinded(api) {
+  onApiCreated(api) {
     // should be overrided by exchange class
   }
 
@@ -627,7 +631,7 @@ class Exchange extends EventEmitter {
    * Fire when a new websocket connection has been removed
    * @param {WebSocket} api WebSocket instance
    */
-  onApiUnbinded(api) {
+  onApiRemoved(api) {
     // should be overrided by exchange class
   }
 
@@ -681,6 +685,8 @@ class Exchange extends EventEmitter {
       return false
     }
 
+    this.emit('connected', pair, api.id)
+
     return true
   }
 
@@ -694,6 +700,8 @@ class Exchange extends EventEmitter {
       // pair is already detached
       return false
     }
+
+    this.emit('disconnected', pair, api.id)
 
     return api.readyState === WebSocket.OPEN
   }
@@ -790,20 +798,21 @@ class Exchange extends EventEmitter {
   }
 
   markPairAsConnected(api, pair) {
-    const connectingIndex = api._connecting.indexOf(pair)
+    const pendingIndex = api._pending.indexOf(pair)
 
-    if (connectingIndex !== -1) {
-      console.debug(`[${this.id}.markPairAsConnected] ${pair} was connecting indeed. move from _connecting to _connected`)
+    if (pendingIndex !== -1) {
+      console.debug(`[${this.id}.markPairAsConnected] ${pair} was connecting. move from _pending to _connected`)
 
-      api._connecting.splice(connectingIndex, 1)
+      api._pending.splice(pendingIndex, 1)
     } else {
-      console.debug(`[${this.id}.markPairAsConnected] ${pair} appears to be NOT connecting anymore`)
+      console.warn(`[${this.id}.markPairAsConnected] ${pair} appears to be NOT connecting anymore (prevent undesired subscription)`)
+      return false
     }
 
     const connectedIndex = api._connected.indexOf(pair)
 
     if (connectedIndex !== -1) {
-      console.debug(`[${this.id}.markPairAsConnected] ${pair} is already in the _connected list -> prevent double subscription`)
+      console.debug(`[${this.id}.markPairAsConnected] ${pair} is already in the _connected list (prevent double subscription)`)
       return false
     }
 
@@ -815,18 +824,31 @@ class Exchange extends EventEmitter {
   }
 
   markPairAsDisconnected(api, pair) {
+    const pendingIndex = api._pending.indexOf(pair)
+
+    if (pendingIndex !== -1) {
+      // this shouldn't happen most of the time
+      // but unlink(pair) can be called before during a ws.open which is the case we handle here
+
+      console.debug(
+        `[${this.id}.markPairAsDisconnected] ${pair} was NOT yet connected to api (prevent unsubscription of non connected pair)`
+      )
+
+      api._pending.splice(pendingIndex, 1)
+
+      return false
+    }
+
     const connectedIndex = api._connected.indexOf(pair)
 
     if (connectedIndex === -1) {
-      console.debug(`[${this.id}.markPairAsDisconnected] ${pair} was NOT found in in the _connected list -> prevent double unsubscription`)
+      console.debug(`[${this.id}.markPairAsDisconnected] ${pair} was NOT found in in the _connected list (prevent double unsubscription)`)
       return false
     }
 
     api._connected.splice(connectedIndex, 1)
 
-    console.debug(
-      `[${this.id}.markPairAsDisconnected] ${pair} removed from _connected list (current length after remove : ${api._connected.length})`
-    )
+    console.debug(`[${this.id}.markPairAsDisconnected] ${pair} removed from _connected list`)
 
     return true
   }

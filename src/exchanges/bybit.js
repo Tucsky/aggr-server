@@ -87,11 +87,11 @@ class Bybit extends Exchange {
     )
   }
 
-  onApiBinded(api) {
+  onApiCreated(api) {
     this.startKeepAlive(api, { op: 'ping' }, 45000)
   }
 
-  onApiUnbinded(api) {
+  onApiRemoved(api) {
     this.stopKeepAlive(api)
   }
 }

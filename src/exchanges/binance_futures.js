@@ -15,6 +15,7 @@ class BinanceFutures extends Exchange {
     this.options = Object.assign(
       {
         url: (pair) => {
+          console.log(pair, this.dapi[pair])
           if (this.dapi[pair]) {
             return 'wss://dstream.binance.com/ws'
           } else {

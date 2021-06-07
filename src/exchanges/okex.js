@@ -185,11 +185,11 @@ class Okex extends Exchange {
     )
   }
 
-  onApiBinded(api) {
+  onApiCreated(api) {
     // this.startKeepAlive(api)
   }
 
-  onApiUnbinded(api) {
+  onApiRemoved(api) {
     // this.stopKeepAlive(api)
   }
 
