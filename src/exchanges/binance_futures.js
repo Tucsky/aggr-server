@@ -1,4 +1,5 @@
 const Exchange = require('../exchange')
+const { sleep } = require('../helper')
 
 class BinanceFutures extends Exchange {
   constructor(options) {
@@ -15,7 +16,6 @@ class BinanceFutures extends Exchange {
     this.options = Object.assign(
       {
         url: (pair) => {
-          console.log(pair, this.dapi[pair])
           if (this.dapi[pair]) {
             return 'wss://dstream.binance.com/ws'
           } else {
@@ -66,8 +66,8 @@ class BinanceFutures extends Exchange {
    * @param {WebSocket} api
    * @param {string} pair
    */
-  subscribe(api, pair) {
-    if (!super.subscribe.apply(this, arguments)) {
+  async subscribe(api, pair) {
+    if (!(await super.subscribe.apply(this, arguments))) {
       return
     }
 
@@ -84,7 +84,7 @@ class BinanceFutures extends Exchange {
     )
 
     // BINANCE: WebSocket connections have a limit of 5 incoming messages per second.
-    return new Promise((resolve) => setTimeout(resolve, 250))
+    await sleep(250)
   }
 
   /**
@@ -92,8 +92,8 @@ class BinanceFutures extends Exchange {
    * @param {WebSocket} api
    * @param {string} pair
    */
-  unsubscribe(api, pair) {
-    if (!super.unsubscribe.apply(this, arguments)) {
+  async unsubscribe(api, pair) {
+    if (!(await super.unsubscribe.apply(this, arguments))) {
       return
     }
 
@@ -110,7 +110,7 @@ class BinanceFutures extends Exchange {
     delete this.subscriptions[pair]
 
     // BINANCE: WebSocket connections have a limit of 5 incoming messages per second.
-    return new Promise((resolve) => setTimeout(resolve, 250))
+    await sleep(250)
   }
 
   onMessage(event, api) {

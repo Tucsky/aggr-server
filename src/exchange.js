@@ -135,10 +135,26 @@ class Exchange extends EventEmitter {
     }
 
     if (api._pending.indexOf(pair) !== -1) {
-      return Promise.reject(`${this.id} ${pair}'s api is already connecting to ${pair}`)
+      console.warn(`[${this.id}.resolveApi] ${pair}'s api is already connecting to ${pair}`)
+      return
+    }
+
+    if (api._connected.indexOf(pair) !== -1) {
+      console.warn(`[${this.id}.resolveApi] ${pair}'s api is already connected to ${pair}`)
+      return
     }
 
     api._pending.push(pair)
+
+    if (api.readyState === WebSocket.OPEN) {
+      this.schedule(
+        () => {
+          this.subscribePendingPairs(api)
+        },
+        'subscribe-' + api.url,
+        1000
+      )
+    }
 
     /* if (this.connecting[api.url]) {
       console.log(`[${this.id}.resolveApi] attach ${pair} to connecting api ${api.url}`)
@@ -150,6 +166,8 @@ class Exchange extends EventEmitter {
 
     // return immediately
     // return Promise.resolve(api)
+
+    return api
   }
 
   createWs(pair) {
@@ -228,7 +246,6 @@ class Exchange extends EventEmitter {
       }
 
       if (this.connecting[url]) {
-        console.log('call connecting resolver', url)
         this.connecting[url].resolver(true)
         delete this.connecting[url]
       }
@@ -259,8 +276,12 @@ class Exchange extends EventEmitter {
       const pairsToReconnect = [...api._pending, ...api._connected]
 
       if (pairsToReconnect.length) {
-        for (let pair of api._connected) {
-          await this.unlink(this.id + ':' + pair)
+        const pairsToDisconnect = api._connected.slice()
+
+        if (pairsToDisconnect.length) {
+          for (const pair of pairsToDisconnect) {
+            await this.unlink(this.id + ':' + pair)
+          }
         }
 
         console.log(`[${this.id}] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(',')})`)
@@ -286,8 +307,6 @@ class Exchange extends EventEmitter {
       this.onError(event, api._connected)
     }
 
-    console.log('create connecting', url)
-
     this.connecting[url] = {}
 
     this.connecting[url].promise = new Promise((resolve, reject) => {
@@ -303,7 +322,10 @@ class Exchange extends EventEmitter {
     console.debug(
       `[${this.id}.subscribePendingPairs] subscribe to ${api._pending.length} pairs of api ${api.url} (${api._pending.join(', ')})`
     )
-    for (const pair of api._pending) {
+
+    const pairsToConnect = api._pending.slice()
+
+    for (const pair of pairsToConnect) {
       await this.subscribe(api, pair)
     }
   }
@@ -396,9 +418,15 @@ class Exchange extends EventEmitter {
    * @param {WebSocket} api
    */
   reconnectApi(api) {
-    console.debug(`[${this.id}.reconnectApi] reconnect api (url: ${api.url}, _connected: ${api._connected.join(', ')})`)
+    console.debug(
+      `[${this.id}.reconnectApi] reconnect api (url: ${api.url}, _connected: ${api._connected.join(', ')}, _pending: ${api._connected.join(
+        ', '
+      )})`
+    )
 
-    this.reconnectPairs(api._connected)
+    const pairsToReconnect = [...api._pending, ...api._connected]
+
+    this.reconnectPairs(pairsToReconnect)
   }
 
   /**
@@ -677,7 +705,7 @@ class Exchange extends EventEmitter {
    * @param {WebSocket} api
    * @param {string} pair
    */
-  subscribe(api, pair) {
+  async subscribe(api, pair) {
     if (!this.markPairAsConnected(api, pair)) {
       // pair is already attached
       return false
@@ -693,7 +721,7 @@ class Exchange extends EventEmitter {
    * @param {WebSocket} api
    * @param {string} pair
    */
-  unsubscribe(api, pair) {
+  async unsubscribe(api, pair) {
     if (!this.markPairAsDisconnected(api, pair)) {
       // pair is already detached
       return false
@@ -776,7 +804,7 @@ class Exchange extends EventEmitter {
 
     currentDelay = Math.max(minDelay, currentDelay || 0)
 
-    console.log(`[${this.id}] schedule operation in ${getHms(currentDelay)}`)
+    console.log(`[${this.id}] schedule ${operationId} in ${getHms(currentDelay)}`)
 
     this.scheduledOperations[operationId] = setTimeout(() => {
       console.log(`[${this.id}] schedule timer fired`)
@@ -786,7 +814,7 @@ class Exchange extends EventEmitter {
       operationFunction()
     }, currentDelay)
 
-    currentDelay *= delayMultiplier
+    currentDelay *= delayMultiplier || 1
 
     if (typeof maxDelay === 'number' && minDelay > 0) {
       currentDelay = Math.min(maxDelay, currentDelay)

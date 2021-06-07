@@ -221,6 +221,8 @@ class Server extends EventEmitter {
         console.debug(`[server] deleted connection ${id}`)
 
         delete this.connections[id]
+
+        this.dumpConnections()
       })
 
       exchange.on('connected', (pair, apiId) => {
@@ -240,6 +242,8 @@ class Server extends EventEmitter {
           hit: 0,
           timestamp: +new Date(),
         }
+
+        this.dumpConnections()
       })
 
       exchange.on('err', (event) => {
@@ -255,8 +259,6 @@ class Server extends EventEmitter {
           type: 'exchange_disconnected',
           id: exchange.id,
         })
-
-        this.dumpConnections()
       })
     })
   }
@@ -543,17 +545,23 @@ class Server extends EventEmitter {
     this.app = app
   }
 
-  dumpConnections() {
+  dumpConnections(pingThreshold) {
     if (typeof this._dumpConnectionsTimeout !== 'undefined') {
       clearTimeout(this._dumpConnectionsTimeout)
       delete this._dumpConnectionsTimeout
     }
+
+    const now = +new Date()
 
     this._dumpConnectionsTimeout = setTimeout(() => {
       const structPairs = {}
 
       for (let id in this.connections) {
         const connection = this.connections[id]
+
+        if (pingThreshold && now - connection.timestamp < pingThreshold) {
+          continue
+        }
 
         structPairs[connection.exchange + ':' + connection.pair] = {
           exchange: connection.exchange,
@@ -564,7 +572,7 @@ class Server extends EventEmitter {
       }
 
       console.table(structPairs)
-    }, 1000)
+    }, 5000)
 
     return Promise.resolve()
   }
@@ -633,8 +641,6 @@ class Server extends EventEmitter {
     }
 
     await Promise.all(promises)
-
-    this.dumpConnections()
   }
 
   /**
@@ -664,8 +670,6 @@ class Server extends EventEmitter {
         }
       }
     }
-
-    this.dumpConnections()
   }
 
   broadcastJson(data) {
@@ -701,9 +705,7 @@ class Server extends EventEmitter {
   monitorExchangesActivity(startedAt) {
     const now = +new Date()
 
-    if (Math.round((now - startedAt) / (1000 * 60)) % 5 === 0) {
-      this.dumpConnections()
-    }
+    let dumpThreshold = 0
 
     const sources = []
     const activity = {}
@@ -723,14 +725,18 @@ class Server extends EventEmitter {
     }
 
     for (let source in activity) {
-      const min = activity[source].length ? Math.min.apply(null, activity[source]) : 0
+      const max = activity[source].length ? Math.max.apply(null, activity[source]) : 0
 
-      if (min > this.options.reconnectionThreshold) {
+      if (max > this.options.reconnectionThreshold / 2) {
+        dumpThreshold = max
+      }
+
+      if (max > this.options.reconnectionThreshold) {
         // one of the feed did not received any data since 1m or more
         // => reconnect api (and all the feed binded to it)
 
         console.log(
-          `[warning] api ${source} reached reconnection threshold ${getHms(min)} > ${getHms(
+          `[warning] api ${source} reached reconnection threshold ${getHms(max)} > ${getHms(
             this.options.reconnectionThreshold
           )}\n\t-> reconnect ${pairs[source].join(', ')}`
         )
@@ -747,6 +753,10 @@ class Server extends EventEmitter {
           sources.splice(sources.indexOf(api.id), 1)
         }
       }
+    }
+
+    if (dumpThreshold) {
+      this.dumpConnections(dumpThreshold)
     }
   }
 

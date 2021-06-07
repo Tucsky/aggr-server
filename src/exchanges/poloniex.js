@@ -29,8 +29,8 @@ class Poloniex extends Exchange {
    * @param {WebSocket} api
    * @param {string} pair
    */
-  subscribe(api, pair) {
-    if (!super.subscribe.apply(this, arguments)) {
+  async subscribe(api, pair) {
+    if (!(await super.subscribe.apply(this, arguments))) {
       return
     }
 
@@ -47,8 +47,8 @@ class Poloniex extends Exchange {
    * @param {WebSocket} api
    * @param {string} pair
    */
-  unsubscribe(api, pair) {
-    if (!super.unsubscribe.apply(this, arguments)) {
+  async unsubscribe(api, pair) {
+    if (!(await super.unsubscribe.apply(this, arguments))) {
       return
     }
 
