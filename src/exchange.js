@@ -389,6 +389,8 @@ class Exchange extends EventEmitter {
 
         this.disconnecting[api.url].resolver = (success) => (success ? resolve() : reject())
       })
+
+      promiseOfClose = this.disconnecting[api.url].promise
     } else {
       promiseOfClose = Promise.resolve()
     }

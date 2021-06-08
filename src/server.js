@@ -879,6 +879,11 @@ class Server extends EventEmitter {
       const trade = data[i]
       const identifier = exchange + ':' + trade.pair
 
+      if (!this.connections[identifier]) {
+        console.warn(`[${exchange.id}/dispatchRawTrades] connection ${identifier} doesn't exists but tried to dispatch a trade for it`)
+        continue
+      }
+
       // ping connection
       this.connections[identifier].hit++
       this.connections[identifier].timestamp = now
