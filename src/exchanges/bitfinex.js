@@ -90,9 +90,6 @@ class Bitfinex extends Exchange {
     if (json.event) {
       if (json.chanId && json.pair) {
         console.debug(`[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
-        if (this.pairs.indexOf(json.pair) === -1) {
-          debugger
-        }
         this.channels[json.chanId] = {
           name: json.channel,
           pair: json.pair,
@@ -131,11 +128,11 @@ class Bitfinex extends Exchange {
       ])
     } else if (channel.name === 'status' && json[1]) {
       console.debug(`[${this.id}] status ${JSON.stringify(json[1])}`)
-
+      console.log(json, api._connected)
       return this.emitLiquidations(
         api.id,
         json[1]
-          .filter((a) => this.pairs.indexOf(a[4].substring(1)) !== -1)
+          .filter((a) => api._connected.indexOf(a[4].substring(1)) !== -1)
           .map((a) => {
             const pair = a[4].substring(1)
 
