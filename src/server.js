@@ -293,7 +293,10 @@ class Server extends EventEmitter {
         exchanges: this.exchanges.map((exchange) => {
           return {
             id: exchange.id,
-            connected: exchange.pairs.length,
+            connected: exchange.apis.reduce((pairs, api) => {
+              pairs.concat(api._connected)
+              return pairs
+            }),
           }
         }),
       }
@@ -654,11 +657,6 @@ class Server extends EventEmitter {
 
     for (let exchange of this.exchanges) {
       for (let pair of pairs) {
-        if (!exchange.pairs.indexOf(pair) === -1) {
-          console.log(`[server/disconnectPairs] ${pair} is NOT currently connected on ${exchange.id} exchange (warning)`)
-          continue
-        }
-
         try {
           await exchange.unlink(pair)
         } catch (err) {

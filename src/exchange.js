@@ -21,12 +21,6 @@ class Exchange extends EventEmitter {
     this.keepAliveIntervals = {}
 
     /**
-     * array of currently connected pairs on the exchange
-     * @type {string[]}
-     */
-    this.pairs = []
-
-    /**
      * active websocket apis
      * @type {WebSocket[]}
      */
@@ -115,12 +109,6 @@ class Exchange extends EventEmitter {
     if (!this.isMatching(pair)) {
       return Promise.reject(`${this.id} couldn't match with ${pair}`)
     }
-
-    /* if (this.pairs.indexOf(pair) !== -1) {
-      return Promise.reject(`${this.id} already connected to ${pair}`)
-    } */
-
-    // this.pairs.push(pair)
 
     console.debug(`[${this.id}.link] linking ${pair}`)
 
@@ -340,20 +328,19 @@ class Exchange extends EventEmitter {
 
     const api = this.getActiveApiByPair(pair)
 
-    if (api._connected.indexOf(pair) === -1 && api._pending.indexOf(pair) === -1) {
-      console.debug(`[${this.id}.unlink] "${pair}" does not exist on exchange ${this.id} (resolved immediatly)`)
+    if (!api) {
+      console.error(`[${this.id}.unlink] couldn't find active api for pair ${pair} in exchange ${this.id} (resolved immediately)`)
       return
     }
 
-    if (!api) {
-      return Promise.reject(new Error(`couldn't find active api for pair ${pair} in exchange ${this.id}`))
+    if (api._connected.indexOf(pair) === -1 && api._pending.indexOf(pair) === -1) {
+      console.debug(`[${this.id}.unlink] "${pair}" does not exist on exchange ${this.id} (resolved immediately)`)
+      return
     }
 
     console.debug(`[${this.id}.unlink] unlinking ${pair}`)
 
     await this.unsubscribe(api, pair)
-
-    // this.pairs.splice(this.pairs.indexOf(pair), 1)
 
     if (!api._connected.length) {
       console.debug(`[${this.id}.unlink] ${pair}'s api is now empty (trigger close api)`)
