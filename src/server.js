@@ -218,7 +218,7 @@ class Server extends EventEmitter {
           return
         }
 
-        console.debug(`[server] deleted connection ${id}`)
+        console.log(`[server] deleted connection ${id}`)
 
         delete this.connections[id]
 
@@ -229,11 +229,11 @@ class Server extends EventEmitter {
         const id = exchange.id + ':' + pair
 
         if (this.connections[id]) {
-          throw new Error(`[server] couldn't register connection ${id} because the connections[${id}] does not exists`)
+          console.error(`[server] couldn't register connection ${id} because the connections[${id}] does not exists`)
           return
         }
 
-        console.debug(`[server] registered connection ${id}`)
+        console.log(`[server] registered connection ${id}`)
 
         this.connections[id] = {
           apiId,

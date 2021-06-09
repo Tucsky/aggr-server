@@ -1,3 +1,7 @@
+![aggr-server](https://i.imgur.com/slF3jDy.png)
+
+Autonomous multi market trades monitoring, storing and resampling solution.
+
 ## How to install
 1. Clone the repo and get into the working dir
 

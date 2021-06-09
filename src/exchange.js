@@ -215,7 +215,7 @@ class Exchange extends EventEmitter {
 
         const jsonString = JSON.stringify(json)
         if (/(unrecognized|failure|invalid|error|expired|cannot|exceeded|error)/.test(jsonString)) {
-          console.log(`[${this.id}] error message intercepted\n`, json)
+          console.error(`[${this.id}] error message intercepted\n`, json)
         }
 
         if (this.lastMessages.length > 10) {
@@ -272,7 +272,7 @@ class Exchange extends EventEmitter {
           }
         }
 
-        console.log(`[${this.id}] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(',')})`)
+        console.error(`[${this.id}] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(',')})`)
 
         this.scheduledOperationsDelays[api.url] = this.schedule(
           () => {
@@ -285,8 +285,8 @@ class Exchange extends EventEmitter {
         )
 
         if (this.lastMessages.length) {
-          console.log(`[${this.id}] last ${this.lastMessages.length} messages`)
-          console.log(this.lastMessages)
+          console.debug(`[${this.id}] last ${this.lastMessages.length} messages`)
+          console.debug(this.lastMessages)
         }
       }
     }
@@ -426,7 +426,7 @@ class Exchange extends EventEmitter {
   async reconnectPairs(pairs) {
     const pairsToReconnect = pairs.slice(0, pairs.length)
 
-    console.debug(`[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(',')}`)
+    console.info(`[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(',')}`)
 
     for (let pair of pairsToReconnect) {
       console.debug(`[${this.id}.reconnectPairs] unlinking market ${this.id + ':' + pair}`)
@@ -492,8 +492,11 @@ class Exchange extends EventEmitter {
             throw new Error('invalid exchanges products')
           }
 
-          if (+new Date() > expiration) {
-            throw new Error('stored products expired')
+          const now = new Date()
+
+          if (+now > expiration) {
+            console.debug(`stored products expired (${now.toISOString()} > ${new Date(expiration).toISOString()})`)
+            return resolve(null)
           }
 
           console.debug(`[${this.id}] using stored products`)
@@ -542,7 +545,7 @@ class Exchange extends EventEmitter {
           })
           .then((response) => response.data)
           .catch((err) => {
-            console.log(`[${this.id}] failed to fetch ${target}\n\t->`, err.message)
+            console.error(`[${this.id}] failed to fetch ${target}\n\t->`, err.message)
             throw err
           })
       )
@@ -793,10 +796,10 @@ class Exchange extends EventEmitter {
 
     currentDelay = Math.max(minDelay, currentDelay || 0)
 
-    console.log(`[${this.id}] schedule ${operationId} in ${getHms(currentDelay)}`)
+    console.debug(`[${this.id}] schedule ${operationId} in ${getHms(currentDelay)}`)
 
     this.scheduledOperations[operationId] = setTimeout(() => {
-      console.log(`[${this.id}] schedule timer fired`)
+      console.debug(`[${this.id}] schedule timer fired`)
 
       delete this.scheduledOperations[operationId]
 
