@@ -46,6 +46,7 @@ const DEFAULTS = {
     "FTX:ETH-PERP",
     "FTX:ETH/USD",
     "FTX:ETH/USDT",
+    "DERIBIT:ETH-PERPETUAL",
     "KRAKEN:ETH/USD",
     "HUOBI:ethusdt",
     "HUOBI:ETH-USD",
