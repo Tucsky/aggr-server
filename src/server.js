@@ -449,6 +449,7 @@ class Server extends EventEmitter {
       const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
       let from = req.params.from
       let to = req.params.to
+      let length
       let timeframe = req.params.timeframe
 
       let markets = req.params.markets || []
@@ -480,7 +481,7 @@ class Server extends EventEmitter {
         from = Math.floor(from / timeframe) * timeframe
         to = Math.ceil(to / timeframe) * timeframe
 
-        const length = (to - from) / timeframe
+        length = (to - from) / timeframe
 
         if (length > this.options.maxFetchLength) {
           return res.status(400).json({
