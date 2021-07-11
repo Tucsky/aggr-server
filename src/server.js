@@ -512,7 +512,9 @@ class Server extends EventEmitter {
         .then((output) => {
           if (to - from > 1000 * 60) {
             console.log(
-              `[${ip}] requesting ${getHms(to - from)} (${output.length} ${storage.format}s, took ${getHms(+new Date() - fetchStartAt)})`
+              `[${ip}/${req.get('origin')}] requesting ${getHms(to - from)} (${length ? length + ' bars into ' : ''}${output.length} ${
+                storage.format
+              }s, took ${getHms(+new Date() - fetchStartAt)})`
             )
           }
 
@@ -723,18 +725,18 @@ class Server extends EventEmitter {
     }
 
     for (let source in activity) {
-      const max = activity[source].length ? Math.max.apply(null, activity[source]) : 0
+      const avgPing = activity[source].length ? activity[source].reduce((sum, a) => sum + a) / activity[source].length : 0
 
-      if (max > this.options.reconnectionThreshold / 2) {
-        dumpThreshold = max
+      if (avgPing > this.options.reconnectionThreshold / 2) {
+        dumpThreshold = avgPing
       }
 
-      if (max > this.options.reconnectionThreshold) {
+      if (avgPing > this.options.reconnectionThreshold) {
         // one of the feed did not received any data since 1m or more
         // => reconnect api (and all the feed binded to it)
 
         console.log(
-          `[warning] api ${source} reached reconnection threshold ${getHms(max)} > ${getHms(
+          `[warning] api ${source} reached reconnection threshold ${getHms(avgPing)} > ${getHms(
             this.options.reconnectionThreshold
           )}\n\t-> reconnect ${pairs[source].join(', ')}`
         )
