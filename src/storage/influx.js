@@ -40,12 +40,53 @@ class InfluxStorage {
         await this.influx.createDatabase(this.options.influxDatabase)
       }
 
+      await this.ensureRetentionPolicies()
       await this.getPreviousCloses()
     } catch (error) {
+      console.error(`[storage/${this.name}] ${error.message}... retrying in 1s`)
+
       await sleep()
 
       return this.connect()
     }
+  }
+
+  /**
+   *
+   */
+  async ensureRetentionPolicies() {
+    const retentionsPolicies = (await this.influx.showRetentionPolicies()).reduce((output, retentionPolicy) => {
+      output[retentionPolicy.name] = retentionPolicy.duration
+      return output
+    }, {})
+
+    const timeframes = [this.options.influxTimeframe].concat(this.options.influxResampleTo)
+
+    for (let timeframe of timeframes) {
+      const rpDuration = timeframe * this.options.influxRetentionPerTimeframe // 5000 bars
+      const rpDurationLitteral = getHms(rpDuration, true)
+      const rpName = this.options.influxRetentionPrefix + getHms(timeframe)
+
+      if (!retentionsPolicies[rpName]) {
+        console.log(`[storage/${this.name}] create retention policy ${rpName} (duration ${rpDurationLitteral})`)
+        await this.influx.createRetentionPolicy(rpName, {
+          database: this.options.influxDatabase,
+          duration: rpDurationLitteral,
+          replication: 1
+        })
+      }
+
+      delete retentionsPolicies[rpName]
+    }
+
+    for (let rpName in retentionsPolicies) {
+      if (rpName.indexOf(this.influxRetentionPrefix) === 0) {
+        console.log(`[storage/${this.name}] drop retention policy ${rpName}`)
+        await this.influx.dropRetentionPolicy(rpName, this.options.influxDatabase)
+      }
+    }
+
+    this.baseRp = this.influxRetentionPrefix + getHms(this.options.influxTimeframe)
   }
 
   /**
@@ -54,8 +95,8 @@ class InfluxStorage {
    * @memberof InfluxStorage
    */
   async resample(range) {
-    let sourceTimeframe
-    let destinationTimeframe
+    let sourceTimeframeLitteral
+    let destinationTimeframeLitteral
 
     this.options.influxResampleTo.sort((a, b) => a - b)
 
@@ -68,16 +109,16 @@ class InfluxStorage {
       for (let i = this.options.influxResampleTo.indexOf(timeframe); i >= 0; i--) {
         if (timeframe <= this.options.influxResampleTo[i] || timeframe % this.options.influxResampleTo[i] !== 0) {
           if (i === 0) {
-            sourceTimeframe = getHms(this.options.influxTimeframe)
+            sourceTimeframeLitteral = getHms(this.options.influxTimeframe)
           }
           continue
         }
 
-        sourceTimeframe = getHms(this.options.influxResampleTo[i])
+        sourceTimeframeLitteral = getHms(this.options.influxResampleTo[i])
         break
       }
 
-      destinationTimeframe = getHms(timeframe)
+      destinationTimeframeLitteral = getHms(timeframe)
 
       const query = `SELECT min(low) AS low, 
       max(high) AS high, 
@@ -92,20 +133,22 @@ class InfluxStorage {
       sum(vbuy) AS vbuy, 
       sum(vsell) AS vsell`
 
-      const query_from = `${this.options.influxDatabase}.autogen.${this.options.influxMeasurement}_${sourceTimeframe}`
-      const query_into = `${this.options.influxDatabase}.autogen.${this.options.influxMeasurement}_${destinationTimeframe}`
+      const query_from = `${this.options.influxDatabase}.${this.options.influxRetentionPrefix}${sourceTimeframeLitteral}.${this.options.influxMeasurement}_${sourceTimeframeLitteral}`
+      const query_into = `${this.options.influxDatabase}.${this.options.influxRetentionPrefix}${destinationTimeframeLitteral}.${this.options.influxMeasurement}_${destinationTimeframeLitteral}`
       const coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
-      const group = `GROUP BY time(${destinationTimeframe}), market fill(none)`
+      const group = `GROUP BY time(${destinationTimeframeLitteral}), market fill(none)`
 
       await this.executeQuery(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
     }
   }
 
   getPreviousCloses() {
+    const timeframeLitteral = getHms(this.options.influxTimeframe)
+
     this.influx
       .query(
-        `SELECT close FROM ${this.options.influxMeasurement}${
-          this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''
+        `SELECT close FROM ${this.options.influxRetentionPrefix}${timeframeLitteral}.${this.options.influxMeasurement}${
+          '_' + timeframeLitteral
         } GROUP BY "market" ORDER BY time DESC LIMIT 1`
       )
       .then((data) => {
@@ -313,7 +356,7 @@ class InfluxStorage {
           }
 
           return {
-            measurement: 'trades' + (this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''),
+            measurement: 'trades_' + getHms(this.options.influxTimeframe),
             tags: {
               market: bar.exchange + ':' + bar.pair,
             },
@@ -323,6 +366,7 @@ class InfluxStorage {
         }),
         {
           precision: 'ms',
+          retentionPolicy: this.baseRp,
         }
       )
     }
@@ -347,6 +391,7 @@ class InfluxStorage {
         }),
         {
           precision: 'ms',
+          retentionPolicy: this.baseRp,
         }
       )
     }
@@ -399,9 +444,9 @@ class InfluxStorage {
   }
 
   fetch({ from, to, timeframe = 60000, markets = [] }) {
-    const timeframeText = getHms(timeframe)
+    const timeframeLitteral = getHms(timeframe)
 
-    let query = `SELECT * FROM "${this.options.influxDatabase}"."autogen"."trades_${timeframeText}" WHERE time >= ${from}ms AND time < ${to}ms`
+    let query = `SELECT * FROM "${this.options.influxDatabase}"."${this.options.influxRetentionPrefix}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
 
     if (markets.length) {
       query += ` AND market =~ /${markets.join('|').replace(/\//g, '\\/')}/`

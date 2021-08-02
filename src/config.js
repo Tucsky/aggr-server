@@ -92,7 +92,7 @@ const DEFAULTS = {
   storage: 'files',
 
   // store interval (in ms)
-  backupInterval: 1000 * 10,
+  backupInterval: 1000 * 5,
 
   // influx db server to use when storage is set to "influx"
   influxHost: 'localhost',
@@ -105,29 +105,42 @@ const DEFAULTS = {
   // if influxMeasurement is "trades" and influxTimeframe is "10000", influx will save to trades_10s
   influxMeasurement: 'trades',
 
-  // timeframe in ms (default 10s === 10000ms)
+  // timeframe in ms (default 5s === 5000ms)
   // this is lowest timeframe that influx will use to group the trades
-  influxTimeframe: 10000,
+  influxTimeframe: 5000,
 
   // downsampling
   influxResampleTo: [
+    1000 * 10,
+    1000 * 15,
     1000 * 30,
     1000 * 60,
+    1000 * 60 * 3,
     1000 * 60 * 5,
     1000 * 60 * 15,
     1000 * 60 * 21,
     1000 * 60 * 60,
     1000 * 60 * 60 * 2,
     1000 * 60 * 60 * 4,
+    1000 * 60 * 60 * 6,
     1000 * 60 * 60 * 8,
     1000 * 60 * 60 * 24,
   ],
+
+  // number of bars to retain within influx db per timeframe
+  influxRetentionPerTimeframe: 5000,
+
+  // prefix aggr retention policies with this (unused rp using that prefix get automaticaly removed)
+  influxRetentionPrefix: 'aggr_',
 
   // create new text file every N ms when storage is set to "file" (default 1h)
   filesInterval: 3600000,
 
   // default place to store the trades data files
   filesLocation: './data',
+
+  // automatic compression of file once done working with it
+  filesGzipAfterUse: true,
 
   // reconnect exchange api if no data received since n ms (default 5m)
   reconnectionThreshold: 1000 * 60 * 5,

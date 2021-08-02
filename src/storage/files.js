@@ -1,4 +1,5 @@
 const fs = require('fs')
+const zlib = require('zlib')
 const { groupTrades, ensureDirectoryExists } = require('../helper')
 
 class FilesStorage {
@@ -78,8 +79,25 @@ class FilesStorage {
 
     for (let id in this.writableStreams) {
       if (now - this.writableStreams[id].updatedAt > 1000 * 60 * 10) {
+        const path = this.writableStreams[id].stream.path
+
+        console.log(`[storage/${this.name}] close writable stream ${id}`)
+
         this.writableStreams[id].stream.end()
+
         delete this.writableStreams[id]
+
+        if (this.options.filesGzipAfterUse) {
+          fs.createReadStream(path)
+            .pipe(zlib.createGzip())
+            .pipe(fs.createWriteStream(`${path}.gz`))
+            .on('finish', () => {
+              console.log(`[storage/${this.name}] gziped into ${path}.gz`)
+              fs.unlink(path, function () {
+                console.log(`[storage/${this.name}] deleted original trade file ${path}`)
+              })
+            })
+        }
       }
     }
   }
