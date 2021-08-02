@@ -96,7 +96,9 @@ class FilesStorage {
               fs.unlink(path, function () {
                 console.debug(`[storage/${this.name}] deleted original trade file ${path}`)
               })
-            })
+            }).on('error', (err) => {
+              console.debug(`[storage/${this.name}] error while removing/compressing trade file ${path}\n\t${err.message}`,)
+            });
         }
       }
     }
