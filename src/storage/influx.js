@@ -80,13 +80,13 @@ class InfluxStorage {
     }
 
     for (let rpName in retentionsPolicies) {
-      if (rpName.indexOf(this.influxRetentionPrefix) === 0) {
+      if (rpName.indexOf(this.options.influxRetentionPrefix) === 0) {
         console.log(`[storage/${this.name}] drop retention policy ${rpName}`)
         await this.influx.dropRetentionPolicy(rpName, this.options.influxDatabase)
       }
     }
 
-    this.baseRp = this.influxRetentionPrefix + getHms(this.options.influxTimeframe)
+    this.baseRp = this.options.influxRetentionPrefix + getHms(this.options.influxTimeframe)
   }
 
   /**
