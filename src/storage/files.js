@@ -93,12 +93,13 @@ class FilesStorage {
             .pipe(fs.createWriteStream(`${path}.gz`))
             .on('finish', () => {
               console.debug(`[storage/${this.name}] gziped into ${path}.gz`)
-              fs.unlink(path, function () {
+              fs.unlink(path, () => {
                 console.debug(`[storage/${this.name}] deleted original trade file ${path}`)
               })
-            }).on('error', (err) => {
-              console.debug(`[storage/${this.name}] error while removing/compressing trade file ${path}\n\t${err.message}`,)
-            });
+            })
+            .on('error', (err) => {
+              console.debug(`[storage/${this.name}] error while removing/compressing trade file ${path}\n\t${err.message}`)
+            })
         }
       }
     }

@@ -329,12 +329,10 @@ class Exchange extends EventEmitter {
     const api = this.getActiveApiByPair(pair)
 
     if (!api) {
-      console.error(`[${this.id}.unlink] couldn't find active api for pair ${pair} in exchange ${this.id} (resolved immediately)`)
       return
     }
 
     if (api._connected.indexOf(pair) === -1 && api._pending.indexOf(pair) === -1) {
-      console.debug(`[${this.id}.unlink] "${pair}" does not exist on exchange ${this.id} (resolved immediately)`)
       return
     }
 
