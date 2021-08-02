@@ -44,10 +44,7 @@
     "HUOBI:ETH-USD",
     "BINANCE_FUTURES:ethusd_perp"
   ],
-  "broadcast": false,
-  "broadcastDebounce": 200,
-  "broadcastAggr": true,
-  "backupInterval": 10000,
+  "backupInterval": 5000,
   "collect": true,
   "storage": [
     "influx",
