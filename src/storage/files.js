@@ -71,7 +71,7 @@ class FilesStorage {
       stream: fs.createWriteStream(path, { flags: 'a' }),
     }
 
-    console.log(`[storage/${this.name}] created writable stream ${date.toUTCString()} => ${path}`)
+    console.debug(`[storage/${this.name}] created writable stream ${date.toUTCString()} => ${path}`)
   }
 
   reviewStreams() {
@@ -81,7 +81,7 @@ class FilesStorage {
       if (now - this.writableStreams[id].updatedAt > 1000 * 60 * 10) {
         const path = this.writableStreams[id].stream.path
 
-        console.log(`[storage/${this.name}] close writable stream ${id}`)
+        console.debug(`[storage/${this.name}] close writable stream ${id}`)
 
         this.writableStreams[id].stream.end()
 
@@ -92,9 +92,9 @@ class FilesStorage {
             .pipe(zlib.createGzip())
             .pipe(fs.createWriteStream(`${path}.gz`))
             .on('finish', () => {
-              console.log(`[storage/${this.name}] gziped into ${path}.gz`)
+              console.debug(`[storage/${this.name}] gziped into ${path}.gz`)
               fs.unlink(path, function () {
-                console.log(`[storage/${this.name}] deleted original trade file ${path}`)
+                console.debug(`[storage/${this.name}] deleted original trade file ${path}`)
               })
             })
         }
