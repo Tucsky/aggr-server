@@ -1,6 +1,6 @@
 const fs = require('fs')
 const zlib = require('zlib')
-const { groupTrades, ensureDirectoryExists } = require('../helper')
+const { groupTrades, ensureDirectoryExists, getHms } = require('../helper')
 
 class FilesStorage {
   constructor(options) {
@@ -8,7 +8,7 @@ class FilesStorage {
     this.options = options
     this.format = 'trade'
 
-    /** @type {{[timestamp: string]: {stream: fs.WriteStream, updatedAt: number}}} */
+    /** @type {{[timestamp: string]: {stream: fs.WriteStream, timestamp: number}}} */
     this.writableStreams = {}
 
     if (!this.options.filesInterval) {
@@ -67,7 +67,7 @@ class FilesStorage {
     }
 
     this.writableStreams[identifier + ts] = {
-      updatedAt: null,
+      timestamp: +ts,
       stream: fs.createWriteStream(path, { flags: 'a' }),
     }
 
@@ -78,7 +78,8 @@ class FilesStorage {
     const now = +new Date()
 
     for (let id in this.writableStreams) {
-      if (now - this.writableStreams[id].updatedAt > 1000 * 60 * 10) {
+      // close 1 min after file expiration (timestamp + fileInterval)
+      if (now > this.writableStreams[id].timestamp + this.options.filesInterval + 1000 * 60) {
         const path = this.writableStreams[id].stream.path
 
         console.debug(`[storage/${this.name}] close writable stream ${id}`)
@@ -150,8 +151,6 @@ class FilesStorage {
                 this.writableStreams[identifier + ts].stream.write(output[identifier][ts], (err) => {
                   if (err) {
                     console.log(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
-                  } else {
-                    this.writableStreams[identifier + ts].updatedAt = now
                   }
 
                   resolve()
