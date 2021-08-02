@@ -93,9 +93,9 @@ class FilesStorage {
             .pipe(zlib.createGzip())
             .pipe(fs.createWriteStream(`${path}.gz`))
             .on('finish', () => {
-              console.debug(`[storage/${this.name}] gziped into ${path}.gz`)
+              console.debug(`[storage/${this.name}] gziped ${path}`)
               fs.unlink(path, () => {
-                console.debug(`[storage/${this.name}] deleted original trade file ${path}`)
+                // console.debug(`[storage/${this.name}] deleted original trade file ${path}`)
               })
             })
             .on('error', (err) => {
