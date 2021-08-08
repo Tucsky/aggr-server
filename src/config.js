@@ -7,7 +7,7 @@ console.log(`[init] reading config.json...`)
 /* Default configuration (its not ok to change here!, use config.json.)
  */
 
-const DEFAULTS = {
+let config = {
   // default pairs we track
   pairs: [
     "BITFINEX:BTCUSD",
@@ -157,28 +157,6 @@ const DEFAULTS = {
   debug: false
 }
 
-/* Load custom server configuration
- */
-
-let config
-
-try {
-  const configPath = path.resolve(__dirname, '../config.json')
-  const configExamplePath = path.resolve(__dirname, '../config.json.example')
-  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath)) {
-    fs.copyFileSync(configExamplePath, configPath)
-  }
-
-  config = require(configPath)
-} catch (error) {
-  throw new Error(`Unable to parse configuration file\n\n${error.message}`)
-}
-
-/* Merge default
- */
-
-config = Object.assign(DEFAULTS, config)
-
 /* Override config with ENV variables using decamelize + uppercase 
   (e.g. influxPreheatRange -> INFLUX_PREHEAT_RANGE)
  */
@@ -191,6 +169,9 @@ Object.keys(config).forEach((k) => {
     console.log(`overriding '${k}' to '${config_env_value}' via env '${config_to_env_key}'`)
   }
 })
+
+/* Merge default
+ */
 
 if (process.argv.length > 2) {
   let exchanges = [];
@@ -211,6 +192,21 @@ if (process.argv.length > 2) {
   if (exchanges.length) {
     config.exchanges = exchanges;
   }
+}
+
+/* Load custom server configuration
+ */
+
+try {
+  const configPath = path.resolve(__dirname, '../' + (config.configFile ? config.configFile : 'config.json'))
+  const configExamplePath = path.resolve(__dirname, '../config.json.example')
+  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath) && !config.configFile) {
+    fs.copyFileSync(configExamplePath, configPath)
+  }
+
+  config = Object.assign(config, require(configPath))
+} catch (error) {
+  throw new Error(`Unable to parse configuration file\n\n${error.message}`)
 }
 
 /* Validate storage
