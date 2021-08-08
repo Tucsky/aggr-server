@@ -67,7 +67,7 @@ class Bitmex extends Exchange {
 
     api.send(
       JSON.stringify({
-        op: 'subscribe',
+        op: 'unsubscribe',
         args: ['trade:' + pair, 'liquidation:' + pair],
       })
     )
