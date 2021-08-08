@@ -81,8 +81,9 @@ class InfluxStorage {
 
     for (let rpName in retentionsPolicies) {
       if (rpName.indexOf(this.options.influxRetentionPrefix) === 0) {
-        console.log(`[storage/${this.name}] drop retention policy ${rpName}`)
-        await this.influx.dropRetentionPolicy(rpName, this.options.influxDatabase)
+        console.warn(`[storage/${this.name}] unused retention policy ? (${rpName})`)
+        // await this.influx.dropRetentionPolicy(rpName, this.options.influxDatabase)
+        // just warning now because of multiple instances of aggr-server running with different RPs
       }
     }
 
