@@ -401,6 +401,14 @@ class InfluxStorage {
   }
 
   async writePoints(points, options, attempt = 0) {
+    if (!points.length) {
+      return
+    }
+
+    const measurement = points[0].measurement
+    const from = points[0].timestamp
+    const to = points[points.length - 1].timestamp
+
     try {
       await this.influx.writePoints(points, options)
 
@@ -410,10 +418,10 @@ class InfluxStorage {
     } catch (error) {
       attempt++
 
-      console.debug(`[storage/${this.name}] write points failed (${attempt} attempt(s))`, error)
+      console.error(`[storage/${this.name}] write points failed (${attempt}${attempt === 1 ? 'st' : attempt === 2 ? 'nd' : attempt === 3 ? 'rd' : 'th'} attempt)`, error)
 
       if (attempt > 5) {
-        throw new Error('failed to write points (too many attempts), abort')
+        console.error(`too many attemps at writing points\n\n${measurement}, ${new Date(from).toUTCString()} to ${new Date(to).toUTCString()}\n\t-> abort`)
       }
 
       await sleep(500)
@@ -432,10 +440,11 @@ class InfluxStorage {
     } catch (error) {
       attempt++
 
-      console.debug(`[storage/${this.name}] query failed (${attempt} attempt(s))`, error)
+      console.error(`[storage/${this.name}] query failed (${attempt}${attempt === 1 ? 'st' : attempt === 2 ? 'nd' : attempt === 3 ? 'rd' : 'th'} attempt)`, error)
 
       if (attempt > 5) {
-        throw new Error('failed to execute query (too many attempts), abort')
+        console.error(`too many attemps at executing query\n\n${query}\n\t-> abort`)
+        return
       }
 
       await sleep(500)

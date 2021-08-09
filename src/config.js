@@ -7,7 +7,7 @@ console.log(`[init] reading config.json...`)
 /* Default configuration (its not ok to change here!, use config.json.)
  */
 
-let config = {
+const defaultConfig = {
   // default pairs we track
   pairs: [
     "BITFINEX:BTCUSD",
@@ -157,6 +157,54 @@ let config = {
   debug: false
 }
 
+/* Merge default
+ */
+
+const cmdConfig = {}
+
+if (process.argv.length > 2) {
+  let exchanges = [];
+  process.argv.slice(2).forEach((arg) => {
+    const keyvalue = arg.split("=");
+
+    if (keyvalue.length > 1) {
+      try {
+        cmdConfig[keyvalue[0]] = JSON.parse(keyvalue[1]);
+      } catch (error) {
+        cmdConfig[keyvalue[0]] = keyvalue[1];
+      }
+    } else if (/^\w+$/.test(keyvalue[0])) {
+      exchanges.push(keyvalue[0]);
+    }
+  });
+
+  if (exchanges.length) {
+    cmdConfig.exchanges = exchanges;
+  }
+}
+
+/* Load custom server configuration
+ */
+
+let fileConfig = {}
+
+try {
+  const configPath = path.resolve(__dirname, '../' + (cmdConfig.configFile ? cmdConfig.configFile : 'config.json'))
+  const configExamplePath = path.resolve(__dirname, '../config.json.example')
+  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath) && !cmdConfig.configFile) {
+    fs.copyFileSync(configExamplePath, configPath)
+  }
+
+  fileConfig = require(configPath) || {}
+} catch (error) {
+  throw new Error(`Unable to parse configuration file\n\n${error.message}`)
+}
+
+/* Merge cmd & file configuration
+*/
+
+const config = Object.assign(defaultConfig, fileConfig, cmdConfig)
+
 /* Override config with ENV variables using decamelize + uppercase 
   (e.g. influxPreheatRange -> INFLUX_PREHEAT_RANGE)
  */
@@ -169,45 +217,6 @@ Object.keys(config).forEach((k) => {
     console.log(`overriding '${k}' to '${config_env_value}' via env '${config_to_env_key}'`)
   }
 })
-
-/* Merge default
- */
-
-if (process.argv.length > 2) {
-  let exchanges = [];
-  process.argv.slice(2).forEach((arg) => {
-    const keyvalue = arg.split("=");
-
-    if (keyvalue.length > 1) {
-      try {
-        config[keyvalue[0]] = JSON.parse(keyvalue[1]);
-      } catch (error) {
-        config[keyvalue[0]] = keyvalue[1];
-      }
-    } else if (/^\w+$/.test(keyvalue[0])) {
-      exchanges.push(keyvalue[0]);
-    }
-  });
-
-  if (exchanges.length) {
-    config.exchanges = exchanges;
-  }
-}
-
-/* Load custom server configuration
- */
-
-try {
-  const configPath = path.resolve(__dirname, '../' + (config.configFile ? config.configFile : 'config.json'))
-  const configExamplePath = path.resolve(__dirname, '../config.json.example')
-  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath) && !config.configFile) {
-    fs.copyFileSync(configExamplePath, configPath)
-  }
-
-  config = Object.assign(config, require(configPath))
-} catch (error) {
-  throw new Error(`Unable to parse configuration file\n\n${error.message}`)
-}
 
 /* Validate storage
  */
@@ -251,7 +260,7 @@ if (!Array.isArray(config.pairs)) {
 }
 
 if (!config.pairs.length) {
-  config.pairs = ['bitmex:XBTUSD']
+  config.pairs = ['BITMEX:XBTUSD']
 }
 
 if (config.exchanges && typeof config.exchanges === 'string') {
