@@ -511,7 +511,13 @@ class Server extends EventEmitter {
         : Promise.resolve([])
       )
         .then((output) => {
-          if (to - from > 1000 * 60) {
+          if (!output) {
+            return res.status(404).json({
+              error: 'no results',
+            })
+          }
+
+          if (length && length > 5000) {
             console.log(
               `[${ip}/${req.get('origin')}] requesting ${getHms(to - from)} (${length ? length + ' bars into ' : ''}${output.length} ${
                 storage.format
