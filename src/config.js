@@ -142,7 +142,7 @@ const defaultConfig = {
   filesGzipAfterUse: true,
 
   // reconnect exchange api if no data received since n ms (default 5m)
-  reconnectionThreshold: 1000 * 60 * 5,
+  reconnectionThreshold: 1000 * 60,
 
   // choose whether or not enable rate limiting on the provided api
   enableRateLimit: false,

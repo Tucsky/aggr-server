@@ -66,7 +66,7 @@ class Server extends EventEmitter {
         this.connectExchanges()
 
         // profile exchanges connections (keep alive)
-        this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, +new Date()), 1000 * 60)
+        this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this), 1000 * 60)
 
         if (this.storages) {
           const delay = this.scheduleNextBackup()
@@ -709,10 +709,8 @@ class Server extends EventEmitter {
     })
   }
 
-  monitorExchangesActivity(startedAt) {
+  monitorExchangesActivity() {
     const now = +new Date()
-
-    let dumpThreshold = 0
 
     const sources = []
     const activity = {}
@@ -728,22 +726,20 @@ class Server extends EventEmitter {
 
       activity[connection.apiId].push(now - connection.timestamp)
 
-      pairs[connection.apiId].push(connection.remote)
+      pairs[connection.apiId].push(connection.pair)
     }
 
     for (let source in activity) {
-      const avgPing = activity[source].length ? activity[source].reduce((sum, a) => sum + a) / activity[source].length : 0
+      const minPing = activity[source].length ? Math.min.apply(null, activity[source]) : 0
 
-      if (avgPing > this.options.reconnectionThreshold / 2) {
-        dumpThreshold = avgPing
-      }
+      // console.log(`${minPing}ms : ${pairs[source].join(', ')}`)
 
-      if (avgPing > this.options.reconnectionThreshold) {
+      if (minPing > this.options.reconnectionThreshold) {
         // one of the feed did not received any data since 1m or more
         // => reconnect api (and all the feed binded to it)
 
         console.log(
-          `[warning] api ${source} reached reconnection threshold ${getHms(avgPing)} > ${getHms(
+          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(
             this.options.reconnectionThreshold
           )}\n\t-> reconnect ${pairs[source].join(', ')}`
         )
@@ -760,10 +756,6 @@ class Server extends EventEmitter {
           sources.splice(sources.indexOf(api.id), 1)
         }
       }
-    }
-
-    if (dumpThreshold) {
-      this.dumpConnections(dumpThreshold)
     }
   }
 
