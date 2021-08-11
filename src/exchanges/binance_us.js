@@ -15,7 +15,7 @@ class BinanceUs extends Exchange {
 
     this.options = Object.assign(
       {
-        url: () => `wss://stream.binance.us:9443`,
+        url: () => `wss://stream.binance.us:9443/ws`,
       },
       this.options
     )

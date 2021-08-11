@@ -235,12 +235,15 @@ class Server extends EventEmitter {
 
         console.log(`[server] registered connection ${id}`)
 
+        const now = +new Date()
+
         this.connections[id] = {
           apiId,
           exchange: exchange.id,
           pair: pair,
           hit: 0,
-          timestamp: +new Date(),
+          start: now,
+          timestamp: now,
         }
 
         this.dumpConnections()
@@ -713,6 +716,7 @@ class Server extends EventEmitter {
     const now = +new Date()
 
     const sources = []
+    const averages = {}
     const activity = {}
     const pairs = {}
 
@@ -722,26 +726,27 @@ class Server extends EventEmitter {
       if (!activity[connection.apiId]) {
         activity[connection.apiId] = []
         pairs[connection.apiId] = []
+        averages[connection.apiId] = (1000*60)/(now - connection.start)*connection.hit
       }
 
       activity[connection.apiId].push(now - connection.timestamp)
-
       pairs[connection.apiId].push(connection.pair)
     }
 
     for (let source in activity) {
       const minPing = activity[source].length ? Math.min.apply(null, activity[source]) : 0
+      const threshold = Math.max((this.options.reconnectionThreshold/(.5+(averages[source] / activity[source].length)/100)), 1000*10)
 
-      // console.log(`${minPing}ms : ${pairs[source].join(', ')}`)
+      // console.log(`${averages[source] / activity[source].length}/min avg, ${minPing}/${threshold}ms : ${pairs[source].join(', ')}`)
 
-      if (minPing > this.options.reconnectionThreshold) {
+      if (minPing > threshold) {
         // one of the feed did not received any data since 1m or more
         // => reconnect api (and all the feed binded to it)
 
         console.log(
-          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(
-            this.options.reconnectionThreshold
-          )}\n\t-> reconnect ${pairs[source].join(', ')}`
+          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(threshold)}\n\t-> reconnect ${pairs[
+            source
+          ].join(', ')}`
         )
 
         sources.push(source)
