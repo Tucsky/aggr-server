@@ -66,7 +66,7 @@ class Server extends EventEmitter {
         this.connectExchanges()
 
         // profile exchanges connections (keep alive)
-        this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this), 1000 * 60)
+        this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, +new Date()), this.options.monitorInterval)
 
         if (this.storages) {
           const delay = this.scheduleNextBackup()
@@ -590,7 +590,7 @@ class Server extends EventEmitter {
           exchange: connection.exchange,
           pair: connection.pair,
           hit: connection.hit,
-          avg: parseInt((1000*60)/(now - connection.start)*connection.hit) || 0,
+          avg: parseInt(((1000 * 60) / (now - connection.start)) * connection.hit) || 0,
           ping: connection.hit ? ago(connection.timestamp) : 'never',
         }
       }
@@ -599,7 +599,7 @@ class Server extends EventEmitter {
         const row = structPairs[market]
         const count = channels[row.apiId]
 
-        row.threshold = getHms(Math.max((this.options.reconnectionThreshold/(.5+(row.avg / count)/100)), 1000*10), true)
+        row.threshold = getHms(Math.max(this.options.reconnectionThreshold / (0.5 + row.avg / count / 100), 1000 * 10), true)
         delete row.apiId
       }
 
@@ -729,7 +729,7 @@ class Server extends EventEmitter {
     })
   }
 
-  monitorExchangesActivity() {
+  monitorExchangesActivity(startTime) {
     const now = +new Date()
 
     const sources = []
@@ -743,7 +743,7 @@ class Server extends EventEmitter {
       if (!activity[connection.apiId]) {
         activity[connection.apiId] = []
         pairs[connection.apiId] = []
-        averages[connection.apiId] = (1000*60)/(now - connection.start)*connection.hit
+        averages[connection.apiId] = ((1000 * 60) / (now - connection.start)) * connection.hit
       }
 
       activity[connection.apiId].push(now - connection.timestamp)
@@ -752,7 +752,7 @@ class Server extends EventEmitter {
 
     for (let source in activity) {
       const minPing = activity[source].length ? Math.min.apply(null, activity[source]) : 0
-      const threshold = Math.max((this.options.reconnectionThreshold/(.5+(averages[source] / activity[source].length)/100)), 1000*10)
+      const threshold = Math.max(this.options.reconnectionThreshold / (0.5 + averages[source] / activity[source].length / 100), 1000 * 10)
 
       // console.log(`${averages[source] / activity[source].length}/min avg, ${minPing}/${threshold}ms : ${pairs[source].join(', ')}`)
 
@@ -761,9 +761,9 @@ class Server extends EventEmitter {
         // => reconnect api (and all the feed binded to it)
 
         console.warn(
-          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(threshold)} (${averages[source] / activity[source].length} pings/min avg, min ${minPing})\n\t-> reconnect ${pairs[
-            source
-          ].join(', ')}`
+          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(threshold)} (${
+            averages[source] / activity[source].length
+          } pings/min avg, min ${minPing})\n\t-> reconnect ${pairs[source].join(', ')}`
         )
 
         sources.push(source)
@@ -778,6 +778,13 @@ class Server extends EventEmitter {
           sources.splice(sources.indexOf(api.id), 1)
         }
       }
+    }
+
+    const dumpConnections =
+      (Math.floor((now - startTime) / this.options.monitorInterval) * this.options.monitorInterval) % (this.options.monitorInterval * 60) === 0
+
+    if (dumpConnections) {
+      this.dumpConnections()
     }
   }
 

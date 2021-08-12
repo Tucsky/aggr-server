@@ -82,6 +82,9 @@ const defaultConfig = {
   // enable api (historical/{from in ms}/{to in ms}/{timesfame in ms}/{markets separated by +})
   api: true,
 
+  // monitor connection health interval
+  monitorInterval: 1000 * 60,
+
   // storage solution, either
   // false | null (no storage, everything is wiped out after broadcast)
   // "files" (periodical text file),
