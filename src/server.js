@@ -570,6 +570,7 @@ class Server extends EventEmitter {
 
     this._dumpConnectionsTimeout = setTimeout(() => {
       const structPairs = {}
+      const channels = {}
 
       for (let id in this.connections) {
         const connection = this.connections[id]
@@ -578,12 +579,28 @@ class Server extends EventEmitter {
           continue
         }
 
+        if (!channels[connection.apiId]) {
+          channels[connection.apiId] = 0
+        }
+
+        channels[connection.apiId]++
+
         structPairs[connection.exchange + ':' + connection.pair] = {
+          apiId: connection.apiId,
           exchange: connection.exchange,
           pair: connection.pair,
           hit: connection.hit,
+          avg: parseInt((1000*60)/(now - connection.start)*connection.hit) || 0,
           ping: connection.hit ? ago(connection.timestamp) : 'never',
         }
+      }
+
+      for (const market in structPairs) {
+        const row = structPairs[market]
+        const count = channels[row.apiId]
+
+        row.threshold = getHms(Math.max((this.options.reconnectionThreshold/(.5+(row.avg / count)/100)), 1000*10), true)
+        delete row.apiId
       }
 
       console.table(structPairs)
@@ -744,7 +761,7 @@ class Server extends EventEmitter {
         // => reconnect api (and all the feed binded to it)
 
         console.log(
-          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(threshold)}\n\t-> reconnect ${pairs[
+          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(threshold)} (minPing ${minPing})\n\t-> reconnect ${pairs[
             source
           ].join(', ')}`
         )
