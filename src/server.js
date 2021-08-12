@@ -520,7 +520,7 @@ class Server extends EventEmitter {
             })
           }
 
-          if (length && length > 5000) {
+          if (length && length > 2000) {
             console.log(
               `[${ip}/${req.get('origin')}] requesting ${getHms(to - from)} (${length ? length + ' bars into ' : ''}${output.length} ${
                 storage.format
@@ -760,8 +760,8 @@ class Server extends EventEmitter {
         // one of the feed did not received any data since 1m or more
         // => reconnect api (and all the feed binded to it)
 
-        console.log(
-          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(threshold)} (minPing ${minPing})\n\t-> reconnect ${pairs[
+        console.warn(
+          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(threshold)} (${averages[source] / activity[source].length} pings/min avg, min ${minPing})\n\t-> reconnect ${pairs[
             source
           ].join(', ')}`
         )
@@ -903,7 +903,7 @@ class Server extends EventEmitter {
       const identifier = exchange + ':' + trade.pair
 
       if (!this.connections[identifier]) {
-        console.warn(`[${exchange.id}/dispatchRawTrades] connection ${identifier} doesn't exists but tried to dispatch a trade for it`)
+        // console.warn(`[${exchange}/dispatchRawTrades] connection ${identifier} doesn't exists but tried to dispatch a trade for it`)
         continue
       }
 
