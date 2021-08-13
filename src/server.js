@@ -599,7 +599,7 @@ class Server extends EventEmitter {
         const row = structPairs[market]
         const count = channels[row.apiId]
 
-        row.threshold = getHms(Math.max(this.options.reconnectionThreshold / (0.5 + row.avg / count / 100), 1000 * 10), true)
+        row.threshold = getHms(Math.max(this.options.reconnectionThreshold / (0.5 + row.avg / count / 100), 1000 * 10))
         delete row.apiId
       }
 
@@ -781,7 +781,7 @@ class Server extends EventEmitter {
     }
 
     const dumpConnections =
-      (Math.floor((now - startTime) / this.options.monitorInterval) * this.options.monitorInterval) % (this.options.monitorInterval * 60) === 0
+      (Math.floor((now - (startTime + this.options.monitorInterval)) / this.options.monitorInterval) * this.options.monitorInterval) % (this.options.monitorInterval * 60) === 0
 
     if (dumpConnections) {
       this.dumpConnections()

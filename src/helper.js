@@ -43,8 +43,8 @@ module.exports = {
     output += (!round || !output.length) && m > 0 ? m + 'm' + (!round && s ? ', ' : '') : ''
     output += (!round || !output.length) && s > 0 ? s + 's' : ''
 
-    if (!output.length || (!round && timestamp < 60 * 1000 && timestamp > s * 1000))
-      output += (output.length ? ', ' : '') + (timestamp - s * 1000) + 'ms'
+    /* if (!output.length || (!round && timestamp < 60 * 1000 && timestamp > s * 1000))
+      output += (output.length ? ', ' : '') + (timestamp - s * 1000) + 'ms' */
 
     return output.trim()
   },
