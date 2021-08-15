@@ -31,7 +31,7 @@ module.exports = {
     return Math.random().toString(36).substr(2, 9)
   },
 
-  getHms(timestamp, round) {
+  getHms(timestamp, round, ms = true) {
     var d = Math.floor(timestamp / 1000 / 86400)
     var h = Math.floor((timestamp / 1000 / 3600) % 24)
     var m = Math.floor(((timestamp / 1000) % 3600) / 60)
@@ -43,8 +43,8 @@ module.exports = {
     output += (!round || !output.length) && m > 0 ? m + 'm' + (!round && s ? ', ' : '') : ''
     output += (!round || !output.length) && s > 0 ? s + 's' : ''
 
-    /* if (!output.length || (!round && timestamp < 60 * 1000 && timestamp > s * 1000))
-      output += (output.length ? ', ' : '') + (timestamp - s * 1000) + 'ms' */
+    if (ms && (!output.length || (!round && timestamp < 60 * 1000 && timestamp > s * 1000)))
+      output += (output.length ? ', ' : '') + (timestamp - s * 1000) + 'ms'
 
     return output.trim()
   },

@@ -397,7 +397,7 @@ class Server extends EventEmitter {
     app.all('/*', (req, res, next) => {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
-      if (req.headers['origin'] && !new RegExp(this.options.origin).test(req.headers['origin'])) {
+      if (!req.headers['origin'] && !new RegExp(this.options.origin).test(req.headers['origin'])) {
         console.error(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
           return res.status(500).json({
@@ -599,7 +599,7 @@ class Server extends EventEmitter {
         const row = structPairs[market]
         const count = channels[row.apiId]
 
-        row.threshold = getHms(Math.max(this.options.reconnectionThreshold / (0.5 + row.avg / count / 100), 1000 * 10))
+        row.threshold = getHms(Math.max(this.options.reconnectionThreshold / (0.5 + row.avg / count / 100), 1000 * 10), false, false)
         delete row.apiId
       }
 
