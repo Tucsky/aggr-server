@@ -44,7 +44,7 @@ class Okex extends Exchange {
           specs[pair] = +product.contract_val
           types[pair] = 'futures'
 
-          if (product.is_inverse) {
+          if (product.is_inverse === 'true') {
             inversed[pair] = true
           }
         } else if (/-SWAP/.test(product.instrument_id)) {
@@ -53,7 +53,7 @@ class Okex extends Exchange {
           specs[pair] = +product.contract_val
           types[pair] = 'swap'
 
-          if (product.is_inverse) {
+          if (product.is_inverse === 'true') {
             inversed[pair] = true
           }
         } else {
@@ -230,7 +230,7 @@ class Okex extends Exchange {
     this._liquidationAxiosHandler = axios.CancelToken.source()
 
     axios
-      .get(`https://www.okex.com/api/${productType}/v3/instruments/${productId}/liquidation?status=1&limit=10`)
+      .get(`https://www.okex.com/api/${productType}/v3/instruments/${productId}/liquidation?status=1&limit=15`)
       .then((response) => {
         if (!this.apis.length || !response.data || (response.data.error && response.data.error.length)) {
           console.log('getLiquidations => then => contain error(s)')
@@ -252,8 +252,7 @@ class Okex extends Exchange {
           this.apis[0].id,
           liquidations.map((trade) => {
             const timestamp = +new Date(trade.created_at)
-            const size = +((trade.size * this.specs[productId]) / trade.price).toFixed(8)
-
+            const size = (trade.size * this.specs[productId]) / (this.inversed[productId] ? trade.price : 1)
             return {
               exchange: this.id,
               pair: productId,
