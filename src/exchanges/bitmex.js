@@ -7,6 +7,9 @@ class Bitmex extends Exchange {
 
     this.id = 'BITMEX'
     this.pairCurrencies = {}
+    this.xbtPrice = 48000
+    this.types = {}
+    this.multipliers = {}
 
     this.endpoints = {
       PRODUCTS: 'https://www.bitmex.com/api/v1/instrument/active',
@@ -24,17 +27,29 @@ class Bitmex extends Exchange {
 
   formatProducts(data) {
     const products = []
-    const pairCurrencies = {}
+    const types = {}
+    const multipliers = {}
 
     for (const product of data) {
-      pairCurrencies[product.symbol] = product.quoteCurrency
+      types[product.symbol] = product.isInverse ? 'inverse' : product.isQuanto ? 'quanto' : 'linear'
+      multipliers[product.symbol] = product.multiplier
       products.push(product.symbol)
     }
 
     return {
       products,
-      pairCurrencies
+      types,
+      multipliers,
     }
+  }
+
+  onApiCreated(api) {
+    api.send(
+      JSON.stringify({
+        op: 'subscribe',
+        args: ['instrument:XBTUSD'],
+      })
+    )
   }
 
   /**
@@ -80,28 +95,42 @@ class Bitmex extends Exchange {
       if (json.table === 'liquidation' && json.action === 'insert') {
         return this.emitLiquidations(
           api.id,
-          json.data.map((trade) => ({
-            exchange: this.id,
-            pair: trade.symbol,
-            timestamp: +new Date(),
-            price: trade.price,
-            size: trade.leavesQty / (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
-            side: trade.side === 'Buy' ? 'buy' : 'sell',
-            liquidation: true,
-          }))
+          json.data.map((trade) => {
+            let size = trade.leavesQty
+
+            if (this.types[trade.symbol] === 'quanto') {
+              size = (this.multipliers[trade.symbol] / 100000000) * trade.leavesQty * this.xbtPrice
+            } else if (this.types[trade.symbol] === 'inverse') {
+              size = trade.leavesQty / trade.price
+            }
+
+            return {
+              exchange: this.id,
+              pair: trade.symbol,
+              timestamp: +new Date(),
+              price: trade.price,
+              size: size,
+              side: trade.side === 'Buy' ? 'buy' : 'sell',
+              liquidation: true,
+            }
+          })
         )
       } else if (json.table === 'trade' && json.action === 'insert') {
         return this.emitTrades(
           api.id,
-          json.data.map((trade) => ({
-            exchange: this.id,
-            pair: trade.symbol,
-            timestamp: +new Date(trade.timestamp),
-            price: trade.price,
-            size: trade.size / (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
-            side: trade.side === 'Buy' ? 'buy' : 'sell',
-          }))
+          json.data.map((trade) => {
+            return {
+              exchange: this.id,
+              pair: trade.symbol,
+              timestamp: +new Date(trade.timestamp),
+              price: trade.price,
+              size: trade.homeNotional,
+              side: trade.side === 'Buy' ? 'buy' : 'sell',
+            }
+          })
         )
+      } else if (json.table === 'instrument' && json.data[0].lastPrice) {
+        this.xbtPrice = json.data[0].lastPrice
       }
     }
   }

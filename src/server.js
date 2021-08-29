@@ -398,14 +398,14 @@ class Server extends EventEmitter {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
       if (!req.headers['origin'] && !new RegExp(this.options.origin).test(req.headers['origin'])) {
-        console.error(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
+        console.debug(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
           return res.status(500).json({
             error: 'ignored',
           })
         }, 5000 + Math.random() * 5000)
       } else if (this.BANNED_IPS.indexOf(ip) !== -1) {
-        console.error(`[${ip}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
+        console.debug(`[${ip}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
 
         setTimeout(() => {
           return res.status(500).json({

@@ -64,13 +64,12 @@ if (process.env.pmx) {
 
 /* Backup server on SIGINT
  */
-
 process.on('SIGINT', function () {
-  console.log('SIGINT')
+  console.log('\nSIGINT')
 
   Promise.all([server.backupTrades(true)])
     .then((data) => {
-      console.log('[server/exit] Goodbye')
+      console.log('[init] goodbye')
 
       process.exit()
     })

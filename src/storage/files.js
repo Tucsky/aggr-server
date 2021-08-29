@@ -171,6 +171,7 @@ class FilesStorage {
 
   fetch() {
     // unsupported
+    console.error('[storage/file] historical data request not supported by this storage type (raw trade files)')
     return Promise.resolve([])
   }
 }

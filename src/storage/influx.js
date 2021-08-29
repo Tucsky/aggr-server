@@ -463,8 +463,6 @@ class InfluxStorage {
       query += ` AND market =~ /${markets.join('|').replace(/\//g, '\\/')}/`
     }
 
-    // console.log(query)
-
     return this.influx
       .query(query, {
         precision: 's',

@@ -64,10 +64,6 @@ class Okex extends Exchange {
           throw new Error('failed to parse product on okex exchange', product)
         }
 
-        if (products.find((a) => a.toLowerCase() === pair.toLowerCase())) {
-          throw new Error('duplicate pair detected on okex exchange', pair)
-        }
-
         products.push(pair)
       }
     }

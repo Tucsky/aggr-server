@@ -298,10 +298,15 @@ class Exchange extends EventEmitter {
     this.connecting[url] = {}
 
     this.connecting[url].promise = new Promise((resolve, reject) => {
-      this.connecting[url].resolver = (success) => (success ? resolve(api) : reject())
+      this.connecting[url].resolver = (success) => {
+        if (success) {
+          this.onApiCreated(api)
+          resolve(api)
+        } else {
+          reject()
+        }
+      }
     })
-
-    this.onApiCreated(api)
 
     return api
   }

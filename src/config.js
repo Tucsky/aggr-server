@@ -10,47 +10,47 @@ console.log(`[init] reading config.json...`)
 const defaultConfig = {
   // default pairs we track
   pairs: [
-    "BITFINEX:BTCUSD",
-    "BINANCE:btcusdt",
-    "OKEX:BTC-USDT",
-    "KRAKEN:XBT/USD",
-    "COINBASE:BTC-USD",
-    "POLONIEX:USDT_BTC",
-    "HUOBI:btcusdt",
-    "BITSTAMP:btcusd",
-    "BITMEX:XBTUSD",
-    "BITFINEX:BTCF0:USTF0",
-    "OKEX:BTC-USD-SWAP",
-    "OKEX:BTC-USDT-SWAP",
-    "BINANCE_FUTURES:btcusdt",
-    "BINANCE_FUTURES:btcusd_perp",
-    "HUOBI:BTC-USD",
-    "KRAKEN:PI_XBTUSD",
-    "DERIBIT:BTC-PERPETUAL",
-    "FTX:BTC-PERP",
-    "FTX:BTC/USD",
-    "FTX:BTC/USDT",
-    "BYBIT:BTCUSD",
-    "BYBIT:BTCUSDT",
-    "BYBIT:ETHUSD",
-    "BYBIT:ETHUSDT",
-    "BITSTAMP:ethusd",
-    "BITMEX:ETHUSD",
-    "KRAKEN:PI_ETHUSD",
-    "BITFINEX:ETHUSD",
-    "COINBASE:ETH-USD",
-    "OKEX:ETH-USDT",
-    "OKEX:ETH-USDT-SWAP",
-    "OKEX:ETH-USD-SWAP",
-    "BINANCE_FUTURES:ethusdt",
-    "FTX:ETH-PERP",
-    "FTX:ETH/USD",
-    "FTX:ETH/USDT",
-    "DERIBIT:ETH-PERPETUAL",
-    "KRAKEN:ETH/USD",
-    "HUOBI:ethusdt",
-    "HUOBI:ETH-USD",
-    "BINANCE_FUTURES:ethusd_perp"
+    'BITFINEX:BTCUSD',
+    'BINANCE:btcusdt',
+    'OKEX:BTC-USDT',
+    'KRAKEN:XBT/USD',
+    'COINBASE:BTC-USD',
+    'POLONIEX:USDT_BTC',
+    'HUOBI:btcusdt',
+    'BITSTAMP:btcusd',
+    'BITMEX:XBTUSD',
+    'BITFINEX:BTCF0:USTF0',
+    'OKEX:BTC-USD-SWAP',
+    'OKEX:BTC-USDT-SWAP',
+    'BINANCE_FUTURES:btcusdt',
+    'BINANCE_FUTURES:btcusd_perp',
+    'HUOBI:BTC-USD',
+    'KRAKEN:PI_XBTUSD',
+    'DERIBIT:BTC-PERPETUAL',
+    'FTX:BTC-PERP',
+    'FTX:BTC/USD',
+    'FTX:BTC/USDT',
+    'BYBIT:BTCUSD',
+    'BYBIT:BTCUSDT',
+    'BYBIT:ETHUSD',
+    'BYBIT:ETHUSDT',
+    'BITSTAMP:ethusd',
+    'BITMEX:ETHUSD',
+    'KRAKEN:PI_ETHUSD',
+    'BITFINEX:ETHUSD',
+    'COINBASE:ETH-USD',
+    'OKEX:ETH-USDT',
+    'OKEX:ETH-USDT-SWAP',
+    'OKEX:ETH-USD-SWAP',
+    'BINANCE_FUTURES:ethusdt',
+    'FTX:ETH-PERP',
+    'FTX:ETH/USD',
+    'FTX:ETH/USDT',
+    'DERIBIT:ETH-PERPETUAL',
+    'KRAKEN:ETH/USD',
+    'HUOBI:ethusdt',
+    'HUOBI:ETH-USD',
+    'BINANCE_FUTURES:ethusd_perp',
   ],
 
   // will connect to exchanges and subscribe to pairs on startup
@@ -157,56 +157,65 @@ const defaultConfig = {
   rateLimitMax: 30,
 
   // verbose
-  debug: false
+  debug: false,
 }
 
 /* Merge default
  */
 
-const cmdConfig = {}
+const commandSettings = {}
 
 if (process.argv.length > 2) {
-  let exchanges = [];
+  let exchanges = []
   process.argv.slice(2).forEach((arg) => {
-    const keyvalue = arg.split("=");
+    const keyvalue = arg.split('=')
 
     if (keyvalue.length > 1) {
       try {
-        cmdConfig[keyvalue[0]] = JSON.parse(keyvalue[1]);
+        commandSettings[keyvalue[0]] = JSON.parse(keyvalue[1])
       } catch (error) {
-        cmdConfig[keyvalue[0]] = keyvalue[1];
+        commandSettings[keyvalue[0]] = keyvalue[1]
       }
     } else if (/^\w+$/.test(keyvalue[0])) {
-      exchanges.push(keyvalue[0]);
+      exchanges.push(keyvalue[0])
     }
-  });
+  })
 
   if (exchanges.length) {
-    cmdConfig.exchanges = exchanges;
+    commandSettings.exchanges = exchanges
   }
 }
 
 /* Load custom server configuration
  */
 
-let fileConfig = {}
+let userSettings = {}
+
+let configPath = commandSettings.config
+  ? commandSettings.config
+  : commandSettings.configFile
+  ? commandSettings.configFile
+  : commandSettings.configPath
+  ? commandSettings.configPath
+  : 'config.json'
 
 try {
-  const configPath = path.resolve(__dirname, '../' + (cmdConfig.configFile ? cmdConfig.configFile : 'config.json'))
+  console.log('[init] using config file ' + configPath)
+  configPath = path.resolve(__dirname, '../' + configPath)
   const configExamplePath = path.resolve(__dirname, '../config.json.example')
-  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath) && !cmdConfig.configFile) {
+  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath) && !configPath) {
     fs.copyFileSync(configExamplePath, configPath)
   }
 
-  fileConfig = require(configPath) || {}
+  userSettings = require(configPath) || {}
 } catch (error) {
-  throw new Error(`Unable to parse configuration file\n\n${error.message}`)
+  throw new Error(`Unable to parse ${configPath !== '../config.json' ? 'specified ' : ''}configuration file\n\n${error.message}`)
 }
 
 /* Merge cmd & file configuration
-*/
+ */
 
-const config = Object.assign(defaultConfig, fileConfig, cmdConfig)
+const config = Object.assign(defaultConfig, userSettings, commandSettings)
 
 /* Override config with ENV variables using decamelize + uppercase 
   (e.g. influxPreheatRange -> INFLUX_PREHEAT_RANGE)
