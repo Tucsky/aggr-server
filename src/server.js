@@ -47,27 +47,29 @@ class Server extends EventEmitter {
 
     this.BANNED_IPS = []
 
+    if (this.options.collect) {
+      console.log(
+        `\n[server] collect is enabled`,
+        this.options.broadcast && this.options.broadcastAggr
+          ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)'
+          : '',
+        this.options.broadcast && this.options.broadcastDebounce
+          ? `\n\twill broadcast trades every ${this.options.broadcastDebounce}ms`
+          : this.options.broadcast
+          ? `will broadcast trades instantly`
+          : ''
+      )
+      console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
+
+      this.handleExchangesEvents()
+      this.connectExchanges()
+
+      // profile exchanges connections (keep alive)
+      this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, +new Date()), this.options.monitorInterval)
+    }
+
     this.initStorages().then(() => {
       if (this.options.collect) {
-        console.log(
-          `\n[server] collect is enabled`,
-          this.options.broadcast && this.options.broadcastAggr
-            ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)'
-            : '',
-          this.options.broadcast && this.options.broadcastDebounce
-            ? `\n\twill broadcast trades every ${this.options.broadcastDebounce}ms`
-            : this.options.broadcast
-            ? `will broadcast trades instantly`
-            : ''
-        )
-        console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
-
-        this.handleExchangesEvents()
-        this.connectExchanges()
-
-        // profile exchanges connections (keep alive)
-        this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, +new Date()), this.options.monitorInterval)
-
         if (this.storages) {
           const delay = this.scheduleNextBackup()
 
@@ -121,11 +123,15 @@ class Server extends EventEmitter {
       this.storages.push(storage)
     }
 
+    console.log(`[storage] all storage ready`)
+
     return Promise.all(promises)
   }
 
   backupTrades(exitBackup) {
-    if (!this.storages || !this.chunk.length) {
+    if (exitBackup) {
+      clearTimeout(this.backupTimeout)
+    } else if (!this.storages || !this.chunk.length) {
       this.scheduleNextBackup()
       return Promise.resolve()
     }
@@ -133,9 +139,12 @@ class Server extends EventEmitter {
     const chunk = this.chunk.splice(0, this.chunk.length)
 
     return Promise.all(
-      this.storages.map((storage) =>
-        storage
-          .save(chunk)
+      this.storages.map((storage) => {
+        if (exitBackup) {
+          console.log(`[server/exit] saving ${chunk.length} trades into ${storage.constructor.name}`)
+        }
+        return storage
+          .save(chunk, exitBackup)
           .then(() => {
             if (exitBackup) {
               console.log(`[server/exit] performed backup of ${chunk.length} trades into ${storage.constructor.name}`)
@@ -144,7 +153,7 @@ class Server extends EventEmitter {
           .catch((err) => {
             console.error(`[storage/${storage.name}] saving failure`, err)
           })
-      )
+      })
     )
       .then(() => {
         if (!exitBackup) {
@@ -781,7 +790,9 @@ class Server extends EventEmitter {
     }
 
     const dumpConnections =
-      (Math.floor((now - (startTime + this.options.monitorInterval)) / this.options.monitorInterval) * this.options.monitorInterval) % (this.options.monitorInterval * 60) === 0
+      (Math.floor((now - (startTime + this.options.monitorInterval)) / this.options.monitorInterval) * this.options.monitorInterval) %
+        (this.options.monitorInterval * 60) ===
+      0
 
     if (dumpConnections) {
       this.dumpConnections()

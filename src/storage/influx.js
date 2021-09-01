@@ -8,8 +8,21 @@ class InfluxStorage {
     this.name = this.constructor.name
     this.format = 'point'
 
-    this.lastBar = {}
+    /**
+     * @type {{[identifier: string]: number}}
+     */
     this.lastClose = {}
+
+    /**
+     * @type {{[identifier: string]: Bar}}
+     */
+    this.lastBar = {}
+
+    /**
+     * @type {{[identifier: string]: Bar[]}}
+     */
+    this.pendingBars = {}
+
     this.options = options
   }
 
@@ -72,7 +85,7 @@ class InfluxStorage {
         await this.influx.createRetentionPolicy(rpName, {
           database: this.options.influxDatabase,
           duration: rpDurationLitteral,
-          replication: 1
+          replication: 1,
         })
       }
 
@@ -136,7 +149,9 @@ class InfluxStorage {
 
       const query_from = `${this.options.influxDatabase}.${this.options.influxRetentionPrefix}${sourceTimeframeLitteral}.${this.options.influxMeasurement}_${sourceTimeframeLitteral}`
       const query_into = `${this.options.influxDatabase}.${this.options.influxRetentionPrefix}${destinationTimeframeLitteral}.${this.options.influxMeasurement}_${destinationTimeframeLitteral}`
-      const coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
+      const coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms AND market =~ /${range.markets
+        .join('|')
+        .replace(/\//g, '\\/')}/`
       const group = `GROUP BY time(${destinationTimeframeLitteral}), market fill(none)`
 
       await this.executeQuery(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
@@ -166,14 +181,21 @@ class InfluxStorage {
    * @returns {Promise<any>}
    * @memberof InfluxStorage
    */
-  async save(trades) {
+  async save(trades, forceImport) {
     if (!trades || !trades.length) {
       return Promise.resolve()
     }
 
-    const resampleRange = await this.import(trades)
+    this.processTrades(trades)
 
-    await this.resample(resampleRange)
+    const now = +new Date()
+    const timeBackupFloored = Math.floor(now / this.options.backupInterval) * this.options.backupInterval
+    const timeMinuteFloored = Math.floor(now / (this.options.influxResampleInterval)) * (this.options.influxResampleInterval)
+
+    if (forceImport || timeBackupFloored === timeMinuteFloored) {
+      const resampleRange = await this.importPendingBars()
+      await this.resample(resampleRange)
+    }
   }
 
   /**
@@ -181,60 +203,115 @@ class InfluxStorage {
    * @param {Bar} bar
    */
   closeBar(bar) {
-    const barIdentifier = bar.exchange + ':' + bar.pair
-
     if (typeof bar.close === 'number') {
       // reg close for next bar
-      this.lastClose[barIdentifier] = bar.close
+      this.lastClose[bar.market] = bar.close
     }
 
-    this.lastBar[barIdentifier] = bar
+    this.lastBar[bar.market] = bar
 
-    return this.lastBar[barIdentifier]
+    return this.lastBar[bar.market]
   }
 
   /**
-   * Import the trades to influx db
+   * Import and clear pending bars
    *
-   * @param {Trade[]} trades
-   * @param {string} identifier ex bitmex:XBTUSD
    * @returns {Promise<{
       from: number,
       to: number,
-      pairs: string[],
-      exchanges: string[]
+      markets: string[],
     }>}
    * @memberof InfluxStorage
    */
-  async import(trades, identifier) {
-    /**
-     * Current bars
-     * @type {{[identifier: string]: Bar}}
-     */
-    const activeBars = {}
-
+  async importPendingBars() {
     /**
      * closed bars
      * @type {Bar[]}
      */
-    const closedBars = []
-
-    /**
-     * liquidations
-     * @type {Trade[]}
-     */
-    const liquidations = []
+    const barsToImport = []
 
     /**
      * Total range of import
      * @type {TimeRange}
      */
-    const totalRange = {
+    const importedRange = {
       from: Infinity,
       to: 0,
-      pairs: [],
-      exchanges: [],
+      markets: [],
     }
+
+    for (const identifier in this.pendingBars) {
+      for (let i = 0; i < this.pendingBars[identifier].length; i++) {
+        const bar = this.pendingBars[identifier][i]
+
+        importedRange.from = Math.min(bar.time, importedRange.from)
+        importedRange.to = Math.max(bar.time, importedRange.to)
+
+        if (importedRange.markets.indexOf(identifier) === -1) {
+          importedRange.markets.push(identifier)
+        }
+
+        barsToImport.push(this.pendingBars[identifier].shift())
+        i--
+      }
+    }
+
+    this.pendingBars = {}
+
+    console.log('import ' + barsToImport.length + ', no more pending bars')
+
+    if (barsToImport.length) {
+      await this.writePoints(
+        barsToImport.map((bar, index) => {
+          const fields = {
+            cbuy: bar.cbuy,
+            csell: bar.csell,
+            vbuy: bar.vbuy,
+            vsell: bar.vsell,
+            lbuy: bar.lbuy,
+            lsell: bar.lsell,
+          }
+
+          if (bar.close !== null) {
+            ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
+          }
+
+          return {
+            measurement: 'trades_' + getHms(this.options.influxTimeframe),
+            tags: {
+              market: bar.market,
+            },
+            fields: fields,
+            timestamp: +bar.time,
+          }
+        }),
+        {
+          precision: 'ms',
+          retentionPolicy: this.baseRp,
+        }
+      )
+    }
+
+    return importedRange
+  }
+
+  /**
+   * Trades into bars (pending bars)
+   *
+   * @param {Trade[]} trades
+   * @returns {Promise<{
+      from: number,
+      to: number,
+      markets: string[],
+    }>}
+   * @memberof InfluxStorage
+   */
+  async processTrades(trades) {
+    /**
+     * Current bars
+     * @type {{[identifier: string]: Bar}}
+     */
+    const activeBars = {}
 
     for (let i = 0; i <= trades.length; i++) {
       const trade = trades[i]
@@ -245,7 +322,7 @@ class InfluxStorage {
       if (!trade) {
         // end of loop reached = close all bars
         for (let barIdentifier in activeBars) {
-          closedBars.push(this.closeBar(activeBars[barIdentifier]))
+          this.closeBar(activeBars[barIdentifier])
 
           delete activeBars[barIdentifier]
         }
@@ -253,13 +330,13 @@ class InfluxStorage {
         break
       } else {
         tradeIdentifier = trade.exchange + ':' + trade.pair
+
         tradeFlooredTime = Math.floor(trade.timestamp / this.options.influxTimeframe) * this.options.influxTimeframe
 
         if (!activeBars[tradeIdentifier] || activeBars[tradeIdentifier].time < tradeFlooredTime) {
           if (activeBars[tradeIdentifier]) {
             // close bar required
-
-            closedBars.push(this.closeBar(activeBars[tradeIdentifier]))
+            this.closeBar(activeBars[tradeIdentifier])
 
             delete activeBars[tradeIdentifier]
           }
@@ -267,16 +344,25 @@ class InfluxStorage {
           if (trade) {
             // create bar required
 
-            if (this.lastBar[tradeIdentifier] && this.lastBar[tradeIdentifier].time === tradeFlooredTime) {
+            if (!this.pendingBars[tradeIdentifier]) {
+              this.pendingBars[tradeIdentifier] = []
+            }
+
+            if (
+              this.pendingBars[tradeIdentifier].length &&
+              this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1].time === tradeFlooredTime
+            ) {
+              activeBars[tradeIdentifier] = this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1]
+            } else if (this.lastBar[tradeIdentifier] && this.lastBar[tradeIdentifier].time === tradeFlooredTime) {
               // trades passed in save() contains some of the last batch (trade time = last bar time)
               // recover exchange point of lastbar
-              activeBars[tradeIdentifier] = this.lastBar[tradeIdentifier]
+              this.pendingBars[tradeIdentifier].push(this.lastBar[tradeIdentifier])
+              activeBars[tradeIdentifier] = this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1]
             } else {
               // create new bar
-              activeBars[tradeIdentifier] = {
+              this.pendingBars[tradeIdentifier].push({
                 time: tradeFlooredTime,
-                pair: trade.pair,
-                exchange: trade.exchange,
+                market: tradeIdentifier,
                 cbuy: 0,
                 csell: 0,
                 vbuy: 0,
@@ -287,7 +373,9 @@ class InfluxStorage {
                 high: null,
                 low: null,
                 close: null,
-              }
+              })
+
+              activeBars[tradeIdentifier] = this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1]
 
               if (typeof this.lastClose[tradeIdentifier] === 'number') {
                 // this bar open = last bar close (from last save or getReferencePoint on startup)
@@ -300,10 +388,6 @@ class InfluxStorage {
             }
           }
         }
-      }
-
-      if (trade.liquidation) {
-        liquidations.push(trade)
       }
 
       if (trade.liquidation) {
@@ -327,77 +411,7 @@ class InfluxStorage {
         activeBars[tradeIdentifier]['c' + trade.side]++
         activeBars[tradeIdentifier]['v' + trade.side] += trade.price * trade.size
       }
-
-      totalRange.from = Math.min(tradeFlooredTime, totalRange.from)
-      totalRange.to = Math.max(tradeFlooredTime, totalRange.to)
-
-      if (totalRange.pairs.indexOf(trade.pair) === -1) {
-        totalRange.pairs.push(trade.pair)
-      }
-
-      if (totalRange.exchanges.indexOf(trade.exchange) === -1) {
-        totalRange.exchanges.push(trade.exchange)
-      }
     }
-
-    if (closedBars.length) {
-      await this.writePoints(
-        closedBars.map((bar, index) => {
-          const fields = {
-            cbuy: bar.cbuy,
-            csell: bar.csell,
-            vbuy: bar.vbuy,
-            vsell: bar.vsell,
-            lbuy: bar.lbuy,
-            lsell: bar.lsell,
-          }
-
-          if (bar.close !== null) {
-            ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
-          }
-
-          return {
-            measurement: 'trades_' + getHms(this.options.influxTimeframe),
-            tags: {
-              market: bar.exchange + ':' + bar.pair,
-            },
-            fields: fields,
-            timestamp: +bar.time,
-          }
-        }),
-        {
-          precision: 'ms',
-          retentionPolicy: this.baseRp,
-        }
-      )
-    }
-
-    if (liquidations.length) {
-      await this.writePoints(
-        liquidations.map((trade, index) => {
-          const fields = {
-            size: +trade.price,
-            price: +trade.size,
-            side: trade[4] == 1 ? 'buy' : 'sell',
-          }
-
-          return {
-            measurement: 'liquidations',
-            tags: {
-              market: trade.exchange + ':' + trade.pair,
-            },
-            fields: fields,
-            timestamp: +trade.timestamp,
-          }
-        }),
-        {
-          precision: 'ms',
-          retentionPolicy: this.baseRp,
-        }
-      )
-    }
-
-    return totalRange
   }
 
   async writePoints(points, options, attempt = 0) {
@@ -418,11 +432,20 @@ class InfluxStorage {
     } catch (error) {
       attempt++
 
-      console.error(`[storage/${this.name}] write points failed (${attempt}${attempt === 1 ? 'st' : attempt === 2 ? 'nd' : attempt === 3 ? 'rd' : 'th'} attempt)`, error.message)
+      console.error(
+        `[storage/${this.name}] write points failed (${attempt}${
+          attempt === 1 ? 'st' : attempt === 2 ? 'nd' : attempt === 3 ? 'rd' : 'th'
+        } attempt)`,
+        error.message
+      )
 
       if (attempt > 5) {
-        console.error(`too many attemps at writing points\n\n${measurement}, ${new Date(from).toUTCString()} to ${new Date(to).toUTCString()}\n\t-> abort`)
-        return
+        console.error(
+          `too many attemps at writing points\n\n${measurement}, ${new Date(from).toUTCString()} to ${new Date(
+            to
+          ).toUTCString()}\n\t-> abort`
+        )
+        throw error
       }
 
       await sleep(500)
@@ -441,11 +464,16 @@ class InfluxStorage {
     } catch (error) {
       attempt++
 
-      console.error(`[storage/${this.name}] query failed (${attempt}${attempt === 1 ? 'st' : attempt === 2 ? 'nd' : attempt === 3 ? 'rd' : 'th'} attempt)`, error.message)
+      console.error(
+        `[storage/${this.name}] query failed (${attempt}${
+          attempt === 1 ? 'st' : attempt === 2 ? 'nd' : attempt === 3 ? 'rd' : 'th'
+        } attempt)`,
+        error.message
+      )
 
       if (attempt > 5) {
         console.error(`too many attemps at executing query\n\n${query}\n\t-> abort`)
-        return
+        throw error
       }
 
       await sleep(500)
@@ -464,8 +492,30 @@ class InfluxStorage {
     }
 
     return this.influx
-      .query(query, {
+      .queryRaw(query, {
         precision: 's',
+        epoch: 's',
+      })
+      .then((results) => {
+        let injectedPendingBars = []
+
+        for (const market of markets) {
+          if (this.pendingBars[market] && this.pendingBars[market].length) {
+            for (const bar of this.pendingBars[market]) {
+              if (bar.time >= from && bar.time <= to) {
+                injectedPendingBars.push(bar)
+              }
+            }
+          }
+        }
+
+        injectedPendingBars = injectedPendingBars.sort((a, b) => a.time - b.time)
+
+        if (!results.results[0].series) {
+          return []
+        }
+
+        return results.results[0].series[0].values.concat(injectedPendingBars)
       })
       .catch((err) => {
         console.error(

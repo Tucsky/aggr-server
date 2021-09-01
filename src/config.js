@@ -128,6 +128,9 @@ const defaultConfig = {
     1000 * 60 * 60 * 6,
     1000 * 60 * 60 * 24,
   ],
+  
+  // trigger resample every minute
+  influxResampleInterval: 60000,
 
   // number of bars to retain within influx db per timeframe
   influxRetentionPerTimeframe: 5000,
