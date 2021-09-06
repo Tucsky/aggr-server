@@ -128,7 +128,7 @@ const defaultConfig = {
     1000 * 60 * 60 * 6,
     1000 * 60 * 60 * 24,
   ],
-  
+
   // trigger resample every minute
   influxResampleInterval: 60000,
 
@@ -194,19 +194,22 @@ if (process.argv.length > 2) {
 
 let userSettings = {}
 
-let configPath = commandSettings.config
+const specificConfigFile = commandSettings.config
   ? commandSettings.config
   : commandSettings.configFile
   ? commandSettings.configFile
   : commandSettings.configPath
   ? commandSettings.configPath
-  : 'config.json'
+  : null
+
+let configPath = specificConfigFile || 'config.json'
 
 try {
   console.log('[init] using config file ' + configPath)
   configPath = path.resolve(__dirname, '../' + configPath)
   const configExamplePath = path.resolve(__dirname, '../config.json.example')
-  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath) && !configPath) {
+
+  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath) && !specificConfigFile) {
     fs.copyFileSync(configExamplePath, configPath)
   }
 
