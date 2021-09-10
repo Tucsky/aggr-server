@@ -1,6 +1,4 @@
 const fs = require('fs')
-const pmx = require('pmx')
-const probe = pmx.probe()
 
 console.log('PID: ', process.pid)
 
@@ -23,7 +21,7 @@ const exchanges = []
 for (let name of config.exchanges) {
   const exchange = new (require('./src/exchanges/' + name))(config)
 
-  config.exchanges[config.exchanges.indexOf(name)] = exchange.id;
+  config.exchanges[config.exchanges.indexOf(name)] = exchange.id
 
   exchanges.push(exchange)
 }
@@ -32,35 +30,6 @@ for (let name of config.exchanges) {
  */
 
 const server = new Server(config, exchanges)
-
-/* Metrics
- */
-
-if (process.env.pmx) {
-  const currently_online = probe.metric({
-    name: 'Online',
-  })
-
-  const unique_visitors = probe.metric({
-    name: 'Unique',
-  })
-
-  const stored_quotas = probe.metric({
-    name: 'Quotas',
-  })
-
-  server.on('connections', (n) => {
-    currently_online.set(n)
-  })
-
-  server.on('unique', (n) => {
-    unique_visitors.set(n)
-  })
-
-  server.on('quotas', (n) => {
-    stored_quotas.set(n)
-  })
-}
 
 /* Backup server on SIGINT
  */
@@ -74,11 +43,7 @@ process.on('SIGINT', function () {
       process.exit()
     })
     .catch((err) => {
-      console.log(
-        `[server/exit] Something went wrong when executing SIGINT script${
-          err && err.message ? '\n\t' + err.message : ''
-        }`
-      )
+      console.log(`[server/exit] Something went wrong when executing SIGINT script${err && err.message ? '\n\t' + err.message : ''}`)
 
       process.exit()
     })

@@ -147,7 +147,7 @@ const defaultConfig = {
   // automatic compression of file once done working with it
   filesGzipAfterUse: true,
 
-  // reconnect exchange api if no data received since n ms (default 5m)
+  // reconnect exchange api if no data received since n ms (default 1m, ajusted by mean api activity)
   reconnectionThreshold: 1000 * 60 * 1,
 
   // choose whether or not enable rate limiting on the provided api
@@ -158,6 +158,19 @@ const defaultConfig = {
 
   // rate limit max request per rateLimitTimeWindow (default 30)
   rateLimitMax: 30,
+
+  // enable cluster mode where you have node dedicated to collecting and 1 master node dedicated to serving data
+  // one client request the data, the main cluster node will ask collectors for realtime data that is not yet in saved in the DB
+  // reducing writes rate on influx yet allowing realtime data fetch for the client
+  // config.api: true === cluster node
+  // config.collect: true === collector node
+  influxCollectors: false,
+
+  // collector to cluster reconnection delay (default 10s)
+  influxCollectorsReconnectionDelay: 1000 * 10,
+
+  // unix socket used to communicate
+  influxCollectorsClusterSocketPath: '/tmp/aggr.sock',
 
   // verbose
   debug: false,

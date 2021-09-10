@@ -80,6 +80,11 @@ class Server extends EventEmitter {
       }
 
       if (this.options.api || this.options.broadcast) {
+        if (!this.options.port) {
+          console.error(`\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${this.options.port})\n\n`)
+          process.exit()
+        }
+        
         this.createHTTPServer()
       }
 
@@ -434,29 +439,6 @@ class Server extends EventEmitter {
       })
     })
 
-    app.get('/:pair/volume', (req, res) => {
-      let pair = req.params.pair
-
-      if (!/[a-zA-Z]+/.test(pair)) {
-        return res.status(400).json({
-          error: `invalid pair`,
-        })
-      }
-
-      this.getRatio(pair)
-        .then((ratio) => {
-          res.status(500).json({
-            pair,
-            ratio,
-          })
-        })
-        .catch((error) => {
-          return res.status(500).json({
-            error: `no info (${error.message})`,
-          })
-        })
-    })
-
     app.get('/historical/:from/:to/:timeframe?/:markets([^/]*)?', (req, res) => {
       const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
       let from = req.params.from
@@ -608,7 +590,8 @@ class Server extends EventEmitter {
         const row = structPairs[market]
         const count = channels[row.apiId]
 
-        row.threshold = getHms(Math.max(this.options.reconnectionThreshold / (0.5 + row.avg / count / 100), 1000 * 10), false, false)
+        row.thrs = getHms(Math.max(this.options.reconnectionThreshold / (0.5 + row.avg / count / 100), 1000 * 10), false, false)
+        delete row.avg
         delete row.apiId
       }
 
@@ -851,65 +834,6 @@ class Server extends EventEmitter {
 
         resolve(true)
       })
-    })
-  }
-
-  getInfo(pair) {
-    const now = +new Date()
-
-    let currencyLength = 3
-    if (['USDT', 'TUSD'].indexOf(pair) === pair.length - 4) {
-      currencyLength = 4
-    }
-
-    let fsym = pair.substr(-currencyLength, currencyLength)
-    let tsym = pair.substr(0, pair.length - currencyLength)
-
-    if (!/^(USD|BTC)/.test(tsym)) {
-      tsym = 'USD'
-    }
-
-    pair = fsym + tsym
-
-    if (this.symbols[pair]) {
-      if (Math.floor((now - this.symbols[pair].time) / (1000 * 60 * 60 * 24)) > 1) {
-        delete this.symbols[pair]
-      } else {
-        return Promise.resolve(this.symbols[pair].volume)
-      }
-    }
-
-    return axios
-      .get(
-        `https://min-api.cryptocompare.com/data/symbol/histoday?fsym=${fsym}&tsym=${tsym}&limit=1&api_key=f640d9ddbd98b4cade666346aab18687d73720d2ede630bf8bacea710e08df55`
-      )
-      .then((response) => response.data)
-      .then((data) => {
-        if (!data || !data.Data || !data.Data.length) {
-          throw new Error(`no data`)
-        }
-
-        data.Data.Data[0].time *= 1000
-
-        this.symbols[pair] = data.Data.Data[0]
-
-        return {
-          data: this.symbols[pair],
-          base: fsym,
-          quote: tsym,
-        }
-      })
-  }
-
-  getRatio(pair) {
-    return this.getInfo(pair).then(async ({ data, base, quote }) => {
-      const BTC = await this.getInfo('BTCUSD')
-
-      if (quote === 'BTC') {
-        return data.volumeTo / BTC.volumeFrom
-      } else {
-        return data.volumeFrom / BTC.volumeTo
-      }
     })
   }
 

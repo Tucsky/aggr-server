@@ -216,10 +216,6 @@ class Okex extends Exchange {
   fetchLatestLiquidations() {
     const productId = this.liquidationProducts[this._liquidationProductIndex++ % this.liquidationProducts.length]
 
-    if (!productId) {
-      debugger
-    }
-
     const productType = this.types[productId]
 
     this._liquidationAxiosHandler && this._liquidationAxiosHandler.cancel()
