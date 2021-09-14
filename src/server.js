@@ -81,10 +81,12 @@ class Server extends EventEmitter {
 
       if (this.options.api || this.options.broadcast) {
         if (!this.options.port) {
-          console.error(`\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${this.options.port})\n\n`)
+          console.error(
+            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${this.options.port})\n\n`
+          )
           process.exit()
         }
-        
+
         this.createHTTPServer()
       }
 
@@ -511,11 +513,11 @@ class Server extends EventEmitter {
             })
           }
 
-          if (length && length > 2000) {
+          if (length > 2000 || markets.length > 20) {
             console.log(
-              `[${ip}/${req.get('origin')}] requesting ${getHms(to - from)} (${length ? length + ' bars into ' : ''}${output.length} ${
-                storage.format
-              }s, took ${getHms(+new Date() - fetchStartAt)})`
+              `[${ip}/${req.get('origin')}] requesting ${getHms(to - from)} (${markets.length} markets, ${getHms(timeframe, true)} tf) -> ${
+                length ? length + ' bars into ' : ''
+              }${output.length} ${storage.format}s, took ${getHms(+new Date() - fetchStartAt)}`
             )
           }
 

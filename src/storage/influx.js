@@ -26,6 +26,11 @@ class InfluxStorage {
     this.clusteredCollectors = []
 
     /**
+     * @type {{[requestId: string]: (bars: Bar[]) => void}}
+     */
+    this.promisesOfRealtimeBars = {}
+
+    /**
      * @type {{[identifier: string]: number}}
      */
     this.lastClose = {}
@@ -70,8 +75,10 @@ class InfluxStorage {
         await this.influx.createDatabase(this.options.influxDatabase)
       }
 
-      await this.ensureRetentionPolicies()
-      await this.getPreviousCloses()
+      if (this.options.collect) {
+        await this.ensureRetentionPolicies()
+        await this.getPreviousCloses()
+      }
     } catch (error) {
       console.error(`[storage/influx] ${error.message}... retrying in 1s`)
 
@@ -536,9 +543,8 @@ class InfluxStorage {
         if (!results.results[0].series) {
           return []
         }
-        
+
         if (to > +new Date() - this.options.influxResampleInterval) {
-          // complete db results with realtime bars (pending bars)
           return this.completeBarsWithRealtime(results.results[0].series[0].values, markets, from, to)
         } else {
           // return only db results
@@ -554,11 +560,11 @@ class InfluxStorage {
    * Concat given results of bars with realtime bars (pending bars)
    * If clustering enabled, use collectors as source of pending bars
    * Otherwise current node pending bars will be used
-   * @param {number[][]} bars 
-   * @param {string[]} markets 
-   * @param {number} from 
-   * @param {number} to 
-   * @returns 
+   * @param {number[][]} bars
+   * @param {string[]} markets
+   * @param {number} from
+   * @param {number} to
+   * @returns
    */
   completeBarsWithRealtime(bars, markets, from, to) {
     if (this.options.influxCollectors && this.clusteredCollectors.length) {
@@ -588,7 +594,7 @@ class InfluxStorage {
 
   /**
    * Called from a collector node
-   * Connect current collector node to cluster node 
+   * Connect current collector node to cluster node
    * WILL try to reconnect if it fails
    * @returns {void}
    */
@@ -604,16 +610,70 @@ class InfluxStorage {
 
     this.clusterSocket.on('connect', () => {
       console.log('[storage/influx/collector] successfully connected to cluster')
-      this.clusterSocket.write(JSON.stringify(this.options.pairs))
+      this.clusterSocket.write(JSON.stringify(this.options.pairs) + '#')
     })
+
+    // store current incoming to be filled by potentialy partial chunks
+    let incomingData = ''
 
     this.clusterSocket.on('data', (data) => {
       // data is a stringified json inside a buffer
-      const request = JSON.parse(data.toString())
+      // convert to string
+      const stringData = data.toString()
 
-      // ONLY emited data from cluster is to ask the realtime bar from collector
-      // thus no need to filter event op or anything ..
-      this.emitRealtimeBars(request.requestId, request.markets, request.from, request.to)
+      // complete data has a # char at it's end
+      const incompleteData = stringData[stringData.length - 1] !== '#'
+
+      if (stringData.indexOf('#') !== -1) {
+        // data has delimiter
+
+        // split chunks using given delimiter
+        const chunks = stringData.split('#')
+
+        for (let i = 0; i < chunks.length; i++) {
+          if (!chunks[i].length) {
+            // chunk is empty (last one can be as # used as divider:
+            // partial_chunk#complete_chunk#*empty_chunk <-)
+            // complete_chunk#complete_chunk#*empty_chunk <-)
+            // partial_chunk#*empty_chunk <-)
+            // complete_chunk#*empty_chunk <-)
+            continue
+          }
+
+          // add to already existing incoming data (if i not last: this is a end of chunk)
+          incomingData += chunks[i]
+
+          if (i === chunks.length - 1 && incompleteData) {
+            // last chunk and incomplete
+            // wait for next data event
+            continue
+          }
+
+          // this is a complete chunk either because i < last OR last and # at this end of the total stringData
+          try {
+            const data = JSON.parse(incomingData)
+
+            // ONLY emited data from cluster is to ask the realtime bar from collector
+            // thus no need to filter event op or anything ..
+            this.emitRealtimeBars(data.requestId, data.markets, data.from, data.to)
+          } catch (error) {
+            console.error(
+              '[storage/influx/cluster] failed to parse cluster incoming data',
+              'first 10 chars: ',
+              incomingData.slice(0, 10),
+              'last 10 chars: ',
+              stringData.slice(-10),
+              error.message
+            )
+          }
+
+          // flush incoming data for next chunk
+          incomingData = ''
+        }
+      } else {
+        // no delimiter in payload so this *has* to be incomplete data
+        incomingData += stringData
+      }
     })
 
     this.clusterSocket.on('close', () => {
@@ -625,8 +685,6 @@ class InfluxStorage {
     })
 
     this.clusterSocket.on('error', (error) => {
-      // console.log('[storage/influx/collector] received error', error)
-
       // the close even destroy the previous strem and may trigger error
       // reconnect in this situation as well
       this.reconnectCluster()
@@ -686,15 +744,79 @@ class InfluxStorage {
         socket.destroy()
       })
 
-      socket.once('data', (data) => {
-        // only data send from collector to cluster is the welcome message
-        // defining which markets it may be able to provide data for
+      // store current incoming to be filled by potentialy partial chunks
+      let incomingData = ''
 
-        socket.markets = JSON.parse(data.toString())
+      socket.on('data', (data) => {
+        // data is a stringified json inside a buffer
+        // convert to string
+        const stringData = data.toString()
 
-        console.debug('[storage/influx/cluster] registered collector with markets', socket.markets.join(', '))
+        // complete data has a # char at it's end
+        const incompleteData = stringData[stringData.length - 1] !== '#'
 
-        this.clusteredCollectors.push(socket)
+        if (stringData.indexOf('#') !== -1) {
+          // data has delimiter
+
+          // split chunks using given delimiter
+          const chunks = stringData.split('#')
+
+          for (let i = 0; i < chunks.length; i++) {
+            if (!chunks[i].length) {
+              // chunk is empty (last one can be as # used as divider:
+              // partial_chunk#complete_chunk#*empty_chunk <-)
+              // complete_chunk#complete_chunk#*empty_chunk <-)
+              // partial_chunk#*empty_chunk <-)
+              // complete_chunk#*empty_chunk <-)
+              continue
+            }
+
+            // add to already existing incoming data (if i not last: this is a end of chunk)
+            incomingData += chunks[i]
+
+            if (i === chunks.length - 1 && incompleteData) {
+              // last chunk and incomplete
+              // wait for next data event
+              continue
+            }
+
+            // this is a complete chunk either because i < last OR last and # at this end of the total stringData
+            try {
+              const data = JSON.parse(incomingData)
+
+              if (!socket.markets) {
+                // this is our welcome message
+                socket.markets = data
+
+                console.log('[storage/influx/cluster] registered collector with markets', socket.markets.join(', '))
+
+                this.clusteredCollectors.push(socket)
+              } else if (data.requestId) {
+                if (this.promisesOfRealtimeBars[data.requestId]) {
+                  this.promisesOfRealtimeBars[data.requestId](data.results)
+                } else {
+                  console.error('there was no promiseOfRealtimeBars with given requestId', data.requestId)
+                }
+                // this is a pending data response to cluster
+              }
+            } catch (error) {
+              console.error(
+                '[storage/influx/cluster] failed to parse collector incoming data',
+                'first 10 chars: ',
+                incomingData.slice(0, 10),
+                'last 10 chars: ',
+                stringData.slice(-10),
+                error.message
+              )
+            }
+
+            // flush incoming data for next chunk
+            incomingData = ''
+          }
+        } else {
+          // no delimiter in payload so this *has* to be incomplete data
+          incomingData += stringData
+        }
       })
     })
 
@@ -714,7 +836,7 @@ class InfluxStorage {
    * @param {number} to
    */
   async requestPendingBars(markets, from, to) {
-    console.debug('[storage/influx/cluster] request pending bars', markets.join(','))
+    // console.debug('[storage/influx/cluster] requested pending bars', markets.map((m) => m[0]).join(''))
 
     const collectors = []
 
@@ -738,7 +860,7 @@ class InfluxStorage {
   /**
    * Called from THE cluster node
    * Query specific collector node (socket) for realtime bars matching given criteras
-   * @param {net.Socket} socket
+   * @param {net.Socket} collector
    * @param {string[]} markets
    * @param {number} from
    * @param {number} to
@@ -747,17 +869,27 @@ class InfluxStorage {
     return new Promise((resolve) => {
       const requestId = ID()
 
-      const listener = (data) => {
-        const json = JSON.parse(data.toString())
+      let promiseOfRealtimeBarsTimeout = setTimeout(() => {
+        console.error('[storage/influx/cluster] promise of realtime bar timeout fired (requestId: ' + requestId + ')')
 
-        if (json.requestId === requestId) {
-          collector.off('data', listener)
+        // response empty array as we didn't got the expected bars...
+        this.promisesOfRealtimeBars[requestId]([])
 
-          resolve(json.results)
+        // invalidate timeout
+        promiseOfRealtimeBarsTimeout = null
+      }, 1000)
+
+      // register promise
+      this.promisesOfRealtimeBars[requestId] = (realtimeBars) => {
+        if (promiseOfRealtimeBarsTimeout) {
+          clearTimeout(promiseOfRealtimeBarsTimeout)
         }
-      }
 
-      collector.on('data', listener)
+        // unregister promise
+        delete this.promisesOfRealtimeBars[requestId]
+
+        resolve(realtimeBars)
+      }
 
       collector.write(
         JSON.stringify({
@@ -765,7 +897,7 @@ class InfluxStorage {
           markets,
           from,
           to,
-        })
+        }) + '#'
       )
     })
   }
@@ -785,13 +917,11 @@ class InfluxStorage {
       }
     }
 
-    // console.log('\t' + results.length + ' bars found')
-
     this.clusterSocket.write(
       JSON.stringify({
         requestId,
         results,
-      })
+      }) + '#'
     )
   }
 }

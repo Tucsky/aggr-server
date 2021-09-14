@@ -79,12 +79,10 @@ module.exports = {
       } else {
         let toPush;
 
-        trade.side = trade.side === 'buy' ? 1 : 0
-
         if (includeMarket) {
-          toPush = [trade.exchange, trade.pair, trade.timestamp, trade.price, trade.size, trade.side]
+          toPush = [trade.exchange, trade.pair, trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0]
         } else {
-          toPush = [trade.timestamp, trade.price, trade.size, trade.side]
+          toPush = [trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0]
         }
 
         if (trade.liquidation) {
