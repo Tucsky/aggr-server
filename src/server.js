@@ -238,7 +238,7 @@ class Server extends EventEmitter {
 
         delete this.connections[id]
 
-        this.dumpConnections()
+        // this.dumpConnections()
       })
 
       exchange.on('connected', (pair, apiId) => {
@@ -262,7 +262,7 @@ class Server extends EventEmitter {
           timestamp: now,
         }
 
-        this.dumpConnections()
+        // this.dumpConnections()
       })
 
       exchange.on('err', (event) => {

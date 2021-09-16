@@ -5,6 +5,8 @@ const { statSync, unlinkSync } = require('fs')
 
 require('../typedef')
 
+const DAY = 1000 * 60 * 60 * 24
+
 class InfluxStorage {
   constructor(options) {
     this.name = this.constructor.name
@@ -149,9 +151,21 @@ class InfluxStorage {
     this.options.influxResampleTo.sort((a, b) => a - b)
 
     for (let timeframe of this.options.influxResampleTo) {
-      const flooredRange = {
-        from: Math.floor(range.from / timeframe) * timeframe,
-        to: Math.floor(range.to / timeframe) * timeframe + timeframe,
+      const isOddTimeframe = DAY % timeframe !== 0 && timeframe < DAY
+
+      let flooredRange
+
+      if (isOddTimeframe) {
+        const dayOpen = Math.floor(range.from / DAY) * DAY
+        flooredRange = {
+          from: dayOpen + Math.floor((range.from - dayOpen) / timeframe) * timeframe,
+          to: dayOpen + Math.floor((range.to - dayOpen) / timeframe) * timeframe + timeframe,
+        }
+      } else {
+        flooredRange = {
+          from: Math.floor(range.from / timeframe) * timeframe,
+          to: Math.floor(range.to / timeframe) * timeframe + timeframe,
+        }
       }
 
       for (let i = this.options.influxResampleTo.indexOf(timeframe); i >= 0; i--) {
@@ -849,6 +863,8 @@ class InfluxStorage {
     }
 
     const promisesOfBars = []
+
+    // console.log(`\t${collectors.length} collector${collectors.length > 1 ? 's' : ''} match${collectors.length > 1 ? 'es' : ''} ${markets.length > 1 ? 'these' : 'this'} market${markets.length > 1 ? 's' : ''}`)
 
     for (const collector of collectors) {
       promisesOfBars.push(this.requestCollectorPendingBars(collector, markets, from, to))
