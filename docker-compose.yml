@@ -20,7 +20,7 @@ services:
 
   # influx:
   #   container_name: st-influxdb
-  #   image: influxdb
+  #   image: influxdb:1.8
   #   ports:
   #     - ${INFLUX_PORT}:${INFLUX_PORT}
   #   volumes:

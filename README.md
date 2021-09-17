@@ -94,6 +94,8 @@ Watch logs using `docker logs -f st-server`.
 
 Uncomment `influx` part in `docker-compose.yml` and set `STORAGE=influx` in `.env` to start using influxdb as a storage.
 
+Change `"influxHost": "localhost",` to `"influxHost": "influx",` when using docker compose
+
 ## If you like what is being done here, consider supporting this project !
 ETH [0xe3c893cdA4bB41fCF402726154FB4478Be2732CE](https://etherscan.io/address/0xe3c893cdA4bB41fCF402726154FB4478Be2732CE)<br>
 BTC [3PK1bBK8sG3zAjPBPD7g3PL14Ndux3zWEz](bitcoin:3PK1bBK8sG3zAjPBPD7g3PL14Ndux3zWEz)<br>
