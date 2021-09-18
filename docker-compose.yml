@@ -13,6 +13,7 @@ services:
         - PORT=${SERVER_PORT}
         - INFLUX_URL=influx:${INFLUX_PORT}
         - STORAGE=${STORAGE}
+        - CONFIG=${CONFIG}
     volumes:
       - ./${FILES_LOCATION}:${WORKDIR}/${FILES_LOCATION}
     ports:
