@@ -200,7 +200,9 @@ class InfluxStorage {
       const coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms AND market =~ /${range.markets
         .join('|')
         .replace(/\//g, '\\/')}/`
-      const group = `GROUP BY time(${destinationTimeframeLitteral}), market fill(none)`
+      const group = `GROUP BY time(${destinationTimeframeLitteral}${
+        isOddTimeframe ? ', ' + getHms(flooredRange.from % timeframe) : ''
+      }), market fill(none)`
 
       await this.executeQuery(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
     }
