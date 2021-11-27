@@ -10,6 +10,7 @@ class Bitmex extends Exchange {
     this.xbtPrice = 48000
     this.types = {}
     this.multipliers = {}
+    this.underlyingToPositionMultipliers = {}
 
     this.endpoints = {
       PRODUCTS: 'https://www.bitmex.com/api/v1/instrument/active',
@@ -29,10 +30,16 @@ class Bitmex extends Exchange {
     const products = []
     const types = {}
     const multipliers = {}
+    const underlyingToPositionMultipliers = {}
 
     for (const product of data) {
       types[product.symbol] = product.isInverse ? 'inverse' : product.isQuanto ? 'quanto' : 'linear'
       multipliers[product.symbol] = product.multiplier
+
+      if (types[product.symbol] === 'linear') {
+        underlyingToPositionMultipliers[product.symbol] = product.underlyingToPositionMultiplier
+      }
+
       products.push(product.symbol)
     }
 
@@ -40,6 +47,7 @@ class Bitmex extends Exchange {
       products,
       types,
       multipliers,
+      underlyingToPositionMultipliers,
     }
   }
 
@@ -96,12 +104,23 @@ class Bitmex extends Exchange {
         return this.emitLiquidations(
           api.id,
           json.data.map((trade) => {
-            let size = trade.leavesQty
+            let size
 
             if (this.types[trade.symbol] === 'quanto') {
               size = (this.multipliers[trade.symbol] / 100000000) * trade.leavesQty * this.xbtPrice
             } else if (this.types[trade.symbol] === 'inverse') {
               size = trade.leavesQty / trade.price
+            } else {
+              size = (1 / this.underlyingToPositionMultipliers[trade.symbol]) * trade.leavesQty
+              console.log(
+                '(bitmex usdt liquidation)',
+                trade.symbol,
+                'multiplier:' + this.underlyingToPositionMultipliers[trade.symbol],
+                'type:' + this.types[trade.symbol],
+                'leavesQty:' + trade.leavesQty,
+                'price:' + trade.price,
+                'result:' + size
+              )
             }
 
             return {

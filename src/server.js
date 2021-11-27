@@ -413,7 +413,7 @@ class Server extends EventEmitter {
     app.all('/*', (req, res, next) => {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
-      if (!req.headers['origin'] && !new RegExp(this.options.origin).test(req.headers['origin'])) {
+      if (!req.headers['origin'] || !new RegExp(this.options.origin).test(req.headers['origin'])) {
         console.debug(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
           return res.status(500).json({
