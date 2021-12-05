@@ -397,7 +397,8 @@ class Server extends EventEmitter {
         windowMs: this.options.rateLimitTimeWindow,
         max: this.options.rateLimitMax,
         handler: function (req, res) {
-          return res.status(429).json({
+          res.header('Access-Control-Allow-Origin', '*')
+          return res.status(429).send({
             error: 'too many requests :v',
           })
         },
@@ -414,7 +415,7 @@ class Server extends EventEmitter {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
       if (!req.headers['origin'] || !new RegExp(this.options.origin).test(req.headers['origin'])) {
-        console.debug(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
+        console.log(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
           return res.status(500).json({
             error: 'ignored',
@@ -443,8 +444,8 @@ class Server extends EventEmitter {
 
     app.get('/historical/:from/:to/:timeframe?/:markets([^/]*)?', (req, res) => {
       const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
-      let from = req.params.from
-      let to = req.params.to
+      let from = parseInt(req.params.from)
+      let to = parseInt(req.params.to)
       let length
       let timeframe = req.params.timeframe
 
@@ -474,9 +475,6 @@ class Server extends EventEmitter {
       if (storage.format === 'point') {
         timeframe = parseInt(timeframe) || 1000 * 60 // default to 1m
 
-        from = Math.floor(from / timeframe) * timeframe
-        to = Math.ceil(to / timeframe) * timeframe
-
         length = (to - from) / timeframe
 
         if (length > this.options.maxFetchLength) {
@@ -484,15 +482,12 @@ class Server extends EventEmitter {
             error: 'too many bars',
           })
         }
-      } else {
-        from = parseInt(from)
-        to = parseInt(to)
       }
 
       if (from > to) {
-        let _from = parseInt(from)
-        from = parseInt(to)
-        to = _from
+        return res.status(400).json({
+          error: 'from > to',
+        })
       }
 
       const fetchStartAt = +new Date()
@@ -515,8 +510,8 @@ class Server extends EventEmitter {
 
           if (length > 2000 || markets.length > 20) {
             console.log(
-              `[${ip}/${req.get('origin')}] requesting ${getHms(to - from)} (${markets.length} markets, ${getHms(timeframe, true)} tf) -> ${
-                length ? length + ' bars into ' : ''
+              `[${ip}/${req.get('origin')}] ${getHms(to - from)} (${markets.length} markets, ${getHms(timeframe, true)} tf) -> ${
+                +length ? parseInt(length) + ' bars into ' : ''
               }${output.length} ${storage.format}s, took ${getHms(+new Date() - fetchStartAt)}`
             )
           }
@@ -541,6 +536,16 @@ class Server extends EventEmitter {
             error: error.message,
           })
         })
+    })
+
+    app.use(function (err, req, res, next) {
+      if (err) {
+        console.error(err)
+
+        return res.status(500).json({
+          error: 'internal server error 💀',
+        })
+      }
     })
 
     this.server = app.listen(this.options.port, () => {
@@ -767,6 +772,11 @@ class Server extends EventEmitter {
     for (let exchange of this.exchanges) {
       for (let api of exchange.apis) {
         if (sources.indexOf(api.id) !== -1) {
+          if (exchange.lastMessages.length) {
+            console.log(`[${exchange.id}] last ${exchange.lastMessages.length} messages`)
+            console.log(exchange.lastMessages)
+          }
+
           exchange.reconnectApi(api)
 
           sources.splice(sources.indexOf(api.id), 1)

@@ -115,9 +115,6 @@ class Bitfinex extends Exchange {
     }
 
     if (!this.channels[json[0]] || json[1] === 'hb') {
-      if (json[1] !== 'hb') {
-        console.warn(`[${this.id}] received unknown event ${event.data}`)
-      }
       return
     }
 

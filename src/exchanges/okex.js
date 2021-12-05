@@ -150,8 +150,6 @@ class Okex extends Exchange {
       return
     }
 
-    !json.table && console.log(json)
-
     if (!json || !json.data || !json.data.length) {
       return
     }
@@ -265,7 +263,6 @@ class Okex extends Exchange {
           `https://www.okex.com/api/${productType}/v3/instruments/${productId}/liquidation?status=1&limit=10`
         )
         if (axios.isCancel(error)) {
-          console.log('axios.isCancel')
           return
         }
 

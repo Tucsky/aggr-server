@@ -547,7 +547,7 @@ class InfluxStorage {
     let query = `SELECT * FROM "${this.options.influxDatabase}"."${this.options.influxRetentionPrefix}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
 
     if (markets.length) {
-      query += ` AND market =~ /${markets.join('|').replace(/\//g, '\\/')}/`
+      query += ` AND (${markets.map(market => `market = '${market}'`).join(' OR ')})`
     }
 
     return this.influx
