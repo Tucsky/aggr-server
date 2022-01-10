@@ -9,6 +9,7 @@ class BinanceFutures extends Exchange {
     this.lastSubscriptionId = 0
     this.subscriptions = {}
 
+    this.maxConnectionsPerApi = 100
     this.endpoints = {
       PRODUCTS: ['https://fapi.binance.com/fapi/v1/exchangeInfo', 'https://dapi.binance.com/dapi/v1/exchangeInfo'],
     }
@@ -25,6 +26,21 @@ class BinanceFutures extends Exchange {
       },
       this.options
     )
+  }
+
+  onApiCreated(api) {
+    // A single connection is only valid for 24 hours; expect to be disconnected at the 24 hour mark
+    api._reconnectionTimeout = setTimeout(() => {
+      api._reconnectionTimeout = null
+      console.log(`[exchange/binance_futures] reconnect API`)
+      this.reconnectApi(api)
+    }, 1000 * 60 * 60 * 24)
+  }
+
+  onApiRemoved(api) {
+    if (api._reconnectionTimeout) {
+      clearTimeout(api._reconnectionTimeout)
+    }
   }
 
   formatProducts(response) {
@@ -83,8 +99,8 @@ class BinanceFutures extends Exchange {
       })
     )
 
-    // BINANCE: WebSocket connections have a limit of 5 incoming messages per second.
-    await sleep(250)
+    // BINANCE: WebSocket connections have a limit of 10 incoming messages per second.
+    await sleep(101)
   }
 
   /**
@@ -109,8 +125,8 @@ class BinanceFutures extends Exchange {
 
     delete this.subscriptions[pair]
 
-    // BINANCE: WebSocket connections have a limit of 5 incoming messages per second.
-    await sleep(250)
+    // BINANCE: WebSocket connections have a limit of 10 incoming messages per second.
+    await sleep(101)
   }
 
   onMessage(event, api) {
@@ -118,47 +134,45 @@ class BinanceFutures extends Exchange {
 
     if (!json) {
       return
-    } else {
-      if (json.e === 'trade' && json.X !== 'INSURANCE_FUND') {
-        let size = +json.q
+    } else if (json.e === 'trade' && json.X !== 'INSURANCE_FUND') {
+      let size = +json.q
 
-        const symbol = json.s.toLowerCase()
+      const symbol = json.s.toLowerCase()
 
-        if (typeof this.specs[symbol] === 'number') {
-          size = (size * this.specs[symbol]) / json.p
-        }
-
-        return this.emitTrades(api.id, [
-          {
-            exchange: this.id,
-            pair: symbol,
-            timestamp: json.T,
-            price: +json.p,
-            size: size,
-            side: json.m ? 'sell' : 'buy',
-          },
-        ])
-      } else if (json.e === 'forceOrder') {
-        let size = +json.o.q
-
-        const symbol = json.o.s.toLowerCase()
-
-        if (typeof this.specs[symbol] === 'number') {
-          size = (size * this.specs[symbol]) / json.o.p
-        }
-
-        return this.emitLiquidations(api.id, [
-          {
-            exchange: this.id,
-            pair: symbol,
-            timestamp: json.o.T,
-            price: +json.o.p,
-            size: size,
-            side: json.o.S === 'BUY' ? 'buy' : 'sell',
-            liquidation: true,
-          },
-        ])
+      if (typeof this.specs[symbol] === 'number') {
+        size = (size * this.specs[symbol]) / json.p
       }
+
+      return this.emitTrades(api.id, [
+        {
+          exchange: this.id,
+          pair: symbol,
+          timestamp: json.T,
+          price: +json.p,
+          size: size,
+          side: json.m ? 'sell' : 'buy',
+        },
+      ])
+    } else if (json.e === 'forceOrder') {
+      let size = +json.o.q
+
+      const symbol = json.o.s.toLowerCase()
+
+      if (typeof this.specs[symbol] === 'number') {
+        size = (size * this.specs[symbol]) / json.o.p
+      }
+
+      return this.emitLiquidations(api.id, [
+        {
+          exchange: this.id,
+          pair: symbol,
+          timestamp: json.o.T,
+          price: +json.o.p,
+          size: size,
+          side: json.o.S === 'BUY' ? 'buy' : 'sell',
+          liquidation: true,
+        },
+      ])
     }
   }
 }

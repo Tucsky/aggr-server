@@ -79,11 +79,24 @@ const defaultConfig = {
   // (warning) will add +50ms delay for confirmation that trade actually came on same ms
   broadcastAggr: true,
 
+  // will only broadcast trades >= broadcastThreshold
+  // expressed in base currency (ex: BTC)
+  // default 0
+  broadcastThreshold: 0,
+
   // enable api (historical/{from in ms}/{to in ms}/{timesfame in ms}/{markets separated by +})
   api: true,
 
   // monitor connection health interval
-  monitorInterval: 1000 * 60,
+  // checks average of hit per api within that interval
+  // reconnect if hit is too low or ping is too high
+  // default 5s
+  monitorInterval: 5000,
+
+  // base threshold for which a 1 trades per monitorInterval will be equal to 
+  // ex: with a monitorInterval of 5s & reconnectionThreshold of 3m, an api of 1 trade per 5s average will reconnect after idling for 3m
+  // default 3m, increase this value if you notice too many reconnections, decrease otherwise
+  reconnectionThreshold: 180000,
 
   // storage solution, either
   // false | null (no storage, everything is wiped out after broadcast)
@@ -95,7 +108,7 @@ const defaultConfig = {
   storage: 'files',
 
   // store interval (in ms)
-  backupInterval: 1000 * 5,
+  backupInterval: 10000,
 
   // influx db server to use when storage is set to "influx"
   influxHost: 'localhost',
@@ -108,14 +121,12 @@ const defaultConfig = {
   // if influxMeasurement is "trades" and influxTimeframe is "10000", influx will save to trades_10s
   influxMeasurement: 'trades',
 
-  // timeframe in ms (default 5s === 5000ms)
+  // timeframe in ms (default 10s === 10000ms)
   // this is lowest timeframe that influx will use to group the trades
-  influxTimeframe: 5000,
+  influxTimeframe: 10000,
 
   // downsampling
   influxResampleTo: [
-    1000 * 10,
-    1000 * 15,
     1000 * 30,
     1000 * 60,
     1000 * 60 * 3,
@@ -146,9 +157,6 @@ const defaultConfig = {
 
   // automatic compression of file once done working with it
   filesGzipAfterUse: true,
-
-  // reconnect exchange api if no data received since n ms (default 1m, ajusted by mean api activity)
-  reconnectionThreshold: 1000 * 60 * 1,
 
   // choose whether or not enable rate limiting on the provided api
   enableRateLimit: false,
@@ -291,7 +299,11 @@ if (!Array.isArray(config.pairs)) {
 }
 
 if (!config.pairs.length) {
-  config.pairs = ['BITMEX:XBTUSD']
+  if (config.collect) {
+    console.warn('[warning!] no pairs selected')
+  }
+
+  config.pairs = []
 }
 
 if (config.exchanges && typeof config.exchanges === 'string') {

@@ -21,7 +21,7 @@ module.exports = {
         pairs = []
       }
     } else {
-      pairs = pairs.split('+').map((a) => a.toUpperCase())
+      pairs = pairs.split('+')
     }
 
     return pairs
@@ -44,7 +44,7 @@ module.exports = {
     output += (!round || !output.length) && s > 0 ? s + 's' : ''
 
     if (ms && (!output.length || (!round && timestamp < 60 * 1000 && timestamp > s * 1000)))
-      output += (output.length ? ', ' : '') + (timestamp - s * 1000) + 'ms'
+      output += (output.length ? ', ' : '') + Math.round(timestamp - s * 1000) + 'ms'
 
     return output.trim()
   },
@@ -63,10 +63,14 @@ module.exports = {
     return output
   },
 
-  groupTrades(trades, includeMarket, toArray = false) {
+  groupTrades(trades, includeMarket, threshold = 0) {
     const groups = {}
 
     for (let i = 0; i < trades.length; i++) {
+      if (trades[i].size < threshold) {
+        continue
+      }
+
       const trade = trades[i]
       const identifier = trade.exchange + ':' + trade.pair
 
@@ -74,23 +78,19 @@ module.exports = {
         groups[identifier] = []
       }
 
-      if (!toArray) {
-        groups[identifier].push(trade)
+      let toPush
+
+      if (includeMarket) {
+        toPush = [trade.exchange, trade.pair, trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0]
       } else {
-        let toPush;
-
-        if (includeMarket) {
-          toPush = [trade.exchange, trade.pair, trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0]
-        } else {
-          toPush = [trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0]
-        }
-
-        if (trade.liquidation) {
-          toPush.push(1)
-        }
-
-        groups[identifier].push(toPush)
+        toPush = [trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0]
       }
+
+      if (trade.liquidation) {
+        toPush.push(1)
+      }
+
+      groups[identifier].push(toPush)
     }
 
     return groups
@@ -121,7 +121,7 @@ module.exports = {
   },
 
   sleep(delay = 1000) {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       setTimeout(() => {
         resolve()
       }, delay)
@@ -141,7 +141,6 @@ module.exports = {
               reject(err)
             }
 
-
             resolve()
           })
         } else {
@@ -149,5 +148,5 @@ module.exports = {
         }
       })
     })
-  }
+  },
 }

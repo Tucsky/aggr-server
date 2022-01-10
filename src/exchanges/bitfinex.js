@@ -8,6 +8,7 @@ class Bitfinex extends Exchange {
     this.channels = {}
     this.prices = {}
 
+    this.maxConnectionsPerApi = 24
     this.endpoints = {
       PRODUCTS: 'https://api.bitfinex.com/v1/symbols',
     }
@@ -79,12 +80,12 @@ class Bitfinex extends Exchange {
     }
 
     const channelsToUnsubscribe = Object.keys(this.channels).filter(
-      (id) => this.channels[id].pair === pair
+      (id) => this.channels[id].pair === pair && this.channels[id].apiId === api.id
     )
 
     if (!channelsToUnsubscribe.length) {
-      console.log(
-        `[${this}.id}/unsubscribe] no channel to unsubscribe to, but server called unsubscibr(${pair}). Here is the active channels on bitfinex exchange :`,
+      console.warn(
+        `[${this}.id}/unsubscribe] no channel to unsubscribe from`,
         this.channels
       )
       return
@@ -110,6 +111,7 @@ class Bitfinex extends Exchange {
       this.channels[json.chanId] = {
         name: json.channel,
         pair: json.pair,
+        apiId: api.id,
       }
       return
     }

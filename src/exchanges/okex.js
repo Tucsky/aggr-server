@@ -179,14 +179,6 @@ class Okex extends Exchange {
     )
   }
 
-  onApiCreated(api) {
-    // this.startKeepAlive(api)
-  }
-
-  onApiRemoved(api) {
-    // this.stopKeepAlive(api)
-  }
-
   startLiquidationTimer() {
     if (this._liquidationInterval) {
       return

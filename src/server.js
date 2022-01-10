@@ -28,6 +28,12 @@ class Server extends EventEmitter {
     this.connections = {}
 
     /**
+     * Keep track of all active apis
+     * @type {{[apiId: string]: number}}
+     */
+    this.apiStats = {}
+
+    /**
      * delayedForBroadcast trades ready to be broadcasted next interval (see _broadcastDelayedTradesInterval)
      * @type Trade[]
      */
@@ -215,8 +221,6 @@ class Server extends EventEmitter {
             }
           }
         }
-
-        // this.dumpSymbolsByExchanges()
       })
 
       exchange.on('open', (event) => {
@@ -226,7 +230,7 @@ class Server extends EventEmitter {
         })
       })
 
-      exchange.on('disconnected', (pair, apiId) => {
+      exchange.on('disconnected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
         if (!this.connections[id]) {
@@ -234,14 +238,22 @@ class Server extends EventEmitter {
           return
         }
 
-        console.log(`[server] deleted connection ${id}`)
+        console.log(`[server] deleted connection ${id} (${apiLength} connected)`)
 
         delete this.connections[id]
 
-        // this.dumpConnections()
+        if (!apiLength) {
+          console.log(`[server] deleted api stats ${apiId}`)
+
+          delete this.apiStats[apiId]
+        } else {
+          this.apiStats[apiId].pairs.splice(this.apiStats[apiId].pairs.indexOf(pair), 1)
+        }
+
+        this.checkApiStats()
       })
 
-      exchange.on('connected', (pair, apiId) => {
+      exchange.on('connected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
         if (this.connections[id]) {
@@ -249,7 +261,7 @@ class Server extends EventEmitter {
           return
         }
 
-        console.log(`[server] registered connection ${id}`)
+        console.log(`[server] registered connection ${id} (${apiLength})`)
 
         const now = +new Date()
 
@@ -262,7 +274,26 @@ class Server extends EventEmitter {
           timestamp: now,
         }
 
-        // this.dumpConnections()
+        if (typeof this.apiStats[apiId] === 'undefined') {
+          this.apiStats[apiId] = {
+            exchange: exchange.id,
+            totalHits: 0,
+            windowHits: 0,
+            ping: 0,
+            pairs: [],
+            start: now,
+            timestamp: now,
+          }
+        }
+
+        this.apiStats[apiId].pairs.push(pair)
+        this.apiStats[apiId].name =
+          this.apiStats[apiId].exchange +
+          ':' +
+          this.apiStats[apiId].pairs.slice(0, 3).join('+') +
+          (this.apiStats[apiId].pairs.length > 3 ? '.. (' + this.apiStats[apiId].pairs.length + ')' : '')
+
+        this.checkApiStats()
       })
 
       exchange.on('err', (event) => {
@@ -307,7 +338,7 @@ class Server extends EventEmitter {
 
       const data = {
         type: 'welcome',
-        supportedPairs: Object.values(this.connection).map((a) => a.exchange + ':' + a.pair),
+        supportedPairs: Object.values(this.connections).map((a) => a.exchange + ':' + a.pair),
         timestamp: +new Date(),
         exchanges: this.exchanges.map((exchange) => {
           return {
@@ -315,7 +346,7 @@ class Server extends EventEmitter {
             connected: exchange.apis.reduce((pairs, api) => {
               pairs.concat(api._connected)
               return pairs
-            }),
+            }, []),
           }
         }),
       }
@@ -558,56 +589,6 @@ class Server extends EventEmitter {
     this.app = app
   }
 
-  dumpConnections(pingThreshold) {
-    if (typeof this._dumpConnectionsTimeout !== 'undefined') {
-      clearTimeout(this._dumpConnectionsTimeout)
-      delete this._dumpConnectionsTimeout
-    }
-
-    const now = +new Date()
-
-    this._dumpConnectionsTimeout = setTimeout(() => {
-      const structPairs = {}
-      const channels = {}
-
-      for (let id in this.connections) {
-        const connection = this.connections[id]
-
-        if (pingThreshold && now - connection.timestamp < pingThreshold) {
-          continue
-        }
-
-        if (!channels[connection.apiId]) {
-          channels[connection.apiId] = 0
-        }
-
-        channels[connection.apiId]++
-
-        structPairs[connection.exchange + ':' + connection.pair] = {
-          apiId: connection.apiId,
-          exchange: connection.exchange,
-          pair: connection.pair,
-          hit: connection.hit,
-          avg: parseInt(((1000 * 60) / (now - connection.start)) * connection.hit) || 0,
-          ping: connection.hit ? ago(connection.timestamp) : 'never',
-        }
-      }
-
-      for (const market in structPairs) {
-        const row = structPairs[market]
-        const count = channels[row.apiId]
-
-        row.thrs = getHms(Math.max(this.options.reconnectionThreshold / (0.5 + row.avg / count / 100), 1000 * 10), false, false)
-        delete row.avg
-        delete row.apiId
-      }
-
-      console.table(structPairs)
-    }, 5000)
-
-    return Promise.resolve()
-  }
-
   connectExchanges() {
     if (!this.exchanges.length || !this.options.pairs.length) {
       return
@@ -630,7 +611,7 @@ class Server extends EventEmitter {
     )
 
     exchangesProductsResolver.then(() => {
-      this.dumpConnections()
+      this.checkApiStats()
     })
 
     if (this.options.broadcast && this.options.broadcastDebounce && !this.options.broadcastAggr) {
@@ -715,7 +696,7 @@ class Server extends EventEmitter {
       return
     }
 
-    const groups = groupTrades(trades, true, true)
+    const groups = groupTrades(trades, true, this.options.broadcastThreshold)
 
     this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
@@ -728,69 +709,134 @@ class Server extends EventEmitter {
     })
   }
 
-  monitorExchangesActivity(startTime) {
-    const now = +new Date()
+  /**
+   * Excecuted every options.monitorInterval
+   * Check activity within that time window for every active apis
+   */
+  monitorExchangesActivity() {
+    this.updateApiStats()
+    this.checkApiStats(true)
 
-    const sources = []
-    const averages = {}
-    const activity = {}
-    const pairs = {}
+    // print full connection report every hour
+    const now = Date.now()
+    const flooredTime = Math.floor(now / this.options.monitorInterval) * this.options.monitorInterval
+    const currentHour = Math.floor(now / 3600000) * 3600000
+    //const currentMinute = Math.floor(now / 60000) * 60000
 
-    for (let id in this.connections) {
-      const connection = this.connections[id]
+    if (flooredTime === currentHour) {
+      this.checkApiStats()
+    }
+  }
 
-      if (!activity[connection.apiId]) {
-        activity[connection.apiId] = []
-        pairs[connection.apiId] = []
-        averages[connection.apiId] = ((1000 * 60) / (now - connection.start)) * connection.hit
+  /**
+   * Aggregate individual connections stats (markets) into api stats (group of markets)
+   * @param {number} now timestamp
+   */
+  updateApiStats() {
+    const now = Date.now()
+
+    for (const marketId in this.connections) {
+      const connection = this.connections[marketId]
+      const apiStat = this.apiStats[connection.apiId]
+
+      if (apiStat.timestamp !== now) {
+        apiStat.windowHits = 0
+        apiStat.ping = 0
+        apiStat.timestamp = now
       }
 
-      activity[connection.apiId].push(now - connection.timestamp)
-      pairs[connection.apiId].push(connection.pair)
+      const currentHits = typeof connection.lastHit !== 'undefined' ? connection.hit - connection.lastHit : connection.hit
+      apiStat.windowHits += currentHits
+      apiStat.totalHits += currentHits
+      apiStat.ping = Math.max(connection.timestamp || connection.start, apiStat.ping)
+
+      connection.lastHit = connection.hit
     }
+  }
 
-    for (let source in activity) {
-      const minPing = activity[source].length ? Math.min.apply(null, activity[source]) : 0
-      const threshold = Math.max(this.options.reconnectionThreshold / (0.5 + averages[source] / activity[source].length / 100), 1000 * 10)
-
-      // console.log(`${averages[source] / activity[source].length}/min avg, ${minPing}/${threshold}ms : ${pairs[source].join(', ')}`)
-
-      if (minPing > threshold) {
-        // one of the feed did not received any data since 1m or more
-        // => reconnect api (and all the feed binded to it)
-
-        console.warn(
-          `[warning] api ${source} reached reconnection threshold ${getHms(minPing)} > ${getHms(threshold)} (${
-            averages[source] / activity[source].length
-          } pings/min avg, min ${minPing})\n\t-> reconnect ${pairs[source].join(', ')}`
-        )
-
-        sources.push(source)
+  /**
+   * Check if an API is having more idle time than usual
+   * Or sudden stops of very active feeds
+   * By default only prints the APIs that fits in one of those 2 situations
+   * Reconnect if reconnectIfNeeded is true
+   * @param {boolean} reconnectIfNeeded reconnect above threshold apis
+   * @param {boolean} bypassTimeout
+   */
+  checkApiStats(reconnectIfNeeded, bypassTimeout) {
+    if (!reconnectIfNeeded && !bypassTimeout) {
+      if (this._checkApiStatsTimeout) {
+        clearTimeout(this._checkApiStatsTimeout)
       }
+
+      this._checkApiStatsTimeout = setTimeout(() => {
+        this._checkApiStatsTimeout = null
+        this.checkApiStats(false, true)
+      }, 2500)
+
+      return
     }
 
-    for (let exchange of this.exchanges) {
-      for (let api of exchange.apis) {
-        if (sources.indexOf(api.id) !== -1) {
-          if (exchange.lastMessages.length) {
-            console.log(`[${exchange.id}] last ${exchange.lastMessages.length} messages`)
-            console.log(exchange.lastMessages)
-          }
+    const now = Date.now()
 
-          exchange.reconnectApi(api)
+    const table = {}
+    const toReconnect = []
 
-          sources.splice(sources.indexOf(api.id), 1)
+    for (const apiId in this.apiStats) {
+      const apiStat = this.apiStats[apiId]
+
+      const avg = +((this.options.monitorInterval / (now - apiStat.start)) * apiStat.totalHits).toFixed(2)
+      let hit = apiStat.windowHits
+
+      const ping = apiStat.ping ? now - apiStat.ping : 0
+
+      const thrs = Math.max(this.options.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)
+      const thrsHms = getHms(thrs, true)
+      let pingHms = ping ? getHms(ping, true) : 'never'
+
+      let reconnectionThresholdReached = false
+      let hitThresholdReached = false
+
+      if (reconnectIfNeeded && now - apiStat.start > 60000) {
+        if (ping > thrs) {
+          reconnectionThresholdReached = true
+          pingHms += '⚠'
+        } else if (thrs < this.options.reconnectionThreshold / 10 && !hit) {
+          hitThresholdReached = true
+          hit += '⚠'
+        }
+      }
+
+      if (!reconnectIfNeeded || reconnectionThresholdReached || hitThresholdReached) {
+        table[apiStat.name] = {
+          hit,
+          avg,
+          ping: pingHms,
+          thrs: thrsHms,
+        }
+
+        if (reconnectIfNeeded && (reconnectionThresholdReached || hitThresholdReached)) {
+          console.warn(`[server] reconnect api ${apiId} (${reconnectionThresholdReached ? 'ping' : 'hit'} threshold reached)`)
+          toReconnect.push(apiId)
         }
       }
     }
 
-    const dumpConnections =
-      (Math.floor((now - (startTime + this.options.monitorInterval)) / this.options.monitorInterval) * this.options.monitorInterval) %
-        (this.options.monitorInterval * 60) ===
-      0
+    if (Object.keys(table).length) {
+      console.table(table)
+    }
 
-    if (dumpConnections) {
-      this.dumpConnections()
+    if (toReconnect.length) {
+      console.log(`[server] reconnect ${toReconnect.length} apis`)
+
+      for (let exchange of this.exchanges) {
+        for (let api of exchange.apis) {
+          if (toReconnect.indexOf(api.id) !== -1) {
+            exchange.reconnectApi(api)
+
+            toReconnect.splice(toReconnect.indexOf(api.id), 1)
+          }
+        }
+      }
     }
   }
 
@@ -942,23 +988,6 @@ class Server extends EventEmitter {
 
       this.aggregated.splice(0, this.aggregated.length)
     }
-  }
-
-  /**
-   * For debug only
-   */
-  dumpSymbolsByExchanges() {
-    const symbols = Object.keys(this.indexedProducts)
-
-    fs.writeFileSync(
-      './symbols',
-      symbols.reduce((output, symbol) => {
-        output += `${symbol} (${this.indexedProducts[symbol].exchanges.join(',')})\n`
-
-        return output
-      }, ''),
-      { encoding: 'utf8', flag: 'w' }
-    )
   }
 }
 

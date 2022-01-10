@@ -7,6 +7,8 @@ class Huobi extends Exchange {
 
     this.id = 'HUOBI'
 
+    this.receivedInitialData = {}
+
     this.contractTypesAliases = {
       this_week: 'CW',
       next_week: 'NW',
@@ -90,6 +92,8 @@ class Huobi extends Exchange {
       return
     }
 
+    this.receivedInitialData[pair] = false
+
     api.send(
       JSON.stringify({
         sub: 'market.' + pair + '.trade.detail',
@@ -130,11 +134,10 @@ class Huobi extends Exchange {
     } else if (json.tick && json.tick.data && json.tick.data.length) {
       const pair = json.ch.replace(/market.(.*).trade.detail/, '$1')
 
-      let name = this.id
-
-      /*if (this.types[pair] !== 'spot') {
-        name += '_futures'
-      }*/
+      if (!this.receivedInitialData[pair]) {
+        this.receivedInitialData[pair] = true
+        return
+      }
 
       this.emitTrades(
         api.id,
@@ -146,7 +149,7 @@ class Huobi extends Exchange {
           }
 
           return {
-            exchange: name,
+            exchange: this.id,
             pair: pair,
             timestamp: trade.ts,
             price: +trade.price,

@@ -56,6 +56,12 @@ class Exchange extends EventEmitter {
      */
     this.clearReconnectionDelayTimeout = {}
 
+    /**
+     * Max connections per apis
+     * @type {number}
+     */
+    this.maxConnectionsPerApi = null
+
     this.options = Object.assign(
       {
         // default exchanges options
@@ -116,7 +122,7 @@ class Exchange extends EventEmitter {
   }
 
   resolveApi(pair) {
-    let api = this.getActiveApiByPair(pair)
+    let api = this.getActiveApiByUrl(this.getUrl(pair))
 
     if (!api) {
       api = this.createWs(pair)
@@ -164,7 +170,7 @@ class Exchange extends EventEmitter {
     const api = new WebSocket(url)
     api.id = ID()
 
-    console.debug(`[${this.id}.createWs] initiate new ws connection ${url} (${api.id}) for pair ${pair}`)
+    console.log(`[${this.id}.createWs] initiate new ws connection ${url} (${api.id})`)
 
     api.binaryType = 'arraybuffer'
 
@@ -191,7 +197,7 @@ class Exchange extends EventEmitter {
       const wasBadData = !this.onMessage(event, api)
 
       if (wasBadData) {
-        let json
+        let json = event.data
 
         try {
           json = JSON.parse(event.data)
@@ -285,8 +291,8 @@ class Exchange extends EventEmitter {
         )
 
         if (this.lastMessages.length) {
-          console.debug(`[${this.id}] last ${this.lastMessages.length} messages`)
-          console.debug(this.lastMessages)
+          console.log(`[${this.id}] last ${this.lastMessages.length} messages`)
+          console.log(this.lastMessages)
         }
       }
     }
@@ -369,6 +375,22 @@ class Exchange extends EventEmitter {
   }
 
   /**
+   * Get active websocket api by url
+   * @param {string} url
+   * @returns {WebSocket}
+   */
+  getActiveApiByUrl(url) {
+    for (let i = 0; i < this.apis.length; i++) {
+      if (
+        this.apis[i].url === url &&
+        (!this.maxConnectionsPerApi || this.apis[i]._connected.length + this.apis[i]._pending.length < this.maxConnectionsPerApi)
+      ) {
+        return this.apis[i]
+      }
+    }
+  }
+
+  /**
    * Close websocket api
    * @param {WebSocket} api
    * @returns {Promise<void>}
@@ -399,7 +421,7 @@ class Exchange extends EventEmitter {
     }
 
     return promiseOfClose.then(() => {
-      console.debug(`[${this.id}] remove api ${api.url}`)
+      console.log(`[${this.id}] remove api ${api.url}`)
       this.onApiRemoved(api)
       this.apis.splice(this.apis.indexOf(api), 1)
     })
@@ -706,7 +728,7 @@ class Exchange extends EventEmitter {
       return false
     }
 
-    this.emit('connected', pair, api.id)
+    this.emit('connected', pair, api.id, api._connected.length)
 
     return true
   }
@@ -722,7 +744,7 @@ class Exchange extends EventEmitter {
       return false
     }
 
-    this.emit('disconnected', pair, api.id)
+    this.emit('disconnected', pair, api.id, api._connected.length)
 
     return api.readyState === WebSocket.OPEN
   }
