@@ -562,9 +562,9 @@ class Server extends EventEmitter {
             results: output,
           })
         })
-        .catch((error) => {
+        .catch((err) => {
           return res.status(500).json({
-            error: error.message,
+            err: err.message,
           })
         })
     })
@@ -779,7 +779,7 @@ class Server extends EventEmitter {
     const now = Date.now()
 
     const table = {}
-    const toReconnect = []
+    const apisToReconnect = []
 
     for (const apiId in this.apiStats) {
       const apiStat = this.apiStats[apiId]
@@ -796,7 +796,7 @@ class Server extends EventEmitter {
       let reconnectionThresholdReached = false
       let hitThresholdReached = false
 
-      if (reconnectIfNeeded && now - apiStat.start > 60000) {
+      if (reconnectIfNeeded && now - apiStat.start > 10000) {
         if (ping > thrs) {
           reconnectionThresholdReached = true
           pingHms += '⚠'
@@ -816,7 +816,7 @@ class Server extends EventEmitter {
 
         if (reconnectIfNeeded && (reconnectionThresholdReached || hitThresholdReached)) {
           console.warn(`[server] reconnect api ${apiId} (${reconnectionThresholdReached ? 'ping' : 'hit'} threshold reached)`)
-          toReconnect.push(apiId)
+          apisToReconnect.push(apiId)
         }
       }
     }
@@ -825,15 +825,19 @@ class Server extends EventEmitter {
       console.table(table)
     }
 
-    if (toReconnect.length) {
-      console.log(`[server] reconnect ${toReconnect.length} apis`)
+    if (apisToReconnect.length) {
+      console.log(`[server] reconnect ${apisToReconnect.length} apis`)
 
       for (let exchange of this.exchanges) {
         for (let api of exchange.apis) {
-          if (toReconnect.indexOf(api.id) !== -1) {
-            exchange.reconnectApi(api)
+          if (apisToReconnect.indexOf(api.id) !== -1) {
+            const timestampByPair = this.apiStats[api.id].pairs.reduce((timestamps, pair) => {
+              timestamps[pair] = this.connections[exchange.id + ':' + pair].timestamp
 
-            toReconnect.splice(toReconnect.indexOf(api.id), 1)
+              return timestamps
+            }, {})
+
+            exchange.reconnectApi(api, timestampByPair)
           }
         }
       }

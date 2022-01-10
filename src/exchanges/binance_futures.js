@@ -1,5 +1,7 @@
+const e = require('express')
 const Exchange = require('../exchange')
 const { sleep } = require('../helper')
+const axios = require('axios')
 
 class BinanceFutures extends Exchange {
   constructor(options) {
@@ -8,7 +10,7 @@ class BinanceFutures extends Exchange {
     this.id = 'BINANCE_FUTURES'
     this.lastSubscriptionId = 0
     this.subscriptions = {}
-
+    
     this.maxConnectionsPerApi = 100
     this.endpoints = {
       PRODUCTS: ['https://fapi.binance.com/fapi/v1/exchangeInfo', 'https://dapi.binance.com/dapi/v1/exchangeInfo'],
@@ -174,6 +176,43 @@ class BinanceFutures extends Exchange {
         },
       ])
     }
+  }
+
+  getMissingTrades(pair, startTime, endTime) {
+    let endpoint = `?symbol=${pair.toUpperCase()}&startTime=${startTime + 1}&endTime=${endTime}&limit=1000`
+
+    if (this.dapi[pair]) {
+      endpoint = 'https://dapi.binance.com/dapi/v1/aggTrades' + endpoint
+    } else {
+      endpoint = 'https://fapi.binance.com/fapi/v1/aggTrades' + endpoint
+    }
+
+    return axios
+      .get(endpoint)
+      .then((response) => {
+        console.info(`[${this.id}] recovered ${response.data.length} missing trades for ${pair}`)
+
+        this.emitTrades(null, response.data.map(trade => {
+          let size = +trade.q
+
+          if (typeof this.specs[pair] === 'number') {
+            size = (size * this.specs[pair]) / trade.p
+          }
+
+          return {
+            exchange: this.id,
+            pair: pair,
+            timestamp: trade.T,
+            price: +trade.p,
+            size: size,
+            side: trade.m ? 'sell' : 'buy',
+            count: trade.l - trade.f + 1
+          }
+        }))
+      })
+      .catch((err) => {
+        console.error(`[${this.id}] failed to get missing trades`, err)
+      })
   }
 }
 

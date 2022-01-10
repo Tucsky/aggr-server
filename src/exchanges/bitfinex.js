@@ -162,10 +162,7 @@ class Bitfinex extends Exchange {
       )
     }
   }
-
-  onApiRemoved() {
-    this.channels = {}
-  }
+  
 }
 
 module.exports = Bitfinex

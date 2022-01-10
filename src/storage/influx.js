@@ -351,7 +351,7 @@ class InfluxStorage {
     }
 
     now = Date.now()
-    console.log(`[storage/influx/import] done importing (took ${getHms(now - before, false, false)})`)
+    console.log(`[storage/influx/import] done importing (took ${getHms(now - before, true)})`)
   }
 
   /**
@@ -625,15 +625,12 @@ class InfluxStorage {
         epoch: 's',
       })
       .then((results) => {
-        if (!results.results[0].series) {
-          return []
-        }
-
         if (to > +new Date() - this.options.influxResampleInterval) {
-          return this.concatWithPendingBars(results.results[0].series[0].values, markets, from, to)
-        } else {
-          // return only db results
+          return this.concatWithPendingBars(results.results[0].series ? results.results[0].series[0].values : [], markets, from, to)
+        } else if (results.results[0].series) {
           return results.results[0].series[0].values
+        } else {
+          return []
         }
       })
       .catch((err) => {
@@ -664,7 +661,7 @@ class InfluxStorage {
       for (const market of markets) {
         if (this.pendingBars[market] && this.pendingBars[market].length) {
           for (const bar of this.pendingBars[market]) {
-            if (bar.time >= from && bar.time <= to) {
+            if (bar.time >= from && bar.time < to) {
               injectedPendingBars.push(bar)
             }
           }
@@ -672,7 +669,7 @@ class InfluxStorage {
       }
 
       injectedPendingBars = injectedPendingBars.sort((a, b) => a.time - b.time)
-
+      
       return bars.concat(injectedPendingBars)
     }
   }

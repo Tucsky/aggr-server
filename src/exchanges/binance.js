@@ -1,5 +1,6 @@
 const Exchange = require('../exchange')
-const { sleep } = require('../helper')
+const { sleep, getHms } = require('../helper')
+const axios = require('axios')
 
 class Binance extends Exchange {
   constructor(options) {
@@ -81,10 +82,12 @@ class Binance extends Exchange {
     const json = JSON.parse(event.data)
 
     if (json.E) {
+      const pair = json.s.toLowerCase()
+
       return this.emitTrades(api.id, [
         {
           exchange: this.id,
-          pair: json.s.toLowerCase(),
+          pair: pair,
           timestamp: json.E,
           price: +json.p,
           size: +json.q,
@@ -92,6 +95,38 @@ class Binance extends Exchange {
         },
       ])
     }
+  }
+
+  getMissingTrades(pair, startTime, endTime) {
+    const endpoint = `https://api.binance.com/api/v3/aggTrades?symbol=${pair.toUpperCase()}&startTime=${
+      startTime + 1
+    }&endTime=${endTime}&limit=1000`
+
+    return axios
+      .get(endpoint)
+      .then((response) => {
+        console.info(
+          `[${this.id}] recovered ${response.data.length} missing trades for ${pair} (${new Date(startTime).toISOString()} - ${new Date(
+            endTime
+          ).toISOString()})`
+        )
+
+        this.emitTrades(
+          null,
+          response.data.map((trade) => ({
+            exchange: this.id,
+            pair: pair,
+            timestamp: trade.T,
+            price: +trade.p,
+            size: +trade.q,
+            side: trade.m ? 'sell' : 'buy',
+            count: trade.l - trade.f + 1,
+          }))
+        )
+      })
+      .catch((err) => {
+        console.error(`Failed to get historical trades`, err)
+      })
   }
 }
 

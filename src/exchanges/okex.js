@@ -247,18 +247,18 @@ class Okex extends Exchange {
           })
         )
       })
-      .catch((error) => {
+      .catch((err) => {
         console.log(
           'catch',
-          error.message,
+          err.message,
           'on',
           `https://www.okex.com/api/${productType}/v3/instruments/${productId}/liquidation?status=1&limit=10`
         )
-        if (axios.isCancel(error)) {
+        if (axios.isCancel(err)) {
           return
         }
 
-        return error
+        return err
       })
       .then(() => {
         delete this._liquidationAxiosHandler
