@@ -44,7 +44,7 @@
     "HUOBI:ETH-USD",
     "BINANCE_FUTURES:ethusd_perp"
   ],
-  "backupInterval": 5000,
+  "backupInterval": 10000,
   "collect": true,
   "storage": [
     "influx",

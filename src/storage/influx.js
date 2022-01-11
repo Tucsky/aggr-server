@@ -1,4 +1,5 @@
-const Influx = require('influx')
+const { InfluxDB, Point, FluxTableMetaData } = require('@influxdata/influxdb-client')
+const { OrgsAPI, BucketsAPI } = require('@influxdata/influxdb-client-apis')
 const { getHms, sleep, ID } = require('../helper')
 const net = require('net')
 const config = require('../config')
@@ -14,6 +15,11 @@ class InfluxStorage {
   constructor() {
     this.name = this.constructor.name
     this.format = 'point'
+
+    /**
+     * @type {import('@influxdata/influxdb-client').QueryApi}
+     */
+    this.queryAPI = null
 
     /**
      * @type {{[identifier: string]: number}}
@@ -46,30 +52,14 @@ class InfluxStorage {
       throw new Error('dashes not allowed inside influxdb database')
     }
 
-    let host = config.influxHost
-    let port = config.influxPort
-
-    if (typeof config.influxUrl === 'string' && config.influxUrl.length) {
-      ;[host, port] = config.influxUrl.split(':')
-    }
-
-    console.log(`[storage/influx] connecting to ${host}:${port}`)
+    console.log(`[storage/influx] connecting to ${this.options.influxUrl}`)
 
     try {
-      this.influx = new Influx.InfluxDB({
-        host: host || 'localhost',
-        port: port || '8086',
-        database: config.influxDatabase,
-      })
+      this.influx = new InfluxDB({ url: this.options.influxUrl, token: this.options.influxToken })
+      this.queryAPI = this.influx.getQueryApi(this.options.influxOrg)
 
-      const databases = await this.influx.getDatabaseNames()
-
-      if (!databases.includes(config.influxDatabase)) {
-        await this.influx.createDatabase(config.influxDatabase)
-      }
-
-      if (config.collect) {
-        await this.ensureRetentionPolicies()
+      if (this.options.collect) {
+        await this.prepareBuckets()
         await this.getPreviousCloses()
       }
     } catch (error) {
@@ -185,57 +175,105 @@ class InfluxStorage {
 
   /**
    *
+   * @param {BucketsAPI} bucketsAPI
+   * @param {string} orgID
+   * @param {string} name
+   * @param {number} rpDuration in seconds
+   * @returns
    */
-  async ensureRetentionPolicies() {
-    const retentionsPolicies = (await this.influx.showRetentionPolicies()).reduce((output, retentionPolicy) => {
-      output[retentionPolicy.name] = retentionPolicy.duration
-      return output
-    }, {})
+  async createBucket(bucketsAPI, orgID, name, rpDuration) {
+    const [, rp] = name.split('/')
 
-    const timeframes = [config.influxTimeframe].concat(config.influxResampleTo)
+    try {
+      const buckets = await bucketsAPI.getBuckets({ orgID, name })
 
-    for (let timeframe of timeframes) {
-      const rpDuration = timeframe * config.influxRetentionPerTimeframe
-      const rpDurationLitteral = getHms(rpDuration, true)
-      const rpName = config.influxRetentionPrefix + getHms(timeframe)
-
-      if (!retentionsPolicies[rpName]) {
-        console.log(`[storage/influx] create retention policy ${rpName} (duration ${rpDurationLitteral})`)
-        await this.influx.createRetentionPolicy(rpName, {
-          database: config.influxDatabase,
-          duration: rpDurationLitteral,
-          replication: 1,
-        })
+      if (buckets && buckets.buckets && buckets.buckets.length) {
+        console.error(`[storage/influx/bucket] bucket ${name} already exists`)
+        return
       }
-
-      delete retentionsPolicies[rpName]
-    }
-
-    for (let rpName in retentionsPolicies) {
-      if (rpName.indexOf(config.influxRetentionPrefix) === 0) {
-        console.warn(`[storage/influx] unused retention policy ? (${rpName})`)
-        // await this.influx.dropRetentionPolicy(rpName, config.influxDatabase)
-        // just warning now because of multiple instances of aggr-server running with different RPs
+    } catch (e) {
+      if (!(e instanceof HttpError && e.statusCode == 404)) {
+        throw e
       }
     }
 
-    this.baseRp = config.influxRetentionPrefix + getHms(config.influxTimeframe)
+    console.log(`[storage/influx/bucket] create bucket ${name}`)
+
+    await bucketsAPI.postBuckets({
+      body: {
+        orgID,
+        name,
+        rp,
+        retentionRules: [
+          {
+            type: 'expire',
+            everySeconds: rpDuration,
+          },
+        ],
+      },
+    })
   }
 
-  getPreviousCloses() {
-    const timeframeLitteral = getHms(config.influxTimeframe)
+  /**
+   *
+   */
+  async prepareBuckets() {
+    const orgsAPI = new OrgsAPI(this.influx)
+    const organizations = await orgsAPI.getOrgs({ org: this.options.influxOrg })
 
-    this.influx
-      .query(
-        `SELECT close FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${
-          '_' + timeframeLitteral
-        } GROUP BY "market" ORDER BY time DESC LIMIT 1`
-      )
-      .then((data) => {
-        for (let bar of data) {
-          this.lastClose[bar.market] = bar.close
-        }
-      })
+    if (!organizations || !organizations.orgs || !organizations.orgs.length) {
+      console.error(`No organization named "${this.options.influxOrg}" found!`)
+    }
+
+    const orgID = organizations.orgs[0].id
+    console.log(`Using organization "${this.options.influxOrg}" identified by "${orgID}"`)
+
+    console.log('*** Get buckets by name ***')
+    const bucketsAPI = new BucketsAPI(this.influx)
+    const existingBuckets = (await bucketsAPI.getBuckets({ orgID }))
+      .buckets.map((a) => a.name)
+      .filter((a) => a.indexOf('/') !== -1)
+
+    const timeframes = [this.options.influxTimeframe].concat(this.options.influxResampleTo)
+
+    for (let timeframe of timeframes) {
+      const rpDuration = (timeframe * this.options.influxRetentionPerTimeframe) / 1000
+      const bucketName = this.getBucketName(timeframe)
+
+      const bucketIndex = existingBuckets.indexOf(bucketName)
+
+      if (bucketIndex === -1) {
+        await this.createBucket(bucketsAPI, orgID, bucketName, rpDuration)
+      } else {
+        existingBuckets.splice(bucketIndex, 1)
+      }
+    }
+
+    for (const bucketName of existingBuckets) {
+      console.warn(`[storage/influx] unused bucket ? (${bucketName})`)
+    }
+
+    this.baseBucket = this.getBucketName(this.options.influxTimeframe)
+  }
+
+  getBucketName(timeframe) {
+    return this.options.influxDatabase + '/' + this.options.influxRetentionPrefix + getHms(timeframe)
+  }
+
+  async getPreviousCloses() {
+    const bars = await this.queryAPI.collectLines(`
+      from(bucket:"${this.baseBucket}") 
+      |> range(start: -1d)
+      |> filter(fn: (r) => r["_measurement"] == "trades_10s")
+      |> filter(fn: (r) => r["_field"] == "close")
+      |> last(column: "_time")
+      |> map(fn: (r) => ({ market: r.market, close: r._value }))
+    `)
+
+    for (let i = 4; i < bars.length; i++) {
+      const [, , , close, market] = bars[i].split(',')
+      this.lastClose[market] = +close
+    }
   }
 
   /**
@@ -430,7 +468,7 @@ class InfluxStorage {
    * Import pending bars (minimum tf bars) and resample into bigger timeframes
    */
   async import() {
-    let now = Date.now()
+    /*let now = Date.now()
     let before = now
 
     console.log(`[storage/influx/import] import start`)
@@ -442,7 +480,7 @@ class InfluxStorage {
     }
 
     now = Date.now()
-    console.log(`[storage/influx/import] import end (took ${getHms(now - before, true)})`)
+    console.log(`[storage/influx/import] import end (took ${getHms(now - before, true)})`)*/
   }
 
   /**
@@ -459,12 +497,6 @@ class InfluxStorage {
     const now = Date.now()
 
     /**
-     * closed bars
-     * @type {Bar[]}
-     */
-    const barsToImport = []
-
-    /**
      * Total range of import
      * @type {TimeRange}
      */
@@ -473,6 +505,13 @@ class InfluxStorage {
       to: 0,
       markets: [],
     }
+
+    if (!Object.keys(this.pendingBars).length) {
+      return importedRange
+    }
+
+    const writeAPI = this.influx.getWriteApi(this.options.influxOrg, this.baseBucket, 'ms')
+    console.log(`import pending bar (cuurent time: ${new Date().toISOString()})`)
 
     for (const identifier in this.pendingBars) {
       for (let i = 0; i < this.pendingBars[identifier].length; i++) {
@@ -485,117 +524,52 @@ class InfluxStorage {
           importedRange.markets.push(identifier)
         }
 
-        barsToImport.push(this.pendingBars[identifier].shift())
-        i--
+        const volumePoint = new Point('volume')
+          .timestamp(bar.time)
+          .tag('market', bar.market)
+          .intField('cbuy', bar.cbuy)
+          .intField('csell', bar.csell)
+          .floatField('vbuy', bar.vbuy)
+          .floatField('vsell', bar.vsell)
+          .floatField('lbuy', bar.lbuy)
+          .floatField('lsell', bar.lsell)
+
+        console.log(`${new Date(bar.time).toISOString()} ${volumePoint.toLineProtocol(writeAPI)}`)
+
+        writeAPI.writePoint(volumePoint)
+
+        if (bar.close !== null) {
+          const ohlcPoint = new Point('ohlc')
+            .timestamp(bar.time)
+            .tag('market', bar.market)
+            .floatField('open', bar.open)
+            .floatField('high', bar.high)
+            .floatField('low', bar.low)
+            .floatField('close', bar.close)
+          writeAPI.writePoint(ohlcPoint)
+        }
       }
     }
 
-    // free up realtime bars
+    // bars are now in writeAPI
     this.pendingBars = {}
 
-    let debugImport = {
-      count: 0,
-      market: null,
-      lastTime: null,
-    }
+    return writeAPI
+      .close()
+      .then(() => {
+        now = Date.now()
 
-    if (barsToImport.length) {
-      await this.writePoints(
-        barsToImport.map((bar, index) => {
-          const fields = {
-            cbuy: bar.cbuy,
-            csell: bar.csell,
-            vbuy: bar.vbuy,
-            vsell: bar.vsell,
-            lbuy: bar.lbuy,
-            lsell: bar.lsell,
-          }
+        console.log(`[storage/influx/import] done importing pending bars (took ${now - before}ms)`)
 
-          if (bar.close !== null) {
-            ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
-          }
-
-          if (/BINANCE_FUTURES.*btcusdt/.test(bar.market)) {
-            debugImport.count++
-            debugImport.lastTime = bar.time
-            debugImport.market = bar.market
-          }
-
-          return {
-            measurement: 'trades_' + getHms(config.influxTimeframe),
-            tags: {
-              market: bar.market,
-            },
-            fields: fields,
-            timestamp: +bar.time,
-          }
-        }),
-        {
-          precision: 'ms',
-          retentionPolicy: this.baseRp,
+        return importedRange
+      })
+      .catch((error) => {
+        console.error(e)
+        if (e instanceof HttpError && e.statusCode === 401) {
+          console.log('Run ./onboarding.js to setup a new InfluxDB database.')
         }
-      )
-    }
-
-    if (config.pairs.indexOf('BINANCE_FUTURES:btcusdt') !== -1) {
-      console.log(
-        `[storage/${this.name}] import ${debugImport.count} ${getHms(config.influxTimeframe)} bar for market ${
-          debugImport.market
-        } (last time ${new Date(debugImport.lastTime).toISOString().split('T').pop()})`
-      )
-    }
-
-    return importedRange
-  }
-
-  /**
-   * Wrapper for write
-   * Write points into db
-   * Called from importPendingBars
-   *
-   * @param {Influx.IPoint[]} points
-   * @param {Influx.IWriteOptions} options
-   * @param {number?} attempt no of attempt starting at 0 (abort if too much failed attempts)
-   * @returns
-   */
-  async writePoints(points, options, attempt = 0) {
-    if (!points.length) {
-      return
-    }
-
-    const measurement = points[0].measurement
-    const from = points[0].timestamp
-    const to = points[points.length - 1].timestamp
-
-    try {
-      await this.influx.writePoints(points, options)
-
-      if (attempt > 0) {
-        console.debug(`[storage/influx] successfully wrote points after ${attempt} attempt(s)`)
-      }
-    } catch (error) {
-      attempt++
-
-      console.error(
-        `[storage/influx] write points failed (${attempt}${
-          attempt === 1 ? 'st' : attempt === 2 ? 'nd' : attempt === 3 ? 'rd' : 'th'
-        } attempt)`,
-        error.message
-      )
-
-      if (attempt >= 5) {
-        console.error(
-          `too many attemps at writing points\n\n${measurement}, ${new Date(from).toUTCString()} to ${new Date(
-            to
-          ).toUTCString()}\n\t-> abort`
-        )
-        throw error.message
-      }
-
-      await sleep(500)
-
-      return this.writePoints(points, options, attempt)
-    }
+        console.error(`[storage/influx/import] failed to write points`, error.message)
+      })
   }
 
   /**
@@ -728,13 +702,36 @@ class InfluxStorage {
    * @returns
    */
   fetch({ from, to, timeframe = 60000, markets = [] }) {
-    const timeframeLitteral = getHms(timeframe)
-
-    let query = `SELECT * FROM "${config.influxDatabase}"."${config.influxRetentionPrefix}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
+    let filters = `|> filter(fn: (r) => r["_measurement"] == "ohlc")`
 
     if (markets.length) {
-      query += ` AND (${markets.map((market) => `market = '${market}'`).join(' OR ')})`
+      filters += ` |> filter(fn: (r) => ${markets.map((market) => `r["market"] == "${market}"`).join(' or ')})`
     }
+
+    const query = `from(bucket: "${this.getBucketName(timeframe)}")
+    |> range(start: ${from}, stop: ${to})
+    ${filters}
+    |> pivot(
+      rowKey:["_time"],
+      columnKey: ["_field"],
+      valueColumn: "_value"
+    )`
+      console.log(query);
+    return new Promise((resolve, reject) => {
+      this.queryAPI.queryRows(query, {
+        next(data) {
+          debugger
+          resolve([])
+        },
+        error(error) {
+          reject(error.message)
+          debugger
+        },
+        complete() {
+          resolve([])
+        }
+      })
+    })
 
     return this.influx
       .queryRaw(query, {

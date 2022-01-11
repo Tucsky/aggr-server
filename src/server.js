@@ -294,10 +294,6 @@ class Server extends EventEmitter {
   }
 
   createWSServer() {
-    if (!config.broadcast) {
-      return
-    }
-
     this.wss = new WebSocket.Server({
       server: this.server,
     })
@@ -307,8 +303,7 @@ class Server extends EventEmitter {
     })
 
     this.wss.on('connection', (ws, req) => {
-      const user = getIp(req)
-      const pairs = parsePairsFromWsRequest(req)
+      const ip = getIp(req)
 
       if (pairs && pairs.length) {
         ws.pairs = pairs

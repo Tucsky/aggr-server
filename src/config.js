@@ -111,15 +111,10 @@ const defaultConfig = {
   backupInterval: 10000,
 
   // influx db server to use when storage is set to "influx"
-  influxHost: 'localhost',
-  influxPort: 8086,
-
-  // influx database
+  influxUrl: 'http://localhost:8086',
+  influxOrg: 'aggr',
   influxDatabase: 'significant_trades',
-
-  // base name measurement used to store the bars
-  // if influxMeasurement is "trades" and influxTimeframe is "10000", influx will save to trades_10s
-  influxMeasurement: 'trades',
+  influxToken: '*your influx 2.0 token*',
 
   // timeframe in ms (default 10s === 10000ms)
   // this is lowest timeframe that influx will use to group the trades
@@ -137,6 +132,7 @@ const defaultConfig = {
     1000 * 60 * 60 * 2,
     1000 * 60 * 60 * 4,
     1000 * 60 * 60 * 6,
+    1000 * 60 * 60 * 12,
     1000 * 60 * 60 * 24,
   ],
 

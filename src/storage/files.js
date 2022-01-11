@@ -81,7 +81,7 @@ class FilesStorage {
   }
 
   reviewStreams() {
-    const now = +new Date()
+    const now = Date.now()
 
     for (let id in this.writableStreams) {
       // close 1 min after file expiration (timestamp + fileInterval)
