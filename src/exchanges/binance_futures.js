@@ -1,6 +1,6 @@
 const e = require('express')
 const Exchange = require('../exchange')
-const { sleep } = require('../helper')
+const { sleep, getHms } = require('../helper')
 const axios = require('axios')
 
 class BinanceFutures extends Exchange {
@@ -28,21 +28,6 @@ class BinanceFutures extends Exchange {
       },
       this.options
     )
-  }
-
-  onApiCreated(api) {
-    // A single connection is only valid for 24 hours; expect to be disconnected at the 24 hour mark
-    api._reconnectionTimeout = setTimeout(() => {
-      api._reconnectionTimeout = null
-      console.log(`[exchange/binance_futures] reconnect API`)
-      this.reconnectApi(api)
-    }, 1000 * 60 * 60 * 24)
-  }
-
-  onApiRemoved(api) {
-    if (api._reconnectionTimeout) {
-      clearTimeout(api._reconnectionTimeout)
-    }
   }
 
   formatProducts(response) {
@@ -137,48 +122,51 @@ class BinanceFutures extends Exchange {
     if (!json) {
       return
     } else if (json.e === 'trade' && json.X !== 'INSURANCE_FUND') {
-      let size = +json.q
-
-      const symbol = json.s.toLowerCase()
-
-      if (typeof this.specs[symbol] === 'number') {
-        size = (size * this.specs[symbol]) / json.p
-      }
-
-      return this.emitTrades(api.id, [
-        {
-          exchange: this.id,
-          pair: symbol,
-          timestamp: json.T,
-          price: +json.p,
-          size: size,
-          side: json.m ? 'sell' : 'buy',
-        },
-      ])
+      return this.emitTrades(api.id, [this.formatTrade(json, json.s.toLowerCase())])
     } else if (json.e === 'forceOrder') {
-      let size = +json.o.q
-
-      const symbol = json.o.s.toLowerCase()
-
-      if (typeof this.specs[symbol] === 'number') {
-        size = (size * this.specs[symbol]) / json.o.p
-      }
-
-      return this.emitLiquidations(api.id, [
-        {
-          exchange: this.id,
-          pair: symbol,
-          timestamp: json.o.T,
-          price: +json.o.p,
-          size: size,
-          side: json.o.S === 'BUY' ? 'buy' : 'sell',
-          liquidation: true,
-        },
-      ])
+      return this.emitLiquidations(api.id, [this.formatLiquidation(json)])
     }
   }
 
-  getMissingTrades(pair, startTime, endTime) {
+  formatTrade(trade, symbol) {
+    let size = +trade.q
+
+    if (typeof this.specs[symbol] === 'number') {
+      size = (size * this.specs[symbol]) / trade.p
+    }
+
+    return {
+      exchange: this.id,
+      pair: symbol,
+      timestamp: trade.T,
+      price: +trade.p,
+      size: size,
+      side: trade.m ? 'sell' : 'buy',
+    }
+  }
+
+  formatLiquidation(trade) {
+    let size = +trade.q
+
+    const symbol = trade.o.s.toLowerCase()
+
+    if (typeof this.specs[symbol] === 'number') {
+      size = (size * this.specs[symbol]) / trade.p
+    }
+
+    return {
+      exchange: this.id,
+      pair: symbol,
+      timestamp: trade.o.T,
+      price: +trade.o.p,
+      size: size,
+      side: trade.o.S === 'BUY' ? 'buy' : 'sell',
+      liquidation: true,
+    }
+  }
+
+  getMissingTrades(pair, timestamps, endTime, totalRecovered = 0) {
+    const startTime = timestamps[pair]
     let endpoint = `?symbol=${pair.toUpperCase()}&startTime=${startTime + 1}&endTime=${endTime}&limit=1000`
 
     if (this.dapi[pair]) {
@@ -186,33 +174,52 @@ class BinanceFutures extends Exchange {
     } else {
       endpoint = 'https://fapi.binance.com/fapi/v1/aggTrades' + endpoint
     }
-
+    
     return axios
       .get(endpoint)
       .then((response) => {
-        console.info(`[${this.id}] recovered ${response.data.length} missing trades for ${pair}`)
+        if (response.data.length) {
+          const trades = response.data.map((trade) => ({
+            ...this.formatTrade(trade, pair),
+            count: trade.l - trade.f + 1,
+            recovered: true
+          }))
+  
+          this.emitTrades(null, trades)
 
-        this.emitTrades(null, response.data.map(trade => {
-          let size = +trade.q
+          totalRecovered += trades.length
+          timestamps[pair] = trades[trades.length - 1].timestamp
 
-          if (typeof this.specs[pair] === 'number') {
-            size = (size * this.specs[pair]) / trade.p
+          if (response.data.length === 1000) {
+            const remainingMissingTime = endTime - timestamps[pair]
+
+            if (remainingMissingTime > 1000 * 60) {
+              console.info(`[${this.id}] try again (${getHms(remainingMissingTime)} remaining)`)
+              return this.getMissingTrades(pair, timestamps[pair], endTime)
+            }
           }
+        }
 
-          return {
-            exchange: this.id,
-            pair: pair,
-            timestamp: trade.T,
-            price: +trade.p,
-            size: size,
-            side: trade.m ? 'sell' : 'buy',
-            count: trade.l - trade.f + 1
-          }
-        }))
+        return totalRecovered
       })
       .catch((err) => {
         console.error(`[${this.id}] failed to get missing trades`, err)
       })
+  }
+
+  onApiCreated(api) {
+    // A single connection is only valid for 24 hours; expect to be disconnected at the 24 hour mark
+    api._reconnectionTimeout = setTimeout(() => {
+      api._reconnectionTimeout = null
+      console.log(`[exchange/${this.id}] reconnect API`)
+      this.reconnectApi(api)
+    }, 1000 * 60 * 60 * 24)
+  }
+
+  onApiRemoved(api) {
+    if (api._reconnectionTimeout) {
+      clearTimeout(api._reconnectionTimeout)
+    }
   }
 }
 

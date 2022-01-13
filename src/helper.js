@@ -44,7 +44,7 @@ module.exports = {
     output += (!round || !output.length) && s > 0 ? s + 's' : ''
 
     if (ms && (!output.length || (!round && timestamp < 60 * 1000 && timestamp > s * 1000)))
-      output += (output.length ? ', ' : '') + Math.round(timestamp - s * 1000) + 'ms'
+      output += (output.length ? ' ' : '') + Math.round(timestamp - s * 1000) + 'ms'
 
     return output.trim()
   },

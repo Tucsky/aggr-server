@@ -1,6 +1,5 @@
 const Exchange = require('../exchange')
 const WebSocket = require('ws')
-const { getHms } = require('../helper')
 const axios = require('axios')
 
 class Ftx extends Exchange {
@@ -74,23 +73,20 @@ class Ftx extends Exchange {
 
     return this.emitTrades(
       api.id,
-      json.data.map((trade) => {
-        const output = {
-          exchange: this.id,
-          pair: json.market,
-          timestamp: +new Date(trade.time),
-          price: +trade.price,
-          size: trade.size,
-          side: trade.side,
-        }
-
-        if (trade.liquidation) {
-          output.liquidation = true
-        }
-
-        return output
-      })
+      json.data.map((trade) => this.formatTrade(trade, json.market))
     )
+  }
+
+  formatTrade(trade, pair) {
+    return {
+      exchange: this.id,
+      pair: pair,
+      timestamp: +new Date(trade.time),
+      price: +trade.price,
+      size: trade.size,
+      side: trade.side,
+      liquidation: trade.liquidation,
+    }
   }
 
   onApiCreated(api) {
@@ -101,23 +97,25 @@ class Ftx extends Exchange {
     this.stopKeepAlive(api)
   }
 
-  getMissingTrades(pair, startTime, endTime) {
-    const endpoint = `https://ftx.com/api/markets/${pair}/trades?start_time=${Math.round(startTime / 1000)}&end_time=${Math.round(endTime / 1000)}`
+  getMissingTrades(pair, timestamps, endTime, totalRecovered = 0) {
+    const startTime = timestamps[pair]
+    const endpoint = `https://ftx.com/api/markets/${pair}/trades?start_time=${Math.round(startTime / 1000)}&end_time=${Math.round(
+      endTime / 1000
+    )}`
 
     return axios
       .get(endpoint)
       .then((response) => {
-        console.info(`[${this.id}] recovered ${response.data.result.length} missing trades for ${pair}`)
+        if (response.data.result.length) {
+          const trades = response.data.result.map((trade) => this.formatTrade(trade, pair))
 
-        this.emitTrades(null, response.data.result.map(trade => ({
-          exchange: this.id,
-          pair: pair,
-          timestamp: +new Date(trade.time),
-          price: trade.price,
-          size: trade.size,
-          side: trade.side,
-          liquidation: trade.liquidation,
-        })))
+          this.emitTrades(null, trades)
+
+          totalRecovered += trades.length
+          timestamps[pair] = trades[trades.length - 1].timestamp + 1
+        }
+
+        return totalRecovered
       })
       .catch((err) => {
         console.error(`Failed to get historical trades`, err)

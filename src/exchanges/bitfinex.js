@@ -42,7 +42,7 @@ class Bitfinex extends Exchange {
         symbol: 't' + pair,
       })
     )
-    
+
     if (api._connected.length === 1) {
       api.send(
         JSON.stringify({
@@ -65,7 +65,7 @@ class Bitfinex extends Exchange {
     }
 
     if (api._connected.length === 0) {
-      const chanId = Object.keys(this.channels).find(id => this.channels[id].name === 'status');
+      const chanId = Object.keys(this.channels).find((id) => this.channels[id].name === 'status')
 
       if (chanId) {
         api.send(
@@ -84,10 +84,7 @@ class Bitfinex extends Exchange {
     )
 
     if (!channelsToUnsubscribe.length) {
-      console.warn(
-        `[${this}.id}/unsubscribe] no channel to unsubscribe from`,
-        this.channels
-      )
+      console.warn(`[${this}.id}/unsubscribe] no channel to unsubscribe from`, this.channels)
       return
     }
 
@@ -98,7 +95,6 @@ class Bitfinex extends Exchange {
           chanId: id,
         })
       )
-
       delete this.channels[id]
     }
   }
@@ -162,7 +158,15 @@ class Bitfinex extends Exchange {
       )
     }
   }
-  
+
+  onApiRemoved(api) {
+    // clean channels
+    const apiChannels = Object.keys(this.channels).find((id) => this.channels[id].apiId === api.id)
+
+    for (const id of apiChannels) {
+      delete this.channels[id]
+    }
+  }
 }
 
 module.exports = Bitfinex

@@ -82,47 +82,55 @@ class Binance extends Exchange {
     const json = JSON.parse(event.data)
 
     if (json.E) {
-      const pair = json.s.toLowerCase()
-
-      return this.emitTrades(api.id, [
-        {
-          exchange: this.id,
-          pair: pair,
-          timestamp: json.E,
-          price: +json.p,
-          size: +json.q,
-          side: json.m ? 'sell' : 'buy',
-        },
-      ])
+      return this.emitTrades(api.id, [this.formatTrade(json, json.s.toLowerCase())])
     }
   }
 
-  getMissingTrades(pair, startTime, endTime) {
+  formatTrade(trade, symbol) {
+    return {
+      exchange: this.id,
+      pair: symbol,
+      timestamp: trade.E,
+      price: +trade.p,
+      size: +trade.q,
+      side: trade.m ? 'sell' : 'buy',
+    }
+  }
+
+  getMissingTrades(pair, timestamps, endTime, totalRecovered = 0) {
+    const startTime = timestamps[pair]
     const endpoint = `https://api.binance.com/api/v3/aggTrades?symbol=${pair.toUpperCase()}&startTime=${
       startTime + 1
     }&endTime=${endTime}&limit=1000`
-
+    
     return axios
       .get(endpoint)
       .then((response) => {
-        console.info(
-          `[${this.id}] recovered ${response.data.length} missing trades for ${pair} (${new Date(startTime).toISOString()} - ${new Date(
-            endTime
-          ).toISOString()})`
-        )
-
-        this.emitTrades(
-          null,
-          response.data.map((trade) => ({
-            exchange: this.id,
-            pair: pair,
+        if (response.data.length) {
+          const trades = response.data.map((trade) => ({
+            ...this.formatTrade(trade, pair),
             timestamp: trade.T,
-            price: +trade.p,
-            size: +trade.q,
-            side: trade.m ? 'sell' : 'buy',
             count: trade.l - trade.f + 1,
           }))
-        )
+
+          this.emitTrades(null, trades)
+
+          totalRecovered += trades.length
+          timestamps[pair] = trades[trades.length - 1].timestamp + 1
+
+          if (response.data.length === 1000) {
+            // we assume there is more since 1k trades is max returned by the api
+
+            const remainingMissingTime = endTime - timestamps[pair]
+
+            if (remainingMissingTime > 1000 * 60) {
+              console.info(`[${this.id}] try again (${getHms(remainingMissingTime)} remaining)`)
+              return this.getMissingTrades(pair, timestamps[pair], endTime, totalRecovered)
+            }
+          }
+        }
+
+        return totalRecovered
       })
       .catch((err) => {
         console.error(`Failed to get historical trades`, err)

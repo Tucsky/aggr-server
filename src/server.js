@@ -899,7 +899,7 @@ class Server extends EventEmitter {
     })
   }
 
-  dispatchRawTrades(exchange, { source, data }) {
+  dispatchRawTrades(exchange, data) {
     const now = +new Date()
 
     for (let i = 0; i < data.length; i++) {
@@ -930,7 +930,7 @@ class Server extends EventEmitter {
     }
   }
 
-  dispatchAggregateTrade(exchange, { source, data }) {
+  dispatchAggregateTrade(exchange, data) {
     const now = +new Date()
     const length = data.length
 
@@ -948,8 +948,6 @@ class Server extends EventEmitter {
       }
 
       if (!this.connections[identifier]) {
-        console.error(`UNKNOWN TRADE SOURCE`, trade)
-        console.info('This trade will be ignored.')
         continue
       }
 

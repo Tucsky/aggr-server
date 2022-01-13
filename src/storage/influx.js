@@ -331,7 +331,7 @@ class InfluxStorage {
         activeBars[tradeIdentifier].low = Math.min(activeBars[tradeIdentifier].low, +trade.price)
         activeBars[tradeIdentifier].close = +trade.price
 
-        activeBars[tradeIdentifier]['c' + trade.side]++
+        activeBars[tradeIdentifier]['c' + trade.side] += trade.count || 1
         activeBars[tradeIdentifier]['v' + trade.side] += trade.price * trade.size
       }
     }
@@ -976,8 +976,6 @@ class InfluxStorage {
   }
 
   emitPendingBars(pendingBarsRequestId, markets, from, to) {
-    console.debug(`[storage/influx/collector] cluster is requesting realtime bars data`)
-
     const results = []
 
     for (const market of markets) {
