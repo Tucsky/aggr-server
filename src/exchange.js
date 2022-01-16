@@ -82,6 +82,7 @@ class Exchange extends EventEmitter {
      * @type {Trade[]}
      */
     this.queuedTrades = []
+    this.lastMessages = []
 
     this.options = Object.assign(
       {
@@ -228,11 +229,16 @@ class Exchange extends EventEmitter {
         }
 
         const jsonString = JSON.stringify(json)
+
+        this.lastMessages.push(jsonString)
+
         if (/(unrecognized|failure|invalid|error|expired|cannot|exceeded|error)/.test(jsonString)) {
           console.error(`[${this.id}] error message intercepted\n`, json)
         }
 
-        api._lastUnrecognizedMessage = jsonString
+        if (this.lastMessages.length > 10) {
+          this.lastMessages.splice(0, this.lastMessages.length - 10)
+        }
       }
     }
 
@@ -282,13 +288,14 @@ class Exchange extends EventEmitter {
       if (pairsToReconnect.length) {
         const pairsToDisconnect = api._connected.slice()
 
+        console.log(`[${this.id}] connection closed unexpectedly`)
+        console.log(this.lastMessages)
+
         if (pairsToDisconnect.length) {
           for (const pair of pairsToDisconnect) {
             await this.unlink(this.id + ':' + pair)
           }
         }
-
-        console.log(`[${this.id}] connection closed unexpectedly (last message was "${api._lastUnrecognizedMessage}")`)
 
         this.scheduledOperationsDelays[api.url] = this.schedule(
           () => {
@@ -300,6 +307,8 @@ class Exchange extends EventEmitter {
           1000 * 30
         )
       }
+
+      this.lastMessages.splice(0, this.lastMessages.length)
     }
 
     api.onerror = (event) => {
@@ -370,9 +379,9 @@ class Exchange extends EventEmitter {
    * @param {string} pair
    * @returns {WebSocket}
    */
-  getActiveApiByPair(pair, includePending = false) {
+  getActiveApiByPair(pair) {
     for (let i = 0; i < this.apis.length; i++) {
-      if (this.apis[i]._connected.indexOf(pair) !== -1 || (includePending && this.apis[i]._pending.indexOf(pair) !== -1)) {
+      if (this.apis[i]._connected.indexOf(pair) !== -1 || this.apis[i]._pending.indexOf(pair) !== -1) {
         return this.apis[i]
       }
     }
@@ -453,6 +462,12 @@ class Exchange extends EventEmitter {
     this.recoverTrades(timestamps)
   }
 
+  async reconnectAllApis() {
+    for (const api of this.apis) {
+      await this.reconnectApi(api)
+    }
+  }
+
   async recoverTrades(timestamps, pairs) {
     // check if exchange is compatible
     if (typeof this.getMissingTrades === 'function') {
@@ -516,7 +531,6 @@ class Exchange extends EventEmitter {
     console.info(`[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(',')}`)
 
     for (let pair of pairsToReconnect) {
-      console.debug(`[${this.id}.reconnectPairs] disconnecting market ${this.id + ':' + pair}`)
       await this.unlink(this.id + ':' + pair, true)
     }
 
@@ -524,7 +538,6 @@ class Exchange extends EventEmitter {
     const promisesOfApiOpens = []
 
     for (let pair of pairsToReconnect) {
-      console.debug(`[${this.id}.reconnectPairs] connecting market ${this.id + ':' + pair}`)
       promisesOfSubscriptions.push(this.link(this.id + ':' + pair))
 
       if (timestamps) {
@@ -863,10 +876,7 @@ class Exchange extends EventEmitter {
       return
     }
 
-    this.emit('liquidations', {
-      source: source,
-      data: trades,
-    })
+    this.emit('liquidations', trades)
 
     return true
   }

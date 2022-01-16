@@ -161,7 +161,7 @@ class Bitfinex extends Exchange {
 
   onApiRemoved(api) {
     // clean channels
-    const apiChannels = Object.keys(this.channels).find((id) => this.channels[id].apiId === api.id)
+    const apiChannels = Object.keys(this.channels).filter((id) => this.channels[id].apiId === api.id)
 
     for (const id of apiChannels) {
       delete this.channels[id]

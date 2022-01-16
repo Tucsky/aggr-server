@@ -146,12 +146,11 @@ class BinanceFutures extends Exchange {
   }
 
   formatLiquidation(trade) {
-    let size = +trade.q
-
+    let size = +trade.o.q
     const symbol = trade.o.s.toLowerCase()
 
     if (typeof this.specs[symbol] === 'number') {
-      size = (size * this.specs[symbol]) / trade.p
+      size = (size * this.specs[symbol]) / trade.o.p    
     }
 
     return {
@@ -195,7 +194,7 @@ class BinanceFutures extends Exchange {
 
             if (remainingMissingTime > 1000 * 60) {
               console.info(`[${this.id}] try again (${getHms(remainingMissingTime)} remaining)`)
-              return this.getMissingTrades(pair, timestamps[pair], endTime)
+              return this.getMissingTrades(pair, timestamps, endTime, totalRecovered)
             }
           }
         }

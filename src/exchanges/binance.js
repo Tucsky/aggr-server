@@ -125,7 +125,7 @@ class Binance extends Exchange {
 
             if (remainingMissingTime > 1000 * 60) {
               console.info(`[${this.id}] try again (${getHms(remainingMissingTime)} remaining)`)
-              return this.getMissingTrades(pair, timestamps[pair], endTime, totalRecovered)
+              return this.getMissingTrades(pair, timestamps, endTime, totalRecovered)
             }
           }
         }

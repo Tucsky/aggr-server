@@ -539,7 +539,7 @@ class Server extends EventEmitter {
             })
           }
 
-          if (length > 2000 || markets.length > 20) {
+          if (output.length > 10000) {
             console.log(
               `[${ip}/${req.get('origin')}] ${getHms(to - from)} (${markets.length} markets, ${getHms(timeframe, true)} tf) -> ${
                 +length ? parseInt(length) + ' bars into ' : ''

@@ -708,10 +708,12 @@ class InfluxStorage {
           } else if (data.op === 'import') {
             // cluster is asking collector to write
             this.import().finally(() => {
-              this.clusterSocket.write(
-                JSON.stringify({
-                  op: 'import',
-                }) + '#')
+              if (this.clusterSocket) {
+                this.clusterSocket.write(
+                  JSON.stringify({
+                    op: 'import',
+                  }) + '#')
+              }
             })
           }
         })

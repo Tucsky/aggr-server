@@ -1,3 +1,4 @@
+const axios = require('axios')
 const Exchange = require('../exchange')
 
 class Deribit extends Exchange {
@@ -34,8 +35,27 @@ class Deribit extends Exchange {
       return
     }
 
+    if (api._connected.length === 1) {
+      if (!this.options.deribitClientId) {
+        throw new Error('As of 15 Jan 2022 Deribit will no longer allow unauthenticated connections to subscribe to raw feeds\n\nAdd deribitClientId & deribitClientSecret to the config and restart server')
+      }
+      
+      api.send(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'public/auth',
+          params: {
+            grant_type: 'client_credentials',
+            client_id: this.options.deribitClientId,
+            client_secret: this.options.deribitClientSecret,
+          },
+        })
+      )
+    }
+
     api.send(
       JSON.stringify({
+        access_token: this.accessToken,
         method: 'public/subscribe',
         params: {
           channels: ['trades.' + pair + '.raw'],
@@ -56,6 +76,7 @@ class Deribit extends Exchange {
 
     api.send(
       JSON.stringify({
+        access_token: this.accessToken,
         method: 'public/unsubscribe',
         params: {
           channels: ['trades.' + pair + '.raw'],
