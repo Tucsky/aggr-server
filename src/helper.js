@@ -149,4 +149,30 @@ module.exports = {
       })
     })
   },
+  parseDuration(duration) {
+    duration = duration.toString().trim()
+
+    if (/d$/i.test(duration)) {
+      output = parseFloat(duration) * 60 * 60 * 24
+    } else if (/h$/i.test(duration)) {
+      output = parseFloat(duration) * 60 * 60
+    } else if (/m$/i.test(duration)) {
+      output = parseFloat(duration) * 60
+    } else if (/ms$/i.test(duration)) {
+      output = parseFloat(duration) / 1000
+    } else {
+      output = parseFloat(duration)
+    }
+
+    return output * 1000
+  },
+  parseDatetime(datetime) {
+    const date = new Date(datetime)
+
+    if (isNaN(+date)) {
+      throw new Error(`Invalid date ${datetime}`)
+    }
+
+    return +new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  },
 }

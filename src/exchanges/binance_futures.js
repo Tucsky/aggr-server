@@ -164,11 +164,11 @@ class BinanceFutures extends Exchange {
     }
   }
 
-  getMissingTrades(pair, timestamps, endTime, totalRecovered = 0) {
-    const startTime = timestamps[pair]
-    let endpoint = `?symbol=${pair.toUpperCase()}&startTime=${startTime + 1}&endTime=${endTime}&limit=1000`
+  getMissingTrades(range, totalRecovered = 0) {
+    const startTime = range.from
+    let endpoint = `?symbol=${range.pair.toUpperCase()}&startTime=${startTime + 1}&endTime=${range.to}&limit=1000`
 
-    if (this.dapi[pair]) {
+    if (this.dapi[range.pair]) {
       endpoint = 'https://dapi.binance.com/dapi/v1/aggTrades' + endpoint
     } else {
       endpoint = 'https://fapi.binance.com/fapi/v1/aggTrades' + endpoint
@@ -179,46 +179,32 @@ class BinanceFutures extends Exchange {
       .then((response) => {
         if (response.data.length) {
           const trades = response.data.map((trade) => ({
-            ...this.formatTrade(trade, pair),
-            count: trade.l - trade.f + 1,
-            recovered: true
+            ...this.formatTrade(trade, range.pair),
+            count: trade.l - trade.f + 1
           }))
   
           this.emitTrades(null, trades)
 
           totalRecovered += trades.length
-          timestamps[pair] = trades[trades.length - 1].timestamp
+          range.from = trades[trades.length - 1].timestamp
 
-          if (response.data.length === 1000) {
-            const remainingMissingTime = endTime - timestamps[pair]
-
-            if (remainingMissingTime > 1000 * 60) {
-              console.info(`[${this.id}] try again (${getHms(remainingMissingTime)} remaining)`)
-              return this.getMissingTrades(pair, timestamps, endTime, totalRecovered)
-            }
+          const remainingMissingTime = range.to - range.from
+          
+          if (remainingMissingTime > 1000) {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(remainingMissingTime)} remaining)`)
+            return this.getMissingTrades(range, totalRecovered)
+          } else {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
         }
 
         return totalRecovered
       })
       .catch((err) => {
-        console.error(`[${this.id}] failed to get missing trades`, err)
+        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+
+        return totalRecovered
       })
-  }
-
-  onApiCreated(api) {
-    // A single connection is only valid for 24 hours; expect to be disconnected at the 24 hour mark
-    api._reconnectionTimeout = setTimeout(() => {
-      api._reconnectionTimeout = null
-      console.log(`[exchange/${this.id}] reconnect API`)
-      this.reconnectApi(api)
-    }, 1000 * 60 * 60 * 24)
-  }
-
-  onApiRemoved(api) {
-    if (api._reconnectionTimeout) {
-      clearTimeout(api._reconnectionTimeout)
-    }
   }
 }
 

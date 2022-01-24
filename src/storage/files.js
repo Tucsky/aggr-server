@@ -37,20 +37,20 @@ class FilesStorage {
     pair = pair.replace(/[/:]/g, '-')
 
     const folderPart = `${this.options.filesLocation}/${exchange}/${pair}`
-    const datePart = `${date.getFullYear()}-${('0' + (date.getMonth() + 1)).slice(-2)}-${('0' + date.getDate()).slice(-2)}`
+    const datePart = `${date.getUTCFullYear()}-${('0' + (date.getUTCMonth() + 1)).slice(-2)}-${('0' + date.getUTCDate()).slice(-2)}`
 
     let file = `${folderPart}/${datePart}`
 
     if (this.options.filesInterval < 1000 * 60 * 60 * 24) {
-      file += `-${('0' + date.getHours()).slice(-2)}`
+      file += `-${('0' + date.getUTCHours()).slice(-2)}`
     }
 
     if (this.options.filesInterval < 1000 * 60 * 60) {
-      file += `-${('0' + date.getMinutes()).slice(-2)}`
+      file += `-${('0' + date.getUTCMinutes()).slice(-2)}`
     }
 
     if (this.options.filesInterval < 1000 * 60) {
-      file += `-${('0' + date.getSeconds()).slice(-2)}`
+      file += `-${('0' + date.getUTCSeconds()).slice(-2)}`
     }
 
     return file.replace(/\s+/g, '')
@@ -89,26 +89,40 @@ class FilesStorage {
         delete this.writableStreams[id]
 
         if (this.options.filesGzipAfterUse) {
-          fs.createReadStream(path)
-            .pipe(zlib.createGzip())
-            .pipe(fs.createWriteStream(`${path}.gz`))
-            .on('finish', () => {
-              console.debug(`[storage/${this.name}] gziped ${path}`)
-              fs.unlink(path, () => {
-                // console.debug(`[storage/${this.name}] deleted original trade file ${path}`)
-              })
-            })
-            .on('error', (err) => {
-              console.debug(`[storage/${this.name}] error while removing/compressing trade file ${path}\n\t${err.message}`)
-            })
+          this.gzipFileAndRemoveRaw(path)
         }
       }
     }
   }
 
-  save(trades) {
-    const now = +new Date()
+  gzipFileAndRemoveRaw(path) {
+    let rawPath = path
 
+    if (/.gz$/.test(rawPath)) {
+      rawPath = rawPath.replace(/\.gz$/, '')
+    }
+
+    return new Promise((resolve) => {
+      fs.createReadStream(rawPath)
+        .pipe(zlib.createGzip())
+        .pipe(fs.createWriteStream(`${rawPath}.gz`))
+        .on('finish', () => {
+          console.debug(`[storage/${this.name}] gziped ${rawPath}`)
+          fs.unlink(rawPath, (err) => {
+            if (err) {
+              console.error(`[storage/${this.name}] failed to remove original file after gzip compression (${rawPath})`)
+            }
+
+            resolve()
+          })
+        })
+        .on('error', (err) => {
+          console.debug(`[storage/${this.name}] error while removing/compressing trade file ${rawPath}\n\t${err.message}`)
+        })
+    })
+  }
+
+  prepareTrades(trades) {
     const groups = groupTrades(trades, false)
 
     const output = Object.keys(groups).reduce((obj, pair) => {
@@ -116,24 +130,31 @@ class FilesStorage {
       return obj
     }, {})
 
-    return new Promise((resolve, reject) => {
-      if (!trades.length) {
-        return resolve(true)
-      }
+    for (let identifier in groups) {
+      for (let i = 0; i < groups[identifier].length; i++) {
+        const trade = groups[identifier][i]
 
-      for (let identifier in groups) {
-        for (let i = 0; i < groups[identifier].length; i++) {
-          const trade = groups[identifier][i]
+        const ts = Math.floor(trade[0] / this.options.filesInterval) * this.options.filesInterval
 
-          const ts = Math.floor(trade[0] / this.options.filesInterval) * this.options.filesInterval
-
-          if (!output[identifier][ts]) {
-            output[identifier][ts] = ''
+        if (!output[identifier][ts]) {
+          output[identifier][ts] = {
+            from: trade[0],
+            to: trade[0],
+            data: '',
           }
-
-          output[identifier][ts] += trade.join(' ') + '\n'
         }
+
+        output[identifier][ts].data += trade.join(' ') + '\n'
+        output[identifier][ts].to = trade[0]
       }
+    }
+
+    return output
+  }
+
+  save(trades) {
+    return new Promise((resolve) => {
+      const output = this.prepareTrades(trades)
 
       const promises = []
 
@@ -148,7 +169,7 @@ class FilesStorage {
               }
 
               promiseOfWritableStram.then(() => {
-                this.writableStreams[identifier + ts].stream.write(output[identifier][ts], (err) => {
+                this.writableStreams[identifier + ts].stream.write(output[identifier][ts].data, (err) => {
                   if (err) {
                     console.log(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
                   }
@@ -166,6 +187,168 @@ class FilesStorage {
       this.reviewStreams()
 
       return success
+    })
+  }
+
+  async insert(trades) {
+
+    const output = this.prepareTrades(trades)
+
+    for (const market in output) {
+      for (const fileTimestamp in output[market]) {
+        const firstTradeTimestampInsert = output[market][fileTimestamp].from
+        const lastTradeTimestampInsert = output[market][fileTimestamp].to
+        const date = new Date(+fileTimestamp)
+        let path = this.getBackupFilename(market, date)
+
+        try {
+          await ensureDirectoryExists(path)
+        } catch (error) {
+          console.error(`[storage/${this.name}] failed to create target directory ${path}`, error)
+        }
+
+        let stat = await this.statFile(path)
+
+        if (!stat) {
+          path += '.gz'
+          stat = await this.statFile(path)
+        }
+
+        if (lastTradeTimestampInsert - firstTradeTimestampInsert < 0) {
+          debugger
+        }
+
+        console.log(`[storage/file] insert ${getHms(lastTradeTimestampInsert - firstTradeTimestampInsert)} of trades into ${path} (${stat ? 'file exists' : 'file doesn\'t exists'})`)
+
+        if (stat) {
+          // edit existing file
+
+          // get trades arr from existing file
+          let tradesFile = (await this.readFile(path)).split('\n')
+
+          if (tradesFile[tradesFile.length - 1] === '') {
+            tradesFile.pop() // remove end of file nl
+          }
+
+          // trades arr to insert
+          const tradesInsert = output[market][fileTimestamp].data.split('\n')
+
+          if (tradesInsert[tradesInsert.length - 1] === '') {
+            tradesInsert.pop() // remove end of file nl
+          }
+
+          const firstTradeTimestampFile = +tradesFile[0].replace(/ .*/, '')
+          const lastTradeTimestampFile = +tradesFile[tradesFile.length - 1].replace(/ .*/, '')
+
+          if (firstTradeTimestampFile > lastTradeTimestampInsert) {
+            // insert before
+            console.log(`\t prepend ${tradesInsert.length} trades (index 0)`)
+            tradesFile = tradesInsert.concat(tradesFile)
+          } else if (lastTradeTimestampFile < firstTradeTimestampInsert) {
+            // insert after
+            console.log(`\t append ${tradesInsert.length} trades (index ${tradesFile.length})`)
+            tradesFile = tradesFile.concat(tradesInsert)
+          } else {
+            // insert in the middle
+            let replaceRange = null
+
+            // remove inner trades from file
+            for (let i = 0; i < tradesFile.length; i++) {
+              const tradeTimestamp = +tradesFile[i].replace(/ .*/, '')
+
+              if (replaceRange === null && tradeTimestamp >= output[market][fileTimestamp].from) {
+                replaceRange = {
+                  start: i,
+                  end: i,
+                }
+              } else if (replaceRange && (tradeTimestamp > output[market][fileTimestamp].to || i === tradesFile.length - 1)) {
+                replaceRange.end = i
+                break
+              }
+            }
+
+            if (!replaceRange || replaceRange.end < replaceRange.start) {
+              throw new Error('invalid replace range')
+            }
+
+            console.log(
+              `\tinsert ${tradesInsert.length} trades at index ${replaceRange.start} (while splicing ${
+                replaceRange.end - replaceRange.start + 1
+              } trades from original)`
+            )
+            
+            const change = (replaceRange.end - replaceRange.start) - tradesInsert.length
+            console.log(`\t merge ${tradesInsert.length} into original (net change ${change > 0 ? '+' : ''}${change} at index ${replaceRange.start})`)
+
+            tradesFile.splice(replaceRange.start, replaceRange.end - replaceRange.start, ...tradesInsert)
+          }
+
+          await this.writeFile(path, tradesFile.join('\n') + '\n')
+        } else {
+          // new file
+          console.log(`\t create new file`)
+          await this.writeFile(path, output[market][fileTimestamp].data)
+        }
+      }
+    }
+  }
+
+  statFile(path) {
+    return new Promise((resolve) => {
+      fs.stat(path, (err, stat) => {
+        if (err) {
+          err.code !== 'ENOENT' && console.log('failed to stat', path, err)
+          resolve(false)
+        }
+
+        resolve(stat)
+      })
+    })
+  }
+
+  readFile(path) {
+    return new Promise((resolve, reject) => {
+      fs.readFile(path, (err, data) => {
+        if (err) {
+          console.error(`[storage/file] failed to read file`, path)
+          throw err
+        }
+
+        if (/\.gz$/.test(path)) {
+          zlib.gunzip(data, (err, buffer) => {
+            if (err) {
+              console.error(`[storage/file] failed to unzip file`, path)
+              return reject(err)
+            }
+            resolve(buffer.toString())
+          })
+        } else {
+          resolve(data.toString())
+        }
+      })
+    })
+  }
+
+  writeFile(path, content) {
+    let rawPath = path
+
+    if (/.gz$/.test(rawPath)) {
+      rawPath = rawPath.replace(/\.gz$/, '')
+    }
+
+    return new Promise((resolve, reject) => {
+      fs.writeFile(rawPath, content, (err, data) => {
+        if (err) {
+          console.error(`[storage/file] failed to write file`, path)
+          throw err
+        }
+
+        if (/\.gz$/.test(path)) {
+          resolve(this.gzipFileAndRemoveRaw(path))
+        } else {
+          resolve()
+        }
+      })
     })
   }
 

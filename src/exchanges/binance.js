@@ -97,43 +97,43 @@ class Binance extends Exchange {
     }
   }
 
-  getMissingTrades(pair, timestamps, endTime, totalRecovered = 0) {
-    const startTime = timestamps[pair]
-    const endpoint = `https://api.binance.com/api/v3/aggTrades?symbol=${pair.toUpperCase()}&startTime=${
+  getMissingTrades(range, totalRecovered = 0) {
+    const startTime = range.from
+    const below1HEndTime = Math.min(range.to, startTime + 1000 * 60 * 60)
+
+    const endpoint = `https://api.binance.com/api/v3/aggTrades?symbol=${range.pair.toUpperCase()}&startTime=${
       startTime + 1
-    }&endTime=${endTime}&limit=1000`
+    }&endTime=${below1HEndTime}&limit=1000`
     
     return axios
       .get(endpoint)
       .then((response) => {
         if (response.data.length) {
           const trades = response.data.map((trade) => ({
-            ...this.formatTrade(trade, pair),
-            timestamp: trade.T,
+            ...this.formatTrade(trade, range.pair),
             count: trade.l - trade.f + 1,
+            timestamp: trade.T,
           }))
 
           this.emitTrades(null, trades)
 
           totalRecovered += trades.length
-          timestamps[pair] = trades[trades.length - 1].timestamp + 1
+          range.from = trades[trades.length - 1].timestamp
 
-          if (response.data.length === 1000) {
-            // we assume there is more since 1k trades is max returned by the api
-
-            const remainingMissingTime = endTime - timestamps[pair]
-
-            if (remainingMissingTime > 1000 * 60) {
-              console.info(`[${this.id}] try again (${getHms(remainingMissingTime)} remaining)`)
-              return this.getMissingTrades(pair, timestamps, endTime, totalRecovered)
-            }
+          const remainingMissingTime = range.to - range.from
+          
+          if (remainingMissingTime > 1000) {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... (${getHms(remainingMissingTime)} remaining)`)
+            return this.getMissingTrades(range, totalRecovered)
+          } else {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
         }
 
         return totalRecovered
       })
       .catch((err) => {
-        console.error(`Failed to get historical trades`, err)
+        console.error(`Failed to get historical trades on ${range.pair}`, err.message)
       })
   }
 }

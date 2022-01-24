@@ -559,14 +559,18 @@ class InfluxStorage {
         isOddTimeframe ? ', ' + getHms(flooredRange.from % timeframe) : ''
       }), market fill(none)`
 
-      bars+=(flooredRange.to - flooredRange.from) / timeframe
+      bars += (flooredRange.to - flooredRange.from) / timeframe
 
       await this.executeQuery(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
     }
 
     now = Date.now()
 
-    console.debug(`[storage/influx/resample] done resampling ${(parseInt((now - before) / bars))}ms per bar (${parseInt(now - before)}ms for ${bars} bars)`)
+    console.debug(
+      `[storage/influx/resample] done resampling ${parseInt((now - before) / bars)}ms per bar (${parseInt(
+        now - before
+      )}ms for ${bars} bars)`
+    )
   }
 
   /**
@@ -669,7 +673,7 @@ class InfluxStorage {
       }
 
       injectedPendingBars = injectedPendingBars.sort((a, b) => a.time - b.time)
-      
+
       return bars.concat(injectedPendingBars)
     }
   }
@@ -712,7 +716,8 @@ class InfluxStorage {
                 this.clusterSocket.write(
                   JSON.stringify({
                     op: 'import',
-                  }) + '#')
+                  }) + '#'
+                )
               }
             })
           }
@@ -895,7 +900,6 @@ class InfluxStorage {
         collector.write(JSON.stringify({ op: 'import' }) + '#')
       })
     }
-
 
     setTimeout(this.importCollectors.bind(this), this.options.influxResampleInterval)
   }

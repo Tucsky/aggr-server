@@ -1,6 +1,7 @@
 const Exchange = require('../exchange')
 const WebSocket = require('ws')
 const axios = require('axios')
+const { getHms } = require('../helper')
 
 class Ftx extends Exchange {
   constructor(options) {
@@ -20,6 +21,8 @@ class Ftx extends Exchange {
       },
       this.options
     )
+
+    this.missingTrades=[]
   }
 
   formatProducts(data) {
@@ -89,37 +92,55 @@ class Ftx extends Exchange {
     }
   }
 
+  getMissingTrades(range, totalRecovered = 0) {
+    const startTimeSeconds = Math.floor((range.from + 1) / 1000)
+    const endTimeSeconds = Math.ceil(range.to / 1000)
+
+    if (endTimeSeconds - startTimeSeconds <= 0) {
+      return totalRecovered
+    }
+
+    const endpoint = `https://ftx.com/api/markets/${range.pair}/trades?start_time=${startTimeSeconds}&end_time=${endTimeSeconds}`
+    return axios
+      .get(endpoint)
+      .then((response) => {
+        if (response.data.result.length) {
+          const trades = response.data.result
+            .map((trade) => this.formatTrade(trade, range.pair))
+            .filter((a) => a.timestamp >= range.from + 1 && a.timestamp < range.to)
+
+          if (trades.length) {
+            this.emitTrades(null, trades)
+
+            totalRecovered += trades.length
+            range.to = trades[trades.length - 1].timestamp
+
+            const remainingMissingTime = range.to - range.from
+
+            if (remainingMissingTime > 1000) {
+              console.log(
+                `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ...  (${getHms(remainingMissingTime)} remaining)`
+              )
+              return this.getMissingTrades(range, totalRecovered)
+            } else {
+              console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+            }
+          }
+        }
+
+        return totalRecovered
+      })
+      .catch((err) => {
+        console.error(`Failed to get missing trades on ${range.pair}`, err.message)
+      })
+  }
+
   onApiCreated(api) {
     this.startKeepAlive(api, { op: 'ping' }, 15000)
   }
 
   onApiRemoved(api) {
     this.stopKeepAlive(api)
-  }
-
-  getMissingTrades(pair, timestamps, endTime, totalRecovered = 0) {
-    const startTime = timestamps[pair]
-    const endpoint = `https://ftx.com/api/markets/${pair}/trades?start_time=${Math.round(startTime / 1000)}&end_time=${Math.round(
-      endTime / 1000
-    )}`
-
-    return axios
-      .get(endpoint)
-      .then((response) => {
-        if (response.data.result.length) {
-          const trades = response.data.result.map((trade) => this.formatTrade(trade, pair))
-
-          this.emitTrades(null, trades)
-
-          totalRecovered += trades.length
-          timestamps[pair] = trades[trades.length - 1].timestamp + 1
-        }
-
-        return totalRecovered
-      })
-      .catch((err) => {
-        console.error(`Failed to get historical trades`, err)
-      })
   }
 }
 

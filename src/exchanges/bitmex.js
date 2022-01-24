@@ -1,5 +1,7 @@
 const Exchange = require('../exchange')
 const WebSocket = require('ws')
+const axios = require('axios')
+const { getHms } = require('../helper')
 
 class Bitmex extends Exchange {
   constructor(options) {
@@ -51,15 +53,6 @@ class Bitmex extends Exchange {
     }
   }
 
-  onApiCreated(api) {
-    api.send(
-      JSON.stringify({
-        op: 'subscribe',
-        args: ['instrument:XBTUSD'],
-      })
-    )
-  }
-
   /**
    * Sub
    * @param {WebSocket} api
@@ -103,55 +96,95 @@ class Bitmex extends Exchange {
       if (json.table === 'liquidation' && json.action === 'insert') {
         return this.emitLiquidations(
           api.id,
-          json.data.map((trade) => {
-            let size
-
-            if (this.types[trade.symbol] === 'quanto') {
-              size = (this.multipliers[trade.symbol] / 100000000) * trade.leavesQty * this.xbtPrice
-            } else if (this.types[trade.symbol] === 'inverse') {
-              size = trade.leavesQty / trade.price
-            } else {
-              size = (1 / this.underlyingToPositionMultipliers[trade.symbol]) * trade.leavesQty
-              console.log(
-                '(bitmex usdt liquidation)',
-                trade.symbol,
-                'multiplier:' + this.underlyingToPositionMultipliers[trade.symbol],
-                'type:' + this.types[trade.symbol],
-                'leavesQty:' + trade.leavesQty,
-                'price:' + trade.price,
-                'result:' + size
-              )
-            }
-
-            return {
-              exchange: this.id,
-              pair: trade.symbol,
-              timestamp: +new Date(),
-              price: trade.price,
-              size: size,
-              side: trade.side === 'Buy' ? 'buy' : 'sell',
-              liquidation: true,
-            }
-          })
+          json.data.map((trade) => this.formatLiquidation(trade))
         )
       } else if (json.table === 'trade' && json.action === 'insert') {
         return this.emitTrades(
           api.id,
-          json.data.map((trade) => {
-            return {
-              exchange: this.id,
-              pair: trade.symbol,
-              timestamp: +new Date(trade.timestamp),
-              price: trade.price,
-              size: trade.homeNotional,
-              side: trade.side === 'Buy' ? 'buy' : 'sell',
-            }
-          })
+          json.data.map((trade) => this.formatTrade(trade))
         )
       } else if (json.table === 'instrument' && json.data[0].lastPrice) {
         this.xbtPrice = json.data[0].lastPrice
       }
     }
+  }
+
+  formatTrade(trade) {
+    return {
+      exchange: this.id,
+      pair: trade.symbol,
+      timestamp: +new Date(trade.timestamp),
+      price: trade.price,
+      size: trade.homeNotional,
+      side: trade.side === 'Buy' ? 'buy' : 'sell',
+    }
+  }
+
+  formatLiquidation(trade) {
+    let size
+
+    if (this.types[trade.symbol] === 'quanto') {
+      size = (this.multipliers[trade.symbol] / 100000000) * trade.leavesQty * this.xbtPrice
+    } else if (this.types[trade.symbol] === 'inverse') {
+      size = trade.leavesQty / trade.price
+    } else {
+      size = (1 / this.underlyingToPositionMultipliers[trade.symbol]) * trade.leavesQty
+    }
+
+    return  {
+      exchange: this.id,
+      pair: trade.symbol,
+      timestamp: +new Date(),
+      price: trade.price,
+      size: size,
+      side: trade.side === 'Buy' ? 'buy' : 'sell',
+      liquidation: true,
+    }
+  }
+
+  getMissingTrades(range, totalRecovered = 0) {
+    const startTimeISO = new Date(range.from + 1).toISOString()
+    const endTimeISO = new Date(range.to).toISOString()
+
+    const endpoint = `https://www.bitmex.com/api/v1/trade?symbol=${range.pair}&startTime=${startTimeISO}&endTime=${endTimeISO}&count=1000`
+    
+    return axios
+      .get(endpoint)
+      .then((response) => {
+        if (response.data.length) {
+          const trades = response.data.map((trade) => this.formatTrade(trade, range.pair))
+  
+          this.emitTrades(null, trades)
+
+          totalRecovered += trades.length
+          range.from = trades[trades.length - 1].timestamp
+
+          const remainingMissingTime = range.to - range.from
+
+          if (remainingMissingTime > 1000 && response.data.length >= 1000) {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(remainingMissingTime)} remaining)`)
+            return this.getMissingTrades(range, totalRecovered)
+          } else {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+          }
+        } else {
+          console.log(`[${this.id}.recoverMissingTrades] no more trade to recover on ${range.pair} ?`)
+        }
+
+        return totalRecovered
+      })
+      .catch((err) => {
+        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+      })
+  }
+
+  onApiCreated(api) {
+    api.send(
+      JSON.stringify({
+        op: 'subscribe',
+        args: ['instrument:XBTUSD'],
+      })
+    )
   }
 }
 

@@ -1,4 +1,6 @@
 const Exchange = require('../exchange')
+const axios = require('axios')
+const { getHms } = require('../helper')
 
 class Bitfinex extends Exchange {
   constructor(options) {
@@ -125,42 +127,80 @@ class Bitfinex extends Exchange {
     }
 
     if (channel.name === 'trades' && json[1] === 'te') {
-      this.prices[api.id + channel.pair] = +json[2][3]
+      this.prices[channel.pair] = +json[2][3]
 
       return this.emitTrades(api.id, [
-        {
-          exchange: this.id,
-          pair: channel.pair,
-          timestamp: +new Date(json[2][1]),
-          price: +json[2][3],
-          size: Math.abs(json[2][2]),
-          side: json[2][2] < 0 ? 'sell' : 'buy',
-        },
+        this.formatTrade(json[2], channel.pair),
       ])
     } else if (channel.name === 'status' && json[1]) {
       return this.emitLiquidations(
         api.id,
         json[1]
           .filter((a) => api._connected.indexOf(a[4].substring(1)) !== -1)
-          .map((a) => {
-            const pair = a[4].substring(1)
-
-            return {
-              exchange: this.id,
-              pair: a[4].substring(1),
-              timestamp: parseInt(a[2]),
-              price: this.prices[api.id + pair],
-              size: Math.abs(a[5]),
-              side: a[5] > 1 ? 'sell' : 'buy',
-              liquidation: true,
-            }
-          })
+          .map((a) => this.formatLiquidation(a, a[4].substring(1)))
       )
     }
   }
 
+  formatTrade(trade, pair) {
+    return {
+      exchange: this.id,
+      pair: pair,
+      timestamp: parseInt(trade[1]),
+      price: trade[3],
+      size: Math.abs(trade[2]),
+      side: trade[2] < 0 ? 'sell' : 'buy',
+    }
+  }
+
+  formatLiquidation(trade, pair) {
+    return {
+      exchange: this.id,
+      pair: pair,
+      timestamp: parseInt(trade[2]),
+      price: this.prices[pair],
+      size: Math.abs(trade[5]),
+      side: trade[5] > 1 ? 'sell' : 'buy',
+      liquidation: true,
+    }
+  }
+
+  getMissingTrades(range, totalRecovered = 0) {
+    const startTime = range.from
+
+    const endpoint = `https://api-pub.bitfinex.com/v2/trades/Symbol/hist?symbol=${'t' + range.pair}&start=${startTime + 1}&end=${range.to}&limit=1000&sort=1`
+
+    return axios
+      .get(endpoint)
+      .then((response) => {
+        if (response.data.length) {
+          const trades = response.data.map((trade) => this.formatTrade(trade, range.pair))
+  
+          this.emitTrades(null, trades)
+
+          totalRecovered += trades.length
+          range.from = trades[trades.length - 1].timestamp
+
+          const remainingMissingTime = range.to - range.from
+          
+          if (remainingMissingTime > 1000 && trades.length >= 1000) {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(remainingMissingTime)} remaining)`)
+            return this.getMissingTrades(range, totalRecovered)
+          } else {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+          }
+        }
+
+        return totalRecovered
+      })
+      .catch((err) => {
+        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+
+        return totalRecovered
+      })
+  }
+
   onApiRemoved(api) {
-    // clean channels
     const apiChannels = Object.keys(this.channels).filter((id) => this.channels[id].apiId === api.id)
 
     for (const id of apiChannels) {

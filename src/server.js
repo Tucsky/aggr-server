@@ -223,28 +223,14 @@ class Server extends EventEmitter {
         }
       })
 
-      exchange.on('open', (event) => {
-        this.broadcastJson({
-          type: 'exchange_connected',
-          id: exchange.id,
-        })
-      })
-
       exchange.on('disconnected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
-        if (!this.connections[id]) {
-          console.error(`[server] couldn't delete connection ${id} because the connections[${id}] does not exists`)
-          return
-        }
-
         console.log(`[server] deleted connection ${id} (${apiLength} connected)`)
 
-        delete this.connections[id]
+        this.connections[id].apiId = null
 
         if (!apiLength) {
-          console.log(`[server] deleted api stats ${apiId}`)
-
           delete this.apiStats[apiId]
         } else {
           this.apiStats[apiId].pairs.splice(this.apiStats[apiId].pairs.indexOf(pair), 1)
@@ -256,23 +242,38 @@ class Server extends EventEmitter {
       exchange.on('connected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
-        if (this.connections[id]) {
-          console.error(`[server] couldn't register connection ${id} because the connections[${id}] does not exists`)
-          return
-        }
-
         console.log(`[server] registered connection ${id} (${apiLength})`)
 
         const now = +new Date()
 
-        this.connections[id] = {
-          apiId,
-          exchange: exchange.id,
-          pair: pair,
-          hit: 0,
-          start: now,
-          timestamp: now,
+        if (!this.connections[id]) {
+          this.connections[id] = {
+            exchange: exchange.id,
+            pair: pair,
+            hit: 0,
+            start: now,
+            timestamp: now,
+          }
+        } else {
+          if (typeof exchange.getMissingTrades === 'function') {
+            console.log(
+              `\t${getHms(now - this.connections[id].timestamp)} elapsed since last trade on that connection -> register range (${new Date(
+                this.connections[id].timestamp
+              )
+                .toISOString()
+                .split('T')
+                .pop()} to ${new Date(now).toISOString().split('T').pop()})`
+            )
+            exchange.registerRangeForRecovery({
+              pair,
+              from: this.connections[id].timestamp,
+              to: now,
+            })
+          }
         }
+
+        this.connections[id].timestamp = now
+        this.connections[id].apiId = apiId
 
         if (typeof this.apiStats[apiId] === 'undefined') {
           this.apiStats[apiId] = {
@@ -296,15 +297,33 @@ class Server extends EventEmitter {
         this.checkApiStats()
       })
 
-      exchange.on('err', (event) => {
+      exchange.on('open', (apiId, pairs) => {
         this.broadcastJson({
-          type: 'exchange_error',
+          type: 'exchange_connected',
           id: exchange.id,
-          message: event.message,
         })
       })
 
-      exchange.on('close', (event) => {
+      exchange.on('error', (apiId, message) => {
+        this.broadcastJson({
+          type: 'exchange_error',
+          id: exchange.id,
+          message: message,
+        })
+      })
+
+      exchange.on('close', (apiId, pairs) => {
+        if (pairs.length) {
+          console.log(`[${exchange.id}] connection (was handling ${pairs.join(',')}) closed unexpectedly`)
+
+          setTimeout(
+            () => {
+              this.reconnectApis([apiId])
+            },
+            this.apiStats[apiId] ? 100 : 2000
+          )
+        }
+
         this.broadcastJson({
           type: 'exchange_disconnected',
           id: exchange.id,
@@ -338,7 +357,9 @@ class Server extends EventEmitter {
 
       const data = {
         type: 'welcome',
-        supportedPairs: Object.values(this.connections).map((a) => a.exchange + ':' + a.pair),
+        supportedPairs: Object.values(this.connections)
+          .filter((connection) => connection.apiId)
+          .map((a) => a.exchange + ':' + a.pair),
         timestamp: +new Date(),
         exchanges: this.exchanges.map((exchange) => {
           return {
@@ -627,58 +648,6 @@ class Server extends EventEmitter {
     }
   }
 
-  /**
-   * Trigger subscribe to pairs on all activated exchanges
-   * @param {string[]} pairs
-   * @returns {Promise<any>} promises of connections
-   * @memberof Server
-   */
-  async connectPairs(pairs) {
-    console.log(`[server] connect to ${pairs.join(',')}`)
-
-    const promises = []
-
-    for (let exchange of this.exchanges) {
-      for (let pair of pairs) {
-        promises.push(
-          exchange.link(pair).catch((err) => {
-            console.debug(`[server/connectPairs/${exchange.id}] ${err}`)
-
-            if (err instanceof Error) {
-              console.error(err)
-            }
-          })
-        )
-      }
-    }
-
-    await Promise.all(promises)
-  }
-
-  /**
-   * Trigger unsubscribe to pairs on all activated exchanges
-   * @param {string[]} pairs
-   * @returns {Promise<void>} promises of disconnection
-   * @memberof Server
-   */
-  async disconnectPairs(pairs) {
-    console.log(`[server] disconnect from ${pairs.join(',')}`)
-
-    for (let exchange of this.exchanges) {
-      for (let pair of pairs) {
-        try {
-          await exchange.unlink(pair)
-        } catch (err) {
-          console.debug(`[server/disconnectPairs/${exchange.id}] ${err}`)
-
-          if (err instanceof Error) {
-            console.error(err)
-          }
-        }
-      }
-    }
-  }
-
   broadcastJson(data) {
     if (!this.wss) {
       return
@@ -721,7 +690,7 @@ class Server extends EventEmitter {
     const now = Date.now()
     const flooredTime = Math.floor(now / this.options.monitorInterval) * this.options.monitorInterval
     const currentHour = Math.floor(now / 3600000) * 3600000
-    //const currentMinute = Math.floor(now / 60000) * 60000
+    //const currentHour = Math.floor(now / 10000) * 10000
 
     if (flooredTime === currentHour) {
       this.checkApiStats()
@@ -737,6 +706,11 @@ class Server extends EventEmitter {
 
     for (const marketId in this.connections) {
       const connection = this.connections[marketId]
+
+      if (!connection.apiId) {
+        continue
+      }
+
       const apiStat = this.apiStats[connection.apiId]
 
       if (apiStat.timestamp !== now) {
@@ -789,7 +763,15 @@ class Server extends EventEmitter {
 
       const ping = apiStat.ping ? now - apiStat.ping : 0
 
-      const thrs = Math.max(this.options.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)
+      let thrs
+
+      if (typeof apiStat.thrs === 'undefined' || hit > 0) {
+        thrs = Math.max(this.options.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)
+        apiStat.thrs = thrs
+      } else {
+        thrs = apiStat.thrs
+      }
+
       const thrsHms = getHms(thrs, true)
       let pingHms = ping ? getHms(ping, true) : 'never'
 
@@ -826,18 +808,24 @@ class Server extends EventEmitter {
     }
 
     if (apisToReconnect.length) {
-      console.log(`[server] reconnect ${apisToReconnect.length} apis`)
+      this.reconnectApis(apisToReconnect)
+    }
+  }
 
-      for (let exchange of this.exchanges) {
-        for (let api of exchange.apis) {
-          if (apisToReconnect.indexOf(api.id) !== -1) {
-            const timestampByPair = this.apiStats[api.id].pairs.reduce((timestamps, pair) => {
-              timestamps[pair] = this.connections[exchange.id + ':' + pair].timestamp
+  reconnectApis(apiIds) {
+    console.log(`[server.reconnectApis] reconnect ${apiIds.length} apis`)
 
-              return timestamps
-            }, {})
+    for (let exchange of this.exchanges) {
+      for (let api of exchange.apis) {
+        const index = apiIds.indexOf(api.id)
 
-            exchange.reconnectApi(api, timestampByPair)
+        if (index !== -1) {
+          exchange.reconnectApi(api)
+
+          apiIds.splice(index, 1)
+
+          if (!apiIds.length) {
+            break
           }
         }
       }
@@ -906,11 +894,6 @@ class Server extends EventEmitter {
       const trade = data[i]
       const identifier = exchange + ':' + trade.pair
 
-      if (!this.connections[identifier]) {
-        // console.warn(`[${exchange}/dispatchRawTrades] connection ${identifier} doesn't exists but tried to dispatch a trade for it`)
-        continue
-      }
-
       // ping connection
       this.connections[identifier].hit++
       this.connections[identifier].timestamp = now
@@ -945,10 +928,6 @@ class Server extends EventEmitter {
       // save trade
       if (this.storages) {
         this.chunk.push(trade)
-      }
-
-      if (!this.connections[identifier]) {
-        continue
       }
 
       if (this.aggregating[identifier]) {

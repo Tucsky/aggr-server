@@ -165,18 +165,6 @@ class Kraken extends Exchange {
 
     return false
   }
-
-  onApiCreated(api) {
-    if (/futures/.test(api.url)) {
-      this.startKeepAlive(api)
-    }
-  }
-
-  onApiRemoved(api) {
-    if (/futures/.test(api.url)) {
-      this.stopKeepAlive(api)
-    }
-  }
 }
 
 module.exports = Kraken

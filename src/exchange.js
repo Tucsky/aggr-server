@@ -1,7 +1,6 @@
 const EventEmitter = require('events')
 const axios = require('axios')
 const WebSocket = require('ws')
-const pako = require('pako')
 const fs = require('fs')
 
 const { ID, getHms, ensureDirectoryExists, sleep } = require('./helper')
@@ -49,12 +48,6 @@ class Exchange extends EventEmitter {
     this.scheduledOperationsDelays = {}
 
     /**
-     * Clear reconnection delay timeout by apiUrl
-     * @type {{[apiUrl: string]: number]}}
-     */
-    this.clearReconnectionDelayTimeout = {}
-
-    /**
      * Max connections per apis
      * @type {number}
      */
@@ -64,25 +57,19 @@ class Exchange extends EventEmitter {
      * Define if the incoming trades should be queued
      * @type {boolean}
      */
-    this.queueTrade = false
+    this.shouldQueueTrades = false
 
     /**
-     * Counter of ongoing recovery operations
+     * Pending recovery ranges
+     * @type {{pair: string, from: number, to: number}[]}
      */
-    this.ongoingRecoveryOperations = 0
-
-    /**
-     * Pairs currently
-     * @type {{[pair: string]: boolean]}}
-     */
-    this.recoveringTrades = {}
+    this.recoveryRanges = []
 
     /**
      * Trades goes theres while we wait for historical response
      * @type {Trade[]}
      */
     this.queuedTrades = []
-    this.lastMessages = []
 
     this.options = Object.assign(
       {
@@ -207,112 +194,29 @@ class Exchange extends EventEmitter {
     api.onmessage = (event) => {
       const wasBadData = !this.onMessage(event, api)
 
-      if (wasBadData) {
-        let json = event.data
-
-        try {
-          json = JSON.parse(event.data)
-        } catch (error) {
-          try {
-            json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
-          } catch (error) {
-            try {
-              json = JSON.parse(pako.inflateRaw(event.data, { to: 'string' }))
-            } catch (error) {
-              //
-            }
-          }
-        }
-
-        if (!json) {
-          return
-        }
-
-        const jsonString = JSON.stringify(json)
-
-        this.lastMessages.push(jsonString)
-
-        if (/(unrecognized|failure|invalid|error|expired|cannot|exceeded|error)/.test(jsonString)) {
-          console.error(`[${this.id}] error message intercepted\n`, json)
-        }
-
-        if (this.lastMessages.length > 10) {
-          this.lastMessages.splice(0, this.lastMessages.length - 10)
-        }
+      if (
+        wasBadData &&
+        event.data &&
+        /\b(unrecognized|failure|invalid|error|expired|cannot|exceeded|error|alert|bad|please|warning)\b/.test(event.data)
+      ) {
+        console.error(`[${this.id}] error message intercepted\n`, event.data)
       }
     }
 
-    api.onopen = async (event) => {
-      if (typeof this.scheduledOperationsDelays[url] !== 'undefined') {
-        this.clearReconnectionDelayTimeout[url] = setTimeout(() => {
-          delete this.clearReconnectionDelayTimeout[url]
-          console.debug(`[${this.id}.createWs] 10s since api opened: clear reconnection delay (${url})`)
-          delete this.scheduledOperationsDelays[url]
-        }, 10000)
-      }
-
-      console.debug(`[${this.id}.onOpen] opened api ${api.id} (pending connections ${api._pending.join(', ')})`)
-
-      if (this.connecting[api.id]) {
-        this.connecting[api.id].resolver(true)
-        delete this.connecting[api.id]
-
-        await sleep(100)
-      }
-
-      this.subscribePendingPairs(api)
-
-      this.onOpen(event, api._connected)
+    api.onopen = (event) => {
+      this.onOpen(event, api)
     }
 
-    api.onclose = async (event) => {
-      if (this.clearReconnectionDelayTimeout[url]) {
-        clearTimeout(this.clearReconnectionDelayTimeout[url])
-        delete this.clearReconnectionDelayTimeout[url]
-      }
-
-      if (this.connecting[api.id]) {
-        this.connecting[api.id].resolver(false)
-        delete this.connecting[api.id]
-      }
-
-      this.onClose(event, api._connected)
-
-      if (this.disconnecting[api.id]) {
-        this.disconnecting[api.id].resolver(true)
-        delete this.disconnecting[api.id]
-      }
-
-      const pairsToReconnect = [...api._pending, ...api._connected]
-
-      if (pairsToReconnect.length) {
-        const pairsToDisconnect = api._connected.slice()
-
-        console.log(`[${this.id}] connection closed unexpectedly`)
-        console.log(this.lastMessages)
-
-        if (pairsToDisconnect.length) {
-          for (const pair of pairsToDisconnect) {
-            await this.unlink(this.id + ':' + pair)
-          }
-        }
-
-        this.scheduledOperationsDelays[api.url] = this.schedule(
-          () => {
-            this.reconnectPairs(pairsToReconnect)
-          },
-          api.url,
-          500,
-          1.5,
-          1000 * 30
-        )
-      }
-
-      this.lastMessages.splice(0, this.lastMessages.length)
+    api.onclose = (event) => {
+      this.onClose(event, api)
     }
 
     api.onerror = (event) => {
-      this.onError(event, api._connected)
+      this.onError(event, api)
+
+      if (event.target.readyState === WebSocket.CLOSING) {
+        this.onClose(event, api)
+      }
     }
 
     this.connecting[api.id] = {}
@@ -323,7 +227,7 @@ class Exchange extends EventEmitter {
           this.onApiCreated(api)
           resolve(api)
         } else {
-          reject()
+          reject(new Error('Failed to establish a websocket connection with exchange'))
         }
       }
     })
@@ -444,9 +348,8 @@ class Exchange extends EventEmitter {
    * Reconnect api
    * Will try to fix missing trades using REST api
    * @param {WebSocket} api
-   * @param {{[pair: string]: number}} timestamps last timestamp by pair
    */
-  async reconnectApi(api, timestamps) {
+  async reconnectApi(api) {
     console.debug(
       `[${this.id}.reconnectApi] reconnect api (url: ${api.url}, _connected: ${api._connected.join(', ')}, _pending: ${api._connected.join(
         ', '
@@ -456,67 +359,55 @@ class Exchange extends EventEmitter {
     const pairsToReconnect = [...api._pending, ...api._connected]
 
     // first we reconnect everything
-    this.reconnectPairs(pairsToReconnect, timestamps)
-
-    // immediately start recovering missing trades (if it can)
-    this.recoverTrades(timestamps)
+    this.reconnectPairs(pairsToReconnect)
   }
 
-  async reconnectAllApis() {
-    for (const api of this.apis) {
-      await this.reconnectApi(api)
+  /**
+   * Register a range for async recovery
+   * @param {{ pair: string, from: number, to: number }} range to recover
+   */
+  registerRangeForRecovery(range) {
+    this.recoveryRanges.push(range)
+
+    if (!this.busyRecovering) {
+      this.recoverNextRange()
     }
   }
 
-  async recoverTrades(timestamps, pairs) {
-    // check if exchange is compatible
-    if (typeof this.getMissingTrades === 'function') {
-      console.log(`[${this.id}.reconnectApi] recover missing trades ${pairs ? '(POST open)' : '(PRE open)'}`)
+  async recoverNextRange(sequencial) {
+    if (!this.recoveryRanges.length || (this.busyRecovering && !sequencial)) {
+      return
+    }
 
-      const to = Date.now()
+    this.busyRecovering = true
 
-      let totalRecovered = 0
-      let totalPairs = 0
+    const range = this.recoveryRanges.shift()
+    const missingTime = range.to - range.from
 
-      for (const pair in timestamps) {
-        if (this.recoveringTrades[pair] || (pairs && pairs.indexOf(pair) === -1)) {
-          continue
-        }
+    console.log(
+      `[${this.id}.recoverTrades] get missing trades for ${range.pair} (${getHms(missingTime)} of data | starting at ${new Date(range.from)
+        .toISOString()
+        .split('T')
+        .pop()}, ending at ${new Date(range.to).toISOString().split('T').pop()})`
+    )
 
-        totalPairs++
+    try {
+      const recoveredCount = await this.getMissingTrades(range)
+      console.info(
+        `[${this.id}.recoverTrades] recovered ${recoveredCount} trades on ${this.id}:${range.pair} (${getHms(
+          missingTime - (range.to - range.from)
+        )} recovered out of ${getHms(missingTime)} | ${getHms(range.to - range.from)} remaining)`
+      )
+    } catch (error) {
+      console.error(`[${this.id}.recoverTrades] something went wrong while recovering ${range.pair}'s missing trades`, error.message)
+    }
 
-        this.recoveringTrades[pair] = true
-
-        // immediately stop emiting trades to preserve natural time continuity
-        this.ongoingRecoveryOperations++
-
-        const totalMissingTime = to - timestamps[pair]
-
-        console.log(
-          `[${this.id}.reconnectApi] get missing trades for ${pair} (${getHms(totalMissingTime)} of data | starting at ${new Date(
-            timestamps[pair]
-          ).toISOString().split('T').pop()})`
-        )
-
-        try {
-          const totalRecoveredPair = await this.getMissingTrades(pair, timestamps, to)
-          console.info(
-            `[${this.id}.getMissingTrades] recovered ${totalRecoveredPair} trades on ${this.id}:${pair} (${getHms(
-              totalMissingTime - (to - timestamps[pair])
-            )} recovered out of ${getHms(totalMissingTime)} | ${getHms(to - timestamps[pair])} remaining)`
-          )
-          totalRecovered += totalRecoveredPair
-        } catch (error) {
-          console.error(`[${this.id}.reconnectApi] something went wrong while recovering ${pair}'s missing trades`, error.message)
-        }
-
-        this.recoveringTrades[pair] = false
-
-        // release
-        this.ongoingRecoveryOperations--
-      }
-
-      console.log(`[${this.id}.reconnectApi] trade recovery ended (recovered ${totalRecovered} trades across ${totalPairs} pairs)`)
+    if (!this.recoveryRanges.length) {
+      console.log(`[${this.id}] no more ranges to recover`)
+      this.busyRecovering = false // release
+    } else {
+      console.log(`[${this.id}] ${this.recoveryRanges.length} ranges left to recover`)
+      return this.recoverNextRange(true)
     }
   }
 
@@ -525,7 +416,7 @@ class Exchange extends EventEmitter {
    * @param {string[]} pairs (local)
    * @returns {Promise<any>}
    */
-  async reconnectPairs(pairs, timestamps) {
+  async reconnectPairs(pairs) {
     const pairsToReconnect = pairs.slice(0, pairs.length)
 
     console.info(`[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(',')}`)
@@ -535,26 +426,9 @@ class Exchange extends EventEmitter {
     }
 
     const promisesOfSubscriptions = []
-    const promisesOfApiOpens = []
 
     for (let pair of pairsToReconnect) {
       promisesOfSubscriptions.push(this.link(this.id + ':' + pair))
-
-      if (timestamps) {
-        const api = this.getActiveApiByPair(pair, true)
-
-        if (api && this.connecting[api.id] && promisesOfApiOpens.indexOf(this.connecting[api.id].promise) === -1) {
-          // api is new and connecting
-          promisesOfApiOpens.push(this.connecting[api.id].promise)
-        }
-      }
-    }
-
-    for (let promise of promisesOfApiOpens) {
-      // sub to api open for potential recovery
-      promise.then((api) => {
-        this.recoverTrades(timestamps, api._connected.concat(api._pending))
-      })
     }
 
     return Promise.all(promisesOfSubscriptions)
@@ -746,15 +620,6 @@ class Exchange extends EventEmitter {
   }
 
   /**
-   * Fire when a new websocket connection opened
-   * @param {Event} event
-   * @param {string[]} pairs pairs attached to ws at opening
-   */
-  onOpen(event, pairs) {
-    this.emit('open', event)
-  }
-
-  /**
    * Fire when a new websocket connection is created
    * @param {WebSocket} api WebSocket instance
    */
@@ -780,13 +645,40 @@ class Exchange extends EventEmitter {
   }
 
   /**
+   * Fire when a new websocket connection opened
+   * @param {Event} event
+   * @param {string[]} pairs pairs attached to ws at opening
+   */
+  async onOpen(event, api) {
+    this.queueNextTrades()
+
+    const pairs = [...api._pending, ...api._connected]
+
+    console.debug(`[${this.id}.onOpen] opened api ${api.id} (${pairs.join(', ')})`)
+
+    if (this.connecting[api.id]) {
+      this.connecting[api.id].resolver(true)
+      delete this.connecting[api.id]
+
+      await sleep(50)
+    }
+
+    this.subscribePendingPairs(api)
+
+    this.emit('open', api.id, pairs)
+  }
+
+  /**
    * Fire when a new websocket connection reported an error
    * @param {Event} event
    * @param {string[]} pairs
    */
-  onError(event, pairs) {
-    console.debug(`[${this.id}.onError] ${pairs.join(',')}'s api errored`, event)
-    this.emit('err', event)
+  onError(event, api) {
+    const pairs = [...api._pending, ...api._connected]
+
+    console.error(`[${this.id}.onError] ${pairs.join(',')}'s api errored`, event)
+
+    this.emit('error', api.id, event.message)
   }
 
   /**
@@ -794,9 +686,29 @@ class Exchange extends EventEmitter {
    * @param {Event} event
    * @param {string[]} pairs
    */
-  onClose(event, pairs) {
+  onClose(event, api) {
+    if (api._closeWasHandled) {
+      // prevent double handling
+      return
+    }
+
+    if (this.connecting[api.id]) {
+      this.connecting[api.id].resolver(false)
+      delete this.connecting[api.id]
+    }
+
+    if (this.disconnecting[api.id]) {
+      this.disconnecting[api.id].resolver(true)
+      delete this.disconnecting[api.id]
+    }
+
+    const pairs = [...api._pending, ...api._connected]
+
     console.debug(`[${this.id}] ${pairs.join(',')}'s api closed`)
-    this.emit('close', event)
+
+    this.emit('close', api.id, pairs)
+
+    api._closeWasHandled = true
   }
 
   /**
@@ -848,17 +760,8 @@ class Exchange extends EventEmitter {
    * @param {Trade[]} trades
    */
   emitTrades(source, trades) {
-    if (!trades || !trades.length) {
+    if (!(trades = this.queueControl(trades))) {
       return
-    }
-
-    if (this.ongoingRecoveryOperations > 0) {
-      Array.prototype.push.apply(this.queuedTrades, trades)
-      return true
-    } else if (this.queuedTrades.length) {
-      console.debug(`[${this.id}] release trades queue (${this.queuedTrades.length})`)
-      trades = trades.concat(this.queuedTrades).sort((a, b) => a.timestamp - b.timestamp)
-      this.queuedTrades = []
     }
 
     this.emit('trades', trades)
@@ -872,7 +775,7 @@ class Exchange extends EventEmitter {
    * @param {Trade[]} trades
    */
   emitLiquidations(source, trades) {
-    if (!trades || !trades.length) {
+    if (!(trades = this.queueControl(trades))) {
       return
     }
 
@@ -881,14 +784,34 @@ class Exchange extends EventEmitter {
     return true
   }
 
-  startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {
-    if (this.keepAliveIntervals[api.url]) {
-      this.stopKeepAlive(api)
+  queueControl(trades) {
+    if (!trades || !trades.length) {
+      return null
     }
 
-    console.debug(`[${this.id}] setup keepalive for ws ${api.url}`)
+    if (this.shouldQueueTrades || this.busyRecovering) {
+      if (!this.queuedTrades.length) {
+        console.log(`[${this.id}] starts queueing incoming trades`)
+      }
+      Array.prototype.push.apply(this.queuedTrades, trades)
+      return null
+    } else if (this.queuedTrades.length) {
+      console.log(`[${this.id}] release trades queue (${this.queuedTrades.length} trades)`)
+      trades = trades.concat(this.queuedTrades).sort((a, b) => a.timestamp - b.timestamp)
+      this.queuedTrades = []
+    }
 
-    this.keepAliveIntervals[api.url] = setInterval(() => {
+    return trades
+  }
+
+  startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {
+    if (this.keepAliveIntervals[api.id]) {
+      this.stopKeepAlive(api.id)
+    }
+
+    console.debug(`[${this.id}] setup keepalive for ws ${api.url} (${api.id})`)
+
+    this.keepAliveIntervals[api.id] = setInterval(() => {
       if (api.readyState === WebSocket.OPEN) {
         api.send(JSON.stringify(payload))
       }
@@ -896,14 +819,14 @@ class Exchange extends EventEmitter {
   }
 
   stopKeepAlive(api) {
-    if (!this.keepAliveIntervals[api.url]) {
+    if (!this.keepAliveIntervals[api.id]) {
       return
     }
 
-    console.debug(`[${this.id}] stop keepalive for ws ${api.url}`)
+    console.debug(`[${this.id}] stop keepalive for ws ${api.url} (${api.id})`)
 
-    clearInterval(this.keepAliveIntervals[api.url])
-    delete this.keepAliveIntervals[api.url]
+    clearInterval(this.keepAliveIntervals[api.id])
+    delete this.keepAliveIntervals[api.id]
   }
 
   schedule(operationFunction, operationId, minDelay, delayMultiplier, maxDelay, currentDelay) {
@@ -1005,6 +928,20 @@ class Exchange extends EventEmitter {
         resolve()
       })
     })
+  }
+
+  queueNextTrades(duration = 100) {
+    this.shouldQueueTrades = true
+
+    if (this._unlockTimeout) {
+      clearTimeout(this._unlockTimeout)
+    }
+
+    this._unlockTimeout = setTimeout(() => {
+      this._unlockTimeout = null
+
+      this.shouldQueueTrades = false
+    }, duration)
   }
 }
 
