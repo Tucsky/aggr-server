@@ -189,6 +189,8 @@ class Bitfinex extends Exchange {
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
+        } else {
+          console.log(endpoint) // debug
         }
 
         return totalRecovered

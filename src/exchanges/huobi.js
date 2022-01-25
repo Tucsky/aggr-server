@@ -1,5 +1,7 @@
 const Exchange = require('../exchange')
 const pako = require('pako')
+const WebSocket = require('ws')
+const axios = require('axios')
 
 class Huobi extends Exchange {
   constructor(options) {
@@ -8,19 +10,23 @@ class Huobi extends Exchange {
     this.id = 'HUOBI'
 
     this.receivedInitialData = {}
+    this.liquidationOrdersSubscriptions = {}
 
     this.contractTypesAliases = {
       this_week: 'CW',
       next_week: 'NW',
       quarter: 'CQ',
-      next_quarter: 'NQ'
+      next_quarter: 'NQ',
     }
+
+    this.prices = {}
 
     this.endpoints = {
       PRODUCTS: [
         'https://api.huobi.pro/v1/common/symbols',
         'https://api.hbdm.com/api/v1/contract_contract_info',
         'https://api.hbdm.com/swap-api/v1/swap_contract_info',
+        'https://api.hbdm.com/linear-swap-api/v1/swap_contract_info',
       ],
     }
 
@@ -31,6 +37,8 @@ class Huobi extends Exchange {
             return 'wss://www.hbdm.com/ws'
           } else if (this.types[pair] === 'swap') {
             return 'wss://api.hbdm.com/swap-ws'
+          } else if (this.types[pair] === 'linear') {
+            return 'wss://api.hbdm.com/linear-swap-ws'
           } else {
             return 'wss://api.huobi.pro/ws'
           }
@@ -46,7 +54,7 @@ class Huobi extends Exchange {
     const types = {}
 
     for (let data of response) {
-      let type = ['spot', 'futures', 'swap'][response.indexOf(data)]
+      let type = ['spot', 'futures', 'swap', 'linear'][response.indexOf(data)]
 
       for (let product of data.data) {
         let pair
@@ -60,13 +68,10 @@ class Huobi extends Exchange {
             specs[pair] = product.contract_size
             break
           case 'swap':
+          case 'linear':
             pair = product.contract_code
             specs[pair] = product.contract_size
             break
-        }
-
-        if (products.find((a) => a.toLowerCase() === pair.toLowerCase())) {
-          throw new Error('duplicate pair detected on huobi exchange (' + pair + ')')
         }
 
         types[pair] = type
@@ -100,6 +105,8 @@ class Huobi extends Exchange {
         id: pair,
       })
     )
+
+    this.subscribeLiquidations(api, pair)
   }
 
   /**
@@ -118,13 +125,14 @@ class Huobi extends Exchange {
         id: pair,
       })
     )
+
+    this.unsubscribeLiquidations(api, pair)
   }
 
   onMessage(event, api) {
     const json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
 
     if (!json) {
-      console.log(json)
       return
     }
 
@@ -134,32 +142,134 @@ class Huobi extends Exchange {
     } else if (json.tick && json.tick.data && json.tick.data.length) {
       const pair = json.ch.replace(/market.(.*).trade.detail/, '$1')
 
-      if (!this.receivedInitialData[pair]) {
-        this.receivedInitialData[pair] = true
+      if (!this.receivedInitialData[api.id + pair]) {
+        // huobi send a bunch of trades at the beginning of the feed that has nothing to do with the realtime data we are looking for
+        this.receivedInitialData[api.id + pair] = true
+
+        // ignore them
         return
       }
 
       this.emitTrades(
         api.id,
-        json.tick.data.map((trade) => {
-          let size = +trade.amount
-
-          if (typeof this.specs[pair] === 'number') {
-            size = (size * this.specs[pair]) / trade.price
-          }
-
-          return {
-            exchange: this.id,
-            pair: pair,
-            timestamp: trade.ts,
-            price: +trade.price,
-            size: size,
-            side: trade.direction,
-          }
-        })
+        json.tick.data.map((trade) => this.formatTrade(trade, pair))
       )
 
       return true
+    }
+  }
+
+  formatTrade(trade, pair) {
+    let size = +trade.amount
+
+    if (typeof this.specs[pair] === 'number') {
+      size = (size * this.specs[pair]) / (this.types[pair] === 'linear' ? 1 : trade.price)
+    }
+
+    this.prices[pair] = trade.price
+
+    return {
+      exchange: this.id,
+      pair: pair,
+      timestamp: trade.ts,
+      price: +trade.price,
+      size: size,
+      side: trade.direction,
+    }
+  }
+
+  formatLiquidation(trade, pair) {
+    return {
+      exchange: this.id,
+      pair: pair,
+      timestamp: +new Date(),
+      price: this.prices[pair] || trade.price,
+      size: +trade.amount,
+      side: trade.direction,
+      liquidation: true,
+    }
+  }
+
+  onApiCreated(api) {
+    this.liquidationOrdersSubscriptions[api.id] = []
+
+    // open api providing liquidations data
+    this.openMarketDataApi(api)
+  }
+
+  openMarketDataApi(api) {
+    if (api.url === 'wss://api.hbdm.com/swap-ws') {
+      api._marketDataApi = new WebSocket('wss://api.hbdm.com/swap-notification') // coin margined
+    } else if (api.url === 'wss://api.hbdm.com/linear-swap-ws') {
+      api._marketDataApi = new WebSocket('wss://api.btcgateway.pro/linear-swap-notification') // usdt margined
+    }
+
+    if (api._marketDataApi) {
+      // coin/linear swap & futures contracts
+      console.log(`[${this.id}] opened market data api ${api._marketDataApi.url}`)
+      api._marketDataApi.onmessage = (event) => {
+        const json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
+
+        if (json.op === 'ping') {
+          api._marketDataApi.send(JSON.stringify({ op: 'pong', ts: json.ts }))
+        } else if (json.data) {
+          const pair = json.topic.replace(/public.(.*).liquidation_orders/, '$1')
+
+          this.emitTrades(
+            api.id,
+            json.data.map((trade) => this.formatLiquidation(trade, pair))
+          )
+        }
+      }
+
+      api._marketDataApi.onopen = () => {
+        for (const pair of api._connected) {
+          this.subscribeLiquidations(api, pair)
+        }
+      }
+
+      api._marketDataApi.onerror = (event) => {
+        console.error(`[${this.id}] market data api errored ${event.message}`)
+      }
+
+      api._marketDataApi.onclose = (event) => {
+        if (!event.wasClean) {
+          console.error(`[${this.id}] market data api closed unexpectedly`)
+        }
+        api._marketDataApi = null
+
+        setTimeout(() => {
+          if (api.readyState === WebSocket.OPEN) {
+            this.openMarketDataApi(api)
+          }
+        }, 1000)
+      }
+    }
+  }
+
+  subscribeLiquidations(api, pair, unsubscribe = false) {
+    if (
+      api._marketDataApi &&
+      api._marketDataApi.readyState === WebSocket.OPEN &&
+      (this.types[pair] === 'futures' || this.types[pair] === 'swap' || this.types[pair] === 'linear')
+    ) {
+      const symbol = this.types[pair] === 'futures' ? pair.replace(/\d+/, '').replace(/-.*/, '') : pair
+
+      api._marketDataApi.send(
+        JSON.stringify({
+          op: unsubscribe ? 'unsub' : 'sub',
+          topic: 'public.' + symbol + '.liquidation_orders',
+        })
+      )
+    }
+  }
+
+  onApiRemoved(api) {
+    if (api._marketDataApi) {
+      if (api._marketDataApi.readyState === WebSocket.OPEN) {
+        console.log('close market data api', api._marketDataApi.url)
+        api._marketDataApi.close()
+      }
     }
   }
 }

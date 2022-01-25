@@ -168,7 +168,7 @@ class Bitmex extends Exchange {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
         } else {
-          console.log(`[${this.id}.recoverMissingTrades] no more trade to recover on ${range.pair} ?`)
+          console.log(endpoint) // debug
         }
 
         return totalRecovered

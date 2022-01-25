@@ -676,7 +676,7 @@ class Exchange extends EventEmitter {
   onError(event, api) {
     const pairs = [...api._pending, ...api._connected]
 
-    console.error(`[${this.id}.onError] ${pairs.join(',')}'s api errored`, event)
+    console.error(`[${this.id}.onError] ${pairs.join(',')}'s api errored`, event.message)
 
     this.emit('error', api.id, event.message)
   }

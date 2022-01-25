@@ -257,12 +257,13 @@ class Server extends EventEmitter {
         } else {
           if (typeof exchange.getMissingTrades === 'function') {
             console.log(
-              `\t${getHms(now - this.connections[id].timestamp)} elapsed since last trade on that connection -> register range (${new Date(
+              `\t${getHms(now - this.connections[id].timestamp)} elapsed since last -> register range (${new Date(
                 this.connections[id].timestamp
               )
                 .toISOString()
                 .split('T')
-                .pop()} to ${new Date(now).toISOString().split('T').pop()})`
+                .pop()} to ${new Date(now).toISOString().split('T').pop()})`,
+              +((1000 / (now - this.connections[id].start)) * this.connections[id].hit).toFixed(2) + ' avg.'
             )
             exchange.registerRangeForRecovery({
               pair,
@@ -314,7 +315,7 @@ class Server extends EventEmitter {
 
       exchange.on('close', (apiId, pairs) => {
         if (pairs.length) {
-          console.log(`[${exchange.id}] connection (was handling ${pairs.join(',')}) closed unexpectedly`)
+          console.log(`[${exchange.id}] api closed unexpectedly (was handling ${pairs.join(',')})`)
 
           setTimeout(
             () => {
