@@ -210,7 +210,7 @@ class Huobi extends Exchange {
       api._marketDataApi.onmessage = (event) => {
         const json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
 
-        if (json.op === 'ping') {
+        if (json.op === 'ping' && api._marketDataApi.readyState === WebSocket.OPEN) {
           api._marketDataApi.send(JSON.stringify({ op: 'pong', ts: json.ts }))
         } else if (json.data) {
           const pair = json.topic.replace(/public.(.*).liquidation_orders/, '$1')

@@ -1,4 +1,6 @@
 const Exchange = require('../exchange')
+const axios = require('axios')
+const { getHms, sleep } = require('../helper')
 
 class Coinbase extends Exchange {
   constructor(options) {
@@ -62,17 +64,73 @@ class Coinbase extends Exchange {
     const json = JSON.parse(event.data)
 
     if (json && json.size > 0) {
-      return this.emitTrades(api.id, [
-        {
-          exchange: this.id,
-          pair: json.product_id,
-          timestamp: +new Date(json.time),
-          price: +json.price,
-          size: +json.size,
-          side: json.side === 'buy' ? 'sell' : 'buy',
-        },
-      ])
+      return this.emitTrades(api.id, [this.formatTrade(json, json.product_id)])
     }
+  }
+
+  formatTrade(trade, pair) {
+    return {
+      exchange: this.id,
+      pair: pair,
+      timestamp: +new Date(trade.time),
+      price: +trade.price,
+      size: +trade.size,
+      side: trade.side === 'buy' ? 'sell' : 'buy',
+    }
+  }
+
+  async getMissingTrades(range, totalRecovered = 0, fromTradeId) {
+    const endpoint = `https://api.exchange.coinbase.com/products/${range.pair}/trades?limit=1000${
+      fromTradeId ? '&after=' + fromTradeId : ''
+    }`
+
+    if (+new Date() - range.to < 10000) {
+      // coinbase api lags a lot
+      // wait 10s before fetching initial results
+      await sleep(10000)
+    }
+
+    return axios
+      .get(endpoint)
+      .then((response) => {
+        if (response.data.length) {
+          const earliestTradeId = response.data[response.data.length - 1].trade_id
+          const earliestTradeTime = +new Date(response.data[response.data.length - 1].time)
+
+          const trades = response.data
+            .map((trade) => this.formatTrade(trade, range.pair))
+            .filter((a) => a.timestamp >= range.from + 1 && a.timestamp < range.to)
+
+          if (trades.length) {
+            this.emitTrades(null, trades)
+
+            totalRecovered += trades.length
+            range.to = trades[trades.length - 1].timestamp
+          }
+
+          const remainingMissingTime = range.to - range.from
+
+          if (remainingMissingTime > 1000 && earliestTradeTime >= range.from) {
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(
+                remainingMissingTime
+              )} remaining)`
+            )
+            return this.getMissingTrades(range, totalRecovered, earliestTradeId)
+          } else {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+          }
+        } else {
+          console.log(endpoint) // debug
+        }
+
+        return totalRecovered
+      })
+      .catch((err) => {
+        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+
+        return totalRecovered
+      })
   }
 }
 

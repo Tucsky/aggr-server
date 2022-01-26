@@ -343,6 +343,8 @@ class InfluxStorage {
   async import() {
     let now = Date.now()
     let before = now
+    
+    console.log(`[storage/influx/import] import start`)
 
     const resampleRange = await this.importPendingBars()
 
@@ -351,7 +353,7 @@ class InfluxStorage {
     }
 
     now = Date.now()
-    console.log(`[storage/influx/import] done importing (took ${getHms(now - before, true)})`)
+    console.log(`[storage/influx/import] import end (took ${getHms(now - before, true)})`)
   }
 
   /**
@@ -818,8 +820,6 @@ class InfluxStorage {
 
             if (this.promiseOfImport) {
               this.promiseOfImport() // trigger next import (if any)
-            } else {
-              console.error('there was no promiseOfImport')
             }
           }
         })
@@ -895,7 +895,18 @@ class InfluxStorage {
   async importCollectors() {
     for (const collector of this.clusteredCollectors) {
       await new Promise((resolve) => {
-        this.promiseOfImport = resolve
+        let importTimeout = setTimeout(() => {
+          console.error('[storage/influx/cluster] collector import was resolved early (5s timeout fired)')
+          importTimeout = null
+          resolve()
+        }, 5000)
+
+        this.promiseOfImport = () => {
+          if (importTimeout) {
+            clearTimeout(importTimeout)
+            resolve()
+          }
+        }
 
         collector.write(JSON.stringify({ op: 'import' }) + '#')
       })
