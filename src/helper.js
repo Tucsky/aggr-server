@@ -1,4 +1,5 @@
 const fs = require('fs')
+const config = require('../src/config')
 
 module.exports = {
   getIp(req) {
@@ -173,6 +174,99 @@ module.exports = {
       throw new Error(`Invalid date ${datetime}`)
     }
 
-    return +new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    return +date
+    //return +new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  },
+  getMarkets() {
+    return config.pairs.map((market) => {
+      const [exchange, symbol] = market.match(/([^:]*):(.*)/).slice(1, 3)
+
+      if (config.exchanges.indexOf(exchange) === -1) {
+        console.warn(`${market} is not supported`)
+      }
+
+      return {
+        market,
+        exchange,
+        symbol,
+      }
+    })
+  },
+  async prepareStandalone() {
+    if (!config.exchanges || !config.exchanges.length) {
+      config.exchanges = []
+
+      fs.readdirSync('./src/exchanges/').forEach((file) => {
+        ;/\.js$/.test(file) && config.exchanges.push(file.replace(/\.js$/, ''))
+      })
+    }
+
+    const exchanges = []
+
+    for (let i = 0; i < config.exchanges.length; i++) {
+      const name = config.exchanges[i]
+      const exchange = new (require('../src/exchanges/' + name))(config)
+
+      if (typeof exchange.getMissingTrades === 'function') {
+        config.exchanges[i] = exchange.id
+
+        exchanges.push(exchange)
+      } else {
+        config.exchanges.splice(i, 1)
+        i--
+      }
+    }
+
+    if (config.from) {
+      config.from = module.exports.parseDatetime(config.from)
+    } else {
+      throw new Error('from is required')
+    }
+
+    if (config.to) {
+      config.to = module.exports.parseDatetime(config.to) - 1
+    } else {
+      config.to = +new Date()
+    }
+
+    if (isNaN(config.to) || isNaN(config.to)) {
+      throw new Error('invalid from / to')
+    }
+
+    config.resolution = module.exports.parseDuration(config.resolution)
+
+    if (isNaN(config.resolution)) {
+      throw new Error('invalid resolution')
+    }
+
+    for (const exchange of exchanges) {
+      await exchange.getProducts()
+    }
+
+    for (let name of config.storage) {
+      if (name !== 'influx') {
+        continue
+      }
+
+      console.log(`[storage] Using "${name}" storage solution`)
+
+      storage = new (require(`../src/storage/${name}`))(config)
+
+      if (typeof storage.connect === 'function') {
+        await storage.connect()
+      }
+
+      break
+    }
+
+    if (!storage) {
+      throw new Error('this utility script requires influx storage')
+    }
+
+    return { exchanges, storage }
+  },
+  humanFileSize(size) {
+    var i = Math.floor(Math.log(size) / Math.log(1024))
+    return (size / Math.pow(1024, i)).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
   },
 }

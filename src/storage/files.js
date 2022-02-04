@@ -1,6 +1,6 @@
 const fs = require('fs')
 const zlib = require('zlib')
-const { groupTrades, ensureDirectoryExists, getHms } = require('../helper')
+const { groupTrades, ensureDirectoryExists, getHms, humanFileSize } = require('../helper')
 
 class FilesStorage {
   constructor(options) {
@@ -66,10 +66,16 @@ class FilesStorage {
       console.error(`[storage/${this.name}] failed to create target directory ${path}`, error)
     }
 
+    const stream = fs.createWriteStream(path, { flags: 'a' })
+
     this.writableStreams[identifier + ts] = {
       timestamp: +ts,
-      stream: fs.createWriteStream(path, { flags: 'a' }),
+      stream,
     }
+
+    stream.on('error', (err) => {
+      console.error(`[storage/${this.name}] ${path} stream encountered an error\n\t${err.message}`)
+    })
 
     console.debug(`[storage/${this.name}] created writable stream ${date.toUTCString()} => ${path}`)
   }
@@ -155,7 +161,7 @@ class FilesStorage {
   save(trades) {
     return new Promise((resolve) => {
       const output = this.prepareTrades(trades)
-
+      
       const promises = []
 
       for (let identifier in output) {
@@ -169,13 +175,45 @@ class FilesStorage {
               }
 
               promiseOfWritableStram.then(() => {
-                this.writableStreams[identifier + ts].stream.write(output[identifier][ts].data, (err) => {
+                const stream = this.writableStreams[identifier + ts].stream
+
+                if (!stream) {
+                  console.error(`[storage/${this.name}] ${identifier}'s stream already closed`)
+                  return resolve()
+                }
+                
+                let debugWrite = /BINANCE.*btcusdt/.test(identifier)
+                let timestamp
+                if (debugWrite) {
+                  timestamp = Date.now()
+                  console.log(identifier, 'write', output[identifier][ts].data.split('\n').length, humanFileSize(stream.bytesWritten))
+                }
+                
+                const waitDrain = !stream.write(output[identifier][ts].data, (err) => {
                   if (err) {
-                    console.log(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
+                    console.error(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
                   }
 
-                  resolve()
+                  if (debugWrite) {
+                    const took = Date.now() - timestamp
+
+                    if (took > 500) {
+                      console.log(identifier, ts, 'took', getHms(Date.now() - timestamp))
+                    }
+                  }
+
+                  if (!waitDrain) {
+                    resolve()
+                  }
                 })
+
+                if (waitDrain) {
+                  console.log(`[storage/${this.name}] ${identifier}'s stream calling code to wait for the 'drain' event`)
+                  stream.once('drain', () => {
+                    console.log(`[storage/${this.name}] ${identifier}'s stream drain event received`)
+                    resolve()
+                  })
+                }
               })
             })
           )

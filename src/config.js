@@ -195,11 +195,7 @@ if (process.argv.length > 2) {
     const keyvalue = arg.split('=')
 
     if (keyvalue.length > 1) {
-      try {
-        commandSettings[keyvalue[0]] = JSON.parse(keyvalue[1])
-      } catch (error) {
-        commandSettings[keyvalue[0]] = keyvalue[1]
-      }
+      commandSettings[keyvalue[0]] = isNaN(+keyvalue[1]) ? keyvalue[1] : +keyvalue[1]
     } else if (/^\w+$/.test(keyvalue[0])) {
       exchanges.push(keyvalue[0])
     }

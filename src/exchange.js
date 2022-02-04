@@ -706,7 +706,7 @@ class Exchange extends EventEmitter {
 
     console.debug(`[${this.id}] ${pairs.join(',')}'s api closed`)
 
-    this.emit('close', api.id, pairs)
+    this.emit('close', api.id, pairs, event)
 
     api._closeWasHandled = true
   }

@@ -313,9 +313,9 @@ class Server extends EventEmitter {
         })
       })
 
-      exchange.on('close', (apiId, pairs) => {
+      exchange.on('close', (apiId, pairs, event) => {
         if (pairs.length) {
-          console.log(`[${exchange.id}] api closed unexpectedly (was handling ${pairs.join(',')})`)
+          console.log(`[${exchange.id}] api closed unexpectedly (${event.code}, ${event.reason || 'no reason'}) (was handling ${pairs.join(',')})`)
 
           setTimeout(
             () => {

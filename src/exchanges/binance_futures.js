@@ -128,37 +128,36 @@ class BinanceFutures extends Exchange {
     }
   }
 
-  formatTrade(trade, symbol) {
-    let size = +trade.q
+  getSize(qty, price, symbol) {
+    let size = +qty
 
     if (typeof this.specs[symbol] === 'number') {
-      size = (size * this.specs[symbol]) / trade.p
+      size = (size * this.specs[symbol]) / price
     }
 
+    return size
+  }
+
+  formatTrade(trade, symbol) {
     return {
       exchange: this.id,
       pair: symbol,
       timestamp: trade.T,
       price: +trade.p,
-      size: size,
+      size: this.getSize(trade.q, trade.p, symbol),
       side: trade.m ? 'sell' : 'buy',
     }
   }
 
   formatLiquidation(trade) {
-    let size = +trade.o.q
     const symbol = trade.o.s.toLowerCase()
-
-    if (typeof this.specs[symbol] === 'number') {
-      size = (size * this.specs[symbol]) / trade.o.p    
-    }
 
     return {
       exchange: this.id,
       pair: symbol,
       timestamp: trade.o.T,
       price: +trade.o.p,
-      size: size,
+      size: this.getSize(trade.o.q, trade.o.p, symbol),
       side: trade.o.S === 'BUY' ? 'buy' : 'sell',
       liquidation: true,
     }
