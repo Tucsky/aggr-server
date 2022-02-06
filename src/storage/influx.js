@@ -1,7 +1,9 @@
 const Influx = require('influx')
 const { getHms, sleep, ID } = require('../helper')
 const net = require('net')
-const { statSync, unlinkSync } = require('fs')
+const { statSync, unlinkSync, cp } = require('fs')
+const webPush = require('web-push')
+const persistence = require('../persistence')
 
 require('../typedef')
 
@@ -46,6 +48,16 @@ class InfluxStorage {
      * @type {{[identifier: string]: Bar[]}}
      */
     this.pendingBars = {}
+
+    /**
+     * @type {{[identifier: string]: any[]}}
+     */
+    this.alerts = {}
+
+    /**
+     * @type {{[endpoint: string]: any}}
+     */
+    this.alertEndpoints = {}
 
     this.options = options
   }
@@ -92,11 +104,20 @@ class InfluxStorage {
         if (this.options.api && !this.options.collect) {
           // CLUSTER NODE (node is dedicated to serving data)
           this.createCluster()
+
+          return
         } else if (!this.options.api && this.options.collect) {
           // COLLECTOR NODE (node is just collecting + storing data)
+
+          if (this.options.privateVapidKey && (typeof this.options.id === 'undefined' || this.options.id === null)) {
+            console.error(`[storage/alerts] push subscriptions won't be persisted (NEED ID COLLECTORS)`)
+          }
+
           this.connectToCluster()
         }
       }
+
+      this.getAlerts()
     }
   }
 
@@ -166,6 +187,8 @@ class InfluxStorage {
    */
   async save(trades, isExiting) {
     if (isExiting) {
+      await this.peristAlerts(true)
+
       if (this.clusterSocket) {
         console.log('[storage/influx/collector] closing cluster connection')
         await new Promise((resolve) => {
@@ -236,6 +259,12 @@ class InfluxStorage {
      */
     const activeBars = {}
 
+    let debugPush = {
+      count: 0,
+      market: null,
+      lastTime: null,
+    }
+
     for (let i = 0; i <= trades.length; i++) {
       const trade = trades[i]
 
@@ -271,6 +300,8 @@ class InfluxStorage {
               this.pendingBars[tradeIdentifier] = []
             }
 
+            const debugWrite = /BINANCE_FUTURES.*btcusdt/.test(tradeIdentifier)
+
             if (
               this.pendingBars[tradeIdentifier].length &&
               this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1].time === tradeFlooredTime
@@ -283,6 +314,11 @@ class InfluxStorage {
               activeBars[tradeIdentifier] = this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1]
             } else {
               // create new bar
+              if (debugWrite) {
+                debugPush.count++
+                debugPush.market = tradeIdentifier
+                debugPush.lastTime = tradeFlooredTime
+              }
               this.pendingBars[tradeIdentifier].push({
                 time: tradeFlooredTime,
                 market: tradeIdentifier,
@@ -335,6 +371,14 @@ class InfluxStorage {
         activeBars[tradeIdentifier]['v' + trade.side] += trade.price * trade.size
       }
     }
+
+    if (debugPush) {
+      console.log(
+        `[storage/${this.name}] push ${debugPush.count} ${getHms(this.options.influxTimeframe)} bar for market ${
+          debugPush.market
+        } (last time ${new Date(debugPush.lastTime).toISOString().split('T').pop()})`
+      )
+    }
   }
 
   /**
@@ -343,7 +387,7 @@ class InfluxStorage {
   async import() {
     let now = Date.now()
     let before = now
-    
+
     console.log(`[storage/influx/import] import start`)
 
     const resampleRange = await this.importPendingBars()
@@ -367,6 +411,8 @@ class InfluxStorage {
    * @memberof InfluxStorage
    */
   async importPendingBars() {
+    const now = Date.now()
+
     /**
      * closed bars
      * @type {Bar[]}
@@ -402,6 +448,14 @@ class InfluxStorage {
     // free up realtime bars
     this.pendingBars = {}
 
+    const pricesRanges = {}
+
+    let debugImport = {
+      count: 0,
+      market: null,
+      lastTime: null,
+    }
+
     if (barsToImport.length) {
       await this.writePoints(
         barsToImport.map((bar, index) => {
@@ -415,7 +469,28 @@ class InfluxStorage {
           }
 
           if (bar.close !== null) {
+            if (this.alerts[bar.market]) {
+              if (!pricesRanges[bar.market]) {
+                pricesRanges[bar.market] = {
+                  high: -Infinity,
+                  low: Infinity,
+                }
+
+                pricesRanges[bar.market].open = bar.open
+              }
+
+              pricesRanges[bar.market].high = Math.max(bar.high, pricesRanges[bar.market].high)
+              pricesRanges[bar.market].low = Math.min(bar.low, pricesRanges[bar.market].low)
+              pricesRanges[bar.market].close = bar.close
+            }
+
             ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
+          }
+
+          if (/BINANCE_FUTURES.*btcusdt/.test(bar.market)) {
+            debugImport.count++
+            debugImport.lastTime = bar.time
+            debugImport.market = bar.market
           }
 
           return {
@@ -432,6 +507,47 @@ class InfluxStorage {
           retentionPolicy: this.baseRp,
         }
       )
+    }
+
+    if (debugImport.count) {
+      console.log(
+        `[storage/${this.name}] import ${debugImport.count} ${getHms(this.options.influxTimeframe)} bar for market ${
+          debugImport.market
+        } (last time ${new Date(debugImport.lastTime).toISOString().split('T').pop()})`
+      )
+    }
+
+    for (const market in pricesRanges) {
+      const { high, low } = pricesRanges[market]
+
+      let expired = 0
+
+      for (let i = 0; i < this.alerts[market].length; i++) {
+        const alert = this.alerts[market][i]
+
+        if (now - alert.timestamp < this.options.influxResampleInterval) {
+          continue
+        }
+
+        const isTriggered = alert.price <= high && alert.price >= low
+        const isExpired = !isTriggered && alert.timestamp + this.options.alertExpiresAfter < now
+
+        if (isTriggered || isExpired) {
+          if (isTriggered) {
+            this.sendAlert(alert, alert.close > alert.open, now - alert.timestamp)
+          } else {
+            expired++
+          }
+
+          if (this.unregisterAlert(alert, true)) {
+            i--
+          }
+        }
+      }
+
+      if (expired) {
+        console.log(`[alert] removed ${expired} expired alerts on ${market}`)
+      }
     }
 
     return importedRange
@@ -722,6 +838,8 @@ class InfluxStorage {
                 )
               }
             })
+          } else if (data.op === 'toggleAlert') {
+            this.toggleAlert(data.alert, true)
           }
         })
       )
@@ -870,17 +988,20 @@ class InfluxStorage {
         }
 
         // this is a complete chunk either because i < last OR last and # at this end of the total stringData
+        let json
+
         try {
-          callback(JSON.parse(this.pendingSocketData))
+          json = JSON.parse(this.pendingSocketData)
         } catch (error) {
-          console.error(
-            '[storage/influx] failed to parse socket data',
-            'first 10 chars: ',
-            this.pendingSocketData.slice(0, 10),
-            'last 10 chars: ',
-            stringData.slice(-10),
-            error.message
-          )
+          console.error('[storage/influx] failed to parse socket data', error.message, this.pendingSocketData)
+        }
+
+        if (json) {
+          try {
+            callback(json)
+          } catch (error) {
+            console.error('[storage/influx] failed to execute callback data', error.message, json)
+          }
         }
 
         // flush incoming data for next chunk
@@ -924,8 +1045,6 @@ class InfluxStorage {
    * @param {number} to
    */
   async requestPendingBars(markets, from, to) {
-    // console.debug('[storage/influx/cluster] requested pending bars', markets.map((m) => m[0]).join(''))
-
     const collectors = []
 
     for (let i = 0; i < markets.length; i++) {
@@ -937,8 +1056,6 @@ class InfluxStorage {
     }
 
     const promisesOfBars = []
-
-    // console.log(`\t${collectors.length} collector${collectors.length > 1 ? 's' : ''} match${collectors.length > 1 ? 'es' : ''} ${markets.length > 1 ? 'these' : 'this'} market${markets.length > 1 ? 's' : ''}`)
 
     for (const collector of collectors) {
       promisesOfBars.push(this.requestCollectorPendingBars(collector, markets, from, to))
@@ -1011,6 +1128,282 @@ class InfluxStorage {
         results,
       }) + '#'
     )
+  }
+
+  toggleAlert(alert, fromCluster = false) {
+    if (!fromCluster && this.options.influxCollectors && this.clusteredCollectors.length) {
+      const collector = this.getCollectorByMarket(alert.market)
+
+      if (!collector) {
+        throw new Error('unsupported market')
+      }
+
+      collector.write(
+        JSON.stringify({
+          op: 'toggleAlert',
+          alert: alert,
+        }) + '#'
+      )
+    } else {
+      if (!fromCluster && this.options.pairs.indexOf(alert.market) === -1) {
+        throw new Error('unsupported market')
+      }
+      const activeAlert = this.getActiveAlert(alert)
+
+      if (activeAlert) {
+        activeAlert.user = alert.user
+
+        if (typeof alert.newPrice === 'number') {
+          this.moveAlert(activeAlert, alert.newPrice)
+        } else if (alert.unsubscribe) {
+          this.unregisterAlert(activeAlert)
+        }
+
+        return
+      } else if (!alert.unsubscribe) {
+        this.registerAlert(alert)
+      }
+    }
+  }
+
+  getActiveAlert(alert) {
+    if (!this.alerts[alert.market]) {
+      return null
+    }
+
+    return this.alerts[alert.market].find((activeAlert) => activeAlert.endpoint === alert.endpoint && activeAlert.price === alert.price)
+  }
+
+  registerAlert(alert) {
+    if (!this.alerts[alert.market]) {
+      this.alerts[alert.market] = []
+    }
+
+    if (!this.alertEndpoints[alert.endpoint]) {
+      this.alertEndpoints[alert.endpoint] = {
+        user: alert.user,
+        endpoint: alert.endpoint,
+        keys: alert.keys,
+        count: 0,
+      }
+    }
+
+    if (typeof alert.newPrice === 'number') {
+      alert.price = alert.newPrice
+    }
+
+    this.alertEndpoints[alert.endpoint].count++
+
+    console.debug(
+      `[alert/${alert.user}] create alert ${alert.market} @ ${alert.price} (user now have ${
+        this.alertEndpoints[alert.endpoint].count
+      } active alerts)`
+    )
+
+    this.alerts[alert.market].push({
+      endpoint: alert.endpoint,
+      market: alert.market,
+      price: alert.price,
+      origin: alert.origin,
+      timestamp: Date.now(),
+    })
+
+    return true
+  }
+
+  unregisterAlert(alert, wasAutomatic) {
+    const index = this.alerts[alert.market].indexOf(alert)
+
+    this.scheduleAlertsCleanup(alert)
+
+    if (index !== -1) {
+      let user
+      let count = 0
+      if (this.alertEndpoints[alert.endpoint]) {
+        this.alertEndpoints[alert.endpoint].count--
+        user = this.alertEndpoints[alert.endpoint].user
+        count = this.alertEndpoints[alert.endpoint].count
+      }
+
+      if (wasAutomatic) {
+        console.debug(`[alert/${user || 'unknown'}] server removed ${alert.market} @ ${alert.price} (user now have ${count} active alerts)`)
+      } else {
+        console.debug(
+          `[alert/${user || 'unknown'}] user removed alert ${alert.market} @ ${alert.price} (user now have ${count} active alerts)`
+        )
+      }
+
+      this.alerts[alert.market].splice(index, 1)
+
+      return true
+    }
+
+    return false
+  }
+
+  moveAlert(alert, newPrice) {
+    const index = this.alerts[alert.market].indexOf(alert)
+
+    if (index !== -1) {
+      this.alerts[alert.market].splice(index, 1)
+
+      let count = 0
+
+      if (this.alertEndpoints[alert.endpoint]) {
+        count = this.alertEndpoints[alert.endpoint].count
+      }
+
+      console.debug(`[alert/${alert.user}] move alert on ${alert.market} @ ${alert.price} (user now have ${count} active alerts)`)
+      
+      const now = Date.now()
+
+      alert.price = newPrice
+      alert.timestamp = now
+
+      this.alerts[alert.market].push(alert)
+    }
+  }
+
+  async scheduleAlertsCleanup(alert) {
+    setTimeout(() => {
+      if (this.alerts[alert.market] && !this.alerts[alert.market].length) {
+        delete this.alerts[alert.market]
+      }
+
+      if (this.alertEndpoints[alert.endpoint] && !this.alertEndpoints[alert.endpoint].count) {
+        delete this.alertEndpoints[alert.endpoint]
+      }
+    }, 100)
+  }
+
+  async getAlerts() {
+    const now = Date.now()
+    this.alertEndpoints = (await persistence.get(this.options.id + '-alerts-endpoints')) || {}
+
+    console.debug(`[alert] this node handle ${Object.keys(this.alertEndpoints).length} alert users`)
+
+    let totalCount = 0
+    let pairsCount = 0
+
+    for (const pair of this.options.pairs) {
+      const marketAlerts = await persistence.get(this.options.id + '-alerts-' + pair)
+
+      if (marketAlerts) {
+        pairsCount++
+
+        for (let i = 0; i < marketAlerts.length; i++) {
+          const alert = marketAlerts[i]
+          if (!this.alertEndpoints[alert.endpoint]) {
+            marketAlerts.splice(i--, 1)
+            continue
+          } else {
+            const subscription = this.alertEndpoints[alert.endpoint]
+
+            if (!subscription.found) {
+              subscription.found = 1
+            } else {
+              subscription.found++
+            }
+          }
+        }
+
+        console.debug(`[alert] ${pair} has ${marketAlerts.length} alerts`)
+
+        totalCount += marketAlerts.length
+
+        this.alerts[pair] = marketAlerts
+      }
+    }
+
+    for (const endpoint in this.alertEndpoints) {
+      const subscription = this.alertEndpoints[endpoint]
+
+      if (!subscription.found) {
+        delete this.alertEndpoints[endpoint]
+      }
+    }
+
+    console.log(`[alert] total ${totalCount} alerts across ${pairsCount} pairs`)
+
+    this._persistAlertsTimeout = setTimeout(this.peristAlerts.bind(this), 1000 * 60 * 30 + Math.random() * 1000 * 60 * 30)
+  }
+
+  async peristAlerts(isExiting = false) {
+    clearTimeout(this._persistAlertsTimeout)
+
+    try {
+      await persistence.set(this.options.id + '-alerts-endpoints', this.alertEndpoints)
+    } catch (error) {
+      console.error('[alert] persistence error (saving endpoints)', error.message)
+    }
+
+    let totalCount = 0
+    let pairsCount = 0
+
+    for (const market in this.alerts) {
+      const count = this.alerts[market].length
+
+      if (count) {
+        totalCount += count
+        pairsCount++
+      }
+
+      try {
+        await persistence.set(this.options.id + '-alerts-' + market, this.alerts[market])
+      } catch (error) {
+        console.error('[alert] persistence error (saving alerts)', error.message)
+      }
+    }
+
+    console.log(`[alert] save alerts in persistence (${totalCount} alerts across ${pairsCount} pairs)`)
+
+    if (!isExiting) {
+      this._persistAlertsTimeout = setTimeout(this.peristAlerts.bind(this), 1000 * 60 * 30 + Math.random() * 1000 * 60 * 30)
+    }
+  }
+
+  sendAlert(alert, isGreen, elapsedTime) {
+    if (!this.alertEndpoints[alert.endpoint]) {
+      console.error(`[alert] attempted to send alert without matching endpoint`, alert)
+      return
+    }
+
+    console.debug(
+      `[alert/${this.alertEndpoints[alert.endpoint].user}] send alert ${alert.market} @ ${alert.price} (${getHms(elapsedTime)} after)`
+    )
+
+    alert.triggered = true
+
+    const payload = JSON.stringify({
+      title: `${alert.market}`,
+      body: `Price crossed ${alert.price}`,
+      origin: alert.origin,
+      price: alert.price,
+      market: alert.market,
+    })
+
+    return webPush
+      .sendNotification(this.alertEndpoints[alert.endpoint], payload, {
+        TTL: 60,
+        vapidDetails: {
+          subject: 'mailto: contact@aggr.trade',
+          publicKey: this.options.publicVapidKey,
+          privateKey: this.options.privateVapidKey,
+        },
+        contentEncoding: 'aes128gcm',
+      })
+      .catch((err) => {
+        console.error(`[alert] push notification failure\n\t`, err.message, '| payload :')
+        console.error(JSON.parse(payload))
+      })
+  }
+
+  getCollectorByMarket(market) {
+    for (let j = 0; j < this.clusteredCollectors.length; j++) {
+      if (this.clusteredCollectors[j].markets.indexOf(market) !== -1) {
+        return this.clusteredCollectors[j]
+      }
+    }
   }
 }
 

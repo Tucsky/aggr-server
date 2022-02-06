@@ -182,11 +182,9 @@ class FilesStorage {
                   return resolve()
                 }
                 
-                let debugWrite = /BINANCE.*btcusdt/.test(identifier)
-                let timestamp
-                if (debugWrite) {
-                  timestamp = Date.now()
-                  console.log(identifier, 'write', output[identifier][ts].data.split('\n').length, humanFileSize(stream.bytesWritten))
+                let debugTimestamp
+                if (/BINANCE_FUTURES.*btcusdt/.test(identifier)) {
+                  debugTimestamp = Date.now()
                 }
                 
                 const waitDrain = !stream.write(output[identifier][ts].data, (err) => {
@@ -194,12 +192,8 @@ class FilesStorage {
                     console.error(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
                   }
 
-                  if (debugWrite) {
-                    const took = Date.now() - timestamp
-
-                    if (took > 500) {
-                      console.log(identifier, ts, 'took', getHms(Date.now() - timestamp))
-                    }
+                  if (debugTimestamp) {
+                    console.log(`[storage/${this.name}] stream.write ${output[identifier][ts].data.split('\n').length} trades to ${identifier}'s stream took ${getHms(Date.now() - debugTimestamp)} (current stream size ${humanFileSize(stream.bytesWritten)})`)
                   }
 
                   if (!waitDrain) {
@@ -208,10 +202,19 @@ class FilesStorage {
                 })
 
                 if (waitDrain) {
-                  console.log(`[storage/${this.name}] ${identifier}'s stream calling code to wait for the 'drain' event`)
-                  stream.once('drain', () => {
-                    console.log(`[storage/${this.name}] ${identifier}'s stream drain event received`)
+                  let drainTimeout = setTimeout(() => {
+                    console.log(`[storage/${this.name}] ${identifier}'s stream drain timeout fired`)
+                    drainTimeout = null
                     resolve()
+                  }, 5000)
+
+                  stream.once('drain', () => {
+                    if (drainTimeout) {
+                      clearTimeout(drainTimeout)
+                      resolve()
+                    } else {
+                      console.log(`[storage/${this.name}] ${identifier}'s stream drain callback received`)
+                    }
                   })
                 }
               })

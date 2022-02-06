@@ -65,8 +65,8 @@ const defaultConfig = {
   // max n of bars a user can get in 1 call
   maxFetchLength: 100000,
 
-  // admin access type (whitelist, all, none)
-  admin: 'whitelist',
+  // bypass origin restriction for given ips (comma separated)
+  whitelist: [],
 
   // enable websocket server (if you only use this for storing trade data set to false)
   broadcast: false,
@@ -180,6 +180,14 @@ const defaultConfig = {
   // unix socket used to communicate
   influxCollectorsClusterSocketPath: '/tmp/aggr.sock',
 
+  // you must set an ID to each cluster in order to use push notifications with collectors (unique id to associate with notification endpoints persistences)
+  id: null,
+
+  // push (WARNING: must set id to use in cluster mode)
+  publicVapidKey: null,
+  privateVapidKey: null,
+  alertExpiresAfter: 1000 * 60 * 60 * 24,
+
   // verbose
   debug: false,
 }
@@ -277,6 +285,12 @@ if (config.storage) {
 
 /* Others validations
  */
+
+if (config.whitelist && config.whitelist === 'string') {
+  config.whitelist = config.whitelist.split(',').map(a => a.trim())
+} else if (!config.whitelist) {
+  config.whitelist = []
+}
 
 if (config.pair) {
   config.pairs = Array.isArray(config.pair) ? config.pair : config.pair.split(',')

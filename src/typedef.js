@@ -23,6 +23,7 @@
   close: number
  }}
 */
+
 /**
  * A range
  * @typedef  TimeRange

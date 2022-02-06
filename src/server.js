@@ -1,10 +1,13 @@
 const EventEmitter = require('events')
 const WebSocket = require('ws')
 const fs = require('fs')
-const { getIp, getHms, parsePairsFromWsRequest, groupTrades, ago } = require('./helper')
+const { getIp, getHms, parsePairsFromWsRequest, groupTrades } = require('./helper')
 const express = require('express')
+const cors = require('cors')
 const path = require('path')
 const rateLimit = require('express-rate-limit')
+const webPush = require('web-push')
+const bodyParser = require('body-parser')
 
 class Server extends EventEmitter {
   constructor(options, exchanges) {
@@ -104,7 +107,7 @@ class Server extends EventEmitter {
         }
       }
 
-      // update banned ip
+      // update banned users
       this.listenBannedIps()
     })
   }
@@ -315,7 +318,9 @@ class Server extends EventEmitter {
 
       exchange.on('close', (apiId, pairs, event) => {
         if (pairs.length) {
-          console.log(`[${exchange.id}] api closed unexpectedly (${event.code}, ${event.reason || 'no reason'}) (was handling ${pairs.join(',')})`)
+          console.error(
+            `[${exchange.id}] api closed unexpectedly (${event.code}, ${event.reason || 'no reason'}) (was handling ${pairs.join(',')})`
+          )
 
           setTimeout(
             () => {
@@ -347,7 +352,7 @@ class Server extends EventEmitter {
     })
 
     this.wss.on('connection', (ws, req) => {
-      const ip = getIp(req)
+      const user = getIp(req)
       const pairs = parsePairsFromWsRequest(req)
 
       if (pairs && pairs.length) {
@@ -373,7 +378,7 @@ class Server extends EventEmitter {
         }),
       }
 
-      console.log(`[${ip}/ws/${ws.pairs.join('+')}] joined ${req.url} from ${req.headers['origin']}`)
+      console.log(`[${user}/ws/${ws.pairs.join('+')}] joined ${req.url} from ${req.headers['origin']}`)
 
       this.emit('connections', this.wss.clients.size)
 
@@ -389,7 +394,7 @@ class Server extends EventEmitter {
               .filter((a) => a.length)
           : []
 
-        console.log(`[${ip}/ws] subscribe to ${pairs.join(' + ')}`)
+        console.log(`[${user}/ws] subscribe to ${pairs.join(' + ')}`)
 
         ws.pairs = pairs
       })
@@ -434,7 +439,7 @@ class Server extends EventEmitter {
         }
 
         if (error) {
-          console.log(`[${ip}] unusual close "${error}"`)
+          console.log(`[${user}] unusual close "${error}"`)
         }
 
         setTimeout(() => this.emit('connections', this.wss.clients.size), 100)
@@ -444,6 +449,8 @@ class Server extends EventEmitter {
 
   createHTTPServer() {
     const app = express()
+
+    app.use(cors())
 
     if (this.options.enableRateLimit) {
       const limiter = rateLimit({
@@ -457,7 +464,7 @@ class Server extends EventEmitter {
         },
       })
 
-      // otherwise ip are all the same
+      // otherwise user are all the same
       app.set('trust proxy', 1)
 
       // apply to all requests
@@ -465,17 +472,17 @@ class Server extends EventEmitter {
     }
 
     app.all('/*', (req, res, next) => {
-      var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
+      var user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
-      if (!req.headers['origin'] || !new RegExp(this.options.origin).test(req.headers['origin'])) {
-        console.log(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
+      if (!req.headers['origin'] || (!new RegExp(this.options.origin).test(req.headers['origin']) && this.options.whitelist.indexOf(user) === -1)) {
+        console.log(`[${user}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
           return res.status(500).json({
             error: 'ignored',
           })
         }, 5000 + Math.random() * 5000)
-      } else if (this.BANNED_IPS.indexOf(ip) !== -1) {
-        console.debug(`[${ip}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
+      } else if (this.BANNED_IPS.indexOf(user) !== -1) {
+        console.debug(`[${user}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
 
         setTimeout(() => {
           return res.status(500).json({
@@ -483,8 +490,6 @@ class Server extends EventEmitter {
           })
         }, 5000 + Math.random() * 5000)
       } else {
-        res.header('Access-Control-Allow-Origin', '*')
-        res.header('Access-Control-Allow-Headers', 'X-Requested-With')
         next()
       }
     })
@@ -495,8 +500,45 @@ class Server extends EventEmitter {
       })
     })
 
+    if (this.options.publicVapidKey && this.options.privateVapidKey) {
+      app.use(bodyParser.json())
+      webPush.setVapidDetails('mailto:test@example.com', this.options.publicVapidKey, this.options.privateVapidKey)
+
+      app.post('/alert', (req, res) => {
+        const user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
+        const storage = this.storages[0]
+
+        if (storage && storage.toggleAlert) {
+          const alert = req.body
+
+          if (
+            !alert ||
+            !alert.endpoint ||
+            !alert.keys ||
+            !alert.market ||
+            typeof alert.price !== 'number'
+          ) {
+            return res.status(400).json({ error: 'invalid alert payload' })
+          }
+
+          alert.user = user
+
+          try {
+            storage.toggleAlert(alert)
+            res.status(201).json({ ok: true })
+          } catch (err) {
+            res.status(400).json({ error: err.message })
+          }
+        } else {
+          return res.status(404).json({
+            error: 'unsupported feature',
+          })
+        }
+      })
+    }
+
     app.get('/historical/:from/:to/:timeframe?/:markets([^/]*)?', (req, res) => {
-      const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
+      const user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
       let from = parseInt(req.params.from)
       let to = parseInt(req.params.to)
       let length
@@ -563,7 +605,7 @@ class Server extends EventEmitter {
 
           if (output.length > 10000) {
             console.log(
-              `[${ip}/${req.get('origin')}] ${getHms(to - from)} (${markets.length} markets, ${getHms(timeframe, true)} tf) -> ${
+              `[${user}/${req.get('origin')}] ${getHms(to - from)} (${markets.length} markets, ${getHms(timeframe, true)} tf) -> ${
                 +length ? parseInt(length) + ' bars into ' : ''
               }${output.length} ${storage.format}s, took ${getHms(+new Date() - fetchStartAt)}`
             )

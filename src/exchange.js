@@ -488,7 +488,6 @@ class Exchange extends EventEmitter {
           const now = new Date()
 
           if (+now > expiration) {
-            console.debug(`stored products expired (${now.toISOString()} > ${new Date(expiration).toISOString()})`)
             return resolve(null)
           }
 
