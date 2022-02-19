@@ -1,14 +1,13 @@
 const EventEmitter = require('events')
-const axios = require('axios')
 const WebSocket = require('ws')
-const fs = require('fs')
 
-const { ID, getHms, ensureDirectoryExists, sleep } = require('./helper')
+const { ID, getHms, sleep } = require('./helper')
+const { readProducts, fetchProducts, saveProducts } = require('./services/catalog')
 
 require('./typedef')
 
 class Exchange extends EventEmitter {
-  constructor(options) {
+  constructor() {
     super()
 
     /**
@@ -70,13 +69,6 @@ class Exchange extends EventEmitter {
      * @type {Trade[]}
      */
     this.queuedTrades = []
-
-    this.options = Object.assign(
-      {
-        // default exchanges options
-      },
-      options || {}
-    )
   }
 
   /**
@@ -110,7 +102,7 @@ class Exchange extends EventEmitter {
    * Get exchange ws url
    */
   getUrl() {
-    return typeof this.options.url === 'function' ? this.options.url.apply(this, arguments) : this.options.url
+    return typeof this.url === 'function' ? this.url.apply(this, arguments) : this.url
   }
 
   /**
@@ -364,9 +356,27 @@ class Exchange extends EventEmitter {
 
   /**
    * Register a range for async recovery
-   * @param {{ pair: string, from: number, to: number }} range to recover
+   * @param {Connection} connection to recover
    */
-  registerRangeForRecovery(range) {
+  registerRangeForRecovery(connection) {
+    const now = Date.now()
+
+    console.log(
+      `\t${getHms(now - connection.timestamp)} elapsed since last -> register range (${new Date(
+        connection.timestamp
+      )
+        .toISOString()
+        .split('T')
+        .pop()} to ${new Date(now).toISOString().split('T').pop()})`,
+      +((1000 / (now - connection.start)) * connection.hit).toFixed(2) + ' avg.'
+    )
+
+    const range = {
+      pair: connection.pair,
+      from: connection.timestamp,
+      to: now,
+    }
+    
     this.recoveryRanges.push(range)
 
     if (!this.busyRecovering) {
@@ -459,107 +469,10 @@ class Exchange extends EventEmitter {
       try {
         await this.link(pair)
       } catch (error) {
+        console.error(error.message)
         // pair mismatch
       }
     }
-  }
-
-  /**
-   * Read products from file (products/*exchange id*.json)
-   * @returns {Promise<any>} Formated products
-   */
-  async readProducts() {
-    console.debug(`[${this.id}] reading stored products...`)
-
-    return new Promise((resolve, reject) => {
-      fs.readFile('products/' + this.id + '.json', (err, raw) => {
-        if (err) {
-          console.debug(`[${this.id}] no stored products`)
-          return resolve(null) // no products returned = will fetch
-        }
-
-        try {
-          const { expiration, data } = JSON.parse(raw)
-
-          if (!data) {
-            throw new Error('invalid exchanges products')
-          }
-
-          const now = new Date()
-
-          if (+now > expiration) {
-            return resolve(null)
-          }
-
-          console.debug(`[${this.id}] using stored products`)
-
-          resolve(data)
-        } catch (error) {
-          reject(error)
-        }
-      })
-    })
-  }
-
-  /**
-   * Get products from api endpoint(s) and save to file for 7 days
-   * @returns Formated products
-   */
-  async fetchProducts() {
-    if (!this.endpoints || !this.endpoints.PRODUCTS) {
-      if (!this.products) {
-        this.products = []
-      }
-
-      return Promise.resolve()
-    }
-
-    let urls = typeof this.endpoints.PRODUCTS === 'function' ? this.endpoints.PRODUCTS() : this.endpoints.PRODUCTS
-
-    if (!Array.isArray(urls)) {
-      urls = [urls]
-    }
-
-    console.debug(`[${this.id}] fetching products...`, urls)
-
-    let data = []
-
-    for (let url of urls) {
-      const action = url.split('|')
-
-      let method = action.length > 1 ? action.shift() : 'GET'
-      let target = action[0]
-
-      data.push(
-        await axios
-          .get(target, {
-            method: method,
-          })
-          .then((response) => response.data)
-          .catch((err) => {
-            console.error(`[${this.id}] failed to fetch ${target}\n\t->`, err.message)
-            throw err
-          })
-      )
-    }
-
-    if (this.scheduledOperationsDelays.getProducts) {
-      delete this.scheduledOperationsDelays.getProducts
-    }
-
-    if (data.length === 1) {
-      data = data[0]
-    }
-
-    if (data) {
-      const formatedProducts = this.formatProducts(data) || []
-
-      await this.saveProducts(formatedProducts)
-
-      return formatedProducts
-    }
-
-    return null
   }
 
   /**
@@ -570,14 +483,24 @@ class Exchange extends EventEmitter {
     let formatedProducts
 
     try {
-      formatedProducts = await this.readProducts()
+      formatedProducts = await readProducts(this.id)
     } catch (error) {
       console.error(`[${this.id}/getProducts] failed to read products`, error)
     }
 
     if (!formatedProducts) {
       try {
-        formatedProducts = await this.fetchProducts()
+        const rawProducts = await fetchProducts(this.id, this.endpoints)
+
+        if (this.scheduledOperationsDelays.getProducts) {
+          delete this.scheduledOperationsDelays.getProducts
+        }
+
+        if (rawProducts) {
+          formatedProducts = this.formatProducts(rawProducts) || []
+
+          await saveProducts(this.id, formatedProducts)
+        }
       } catch (error) {
         console.error(`[${this.id}/getProducts] failed to fetch products`, error)
       }
@@ -596,26 +519,6 @@ class Exchange extends EventEmitter {
 
       this.products = null
     }
-
-    this.indexSymbols()
-  }
-
-  indexSymbols() {
-    this.indexedProducts = []
-
-    if (!this.products) {
-      return
-    }
-
-    if (Array.isArray(this.products)) {
-      this.indexedProducts = this.products.slice(0, this.products.length)
-    } else if (typeof this.products === 'object') {
-      this.indexedProducts = Object.keys(this.products)
-    }
-
-    console.log(`[${this.id}.indexSymbols] ${this.indexedProducts.length} products indexed`)
-
-    this.emit('index', this.indexedProducts)
   }
 
   /**
@@ -907,26 +810,6 @@ class Exchange extends EventEmitter {
     console.debug(`[${this.id}.markPairAsDisconnected] ${pair} removed from _connected list`)
 
     return true
-  }
-
-  async saveProducts(data) {
-    const path = 'products/' + this.id + '.json'
-    const storage = {
-      expiration: +new Date() + 1000 * 60 * 60 * 24 * 2, // 7 days
-      data,
-    }
-
-    await ensureDirectoryExists(path)
-
-    await new Promise((resolve) => {
-      fs.writeFile(path, JSON.stringify(storage), (err) => {
-        if (err) {
-          console.error(`[${this.id}] failed to save products to ${path}`, err)
-        }
-
-        resolve()
-      })
-    })
   }
 
   queueNextTrades(duration = 100) {

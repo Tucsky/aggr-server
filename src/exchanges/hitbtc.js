@@ -2,8 +2,8 @@ const Exchange = require('../exchange')
 const WebSocket = require('ws')
 
 class Huobi extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'HITBTC'
 
@@ -11,12 +11,7 @@ class Huobi extends Exchange {
       PRODUCTS: 'https://api.hitbtc.com/api/2/public/symbol',
     }
 
-    this.options = Object.assign(
-      {
-        url: 'wss://api.hitbtc.com/api/2/ws',
-      },
-      this.options
-    )
+    this.url = 'wss://api.hitbtc.com/api/2/ws'
   }
 
   formatProducts(data) {

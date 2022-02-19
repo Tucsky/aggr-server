@@ -2,8 +2,8 @@ const Exchange = require('../exchange')
 const { sleep } = require('../helper')
 
 class BinanceUs extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'BINANCE_US'
     this.lastSubscriptionId = 0
@@ -13,12 +13,7 @@ class BinanceUs extends Exchange {
       PRODUCTS: 'https://api.binance.us/api/v3/exchangeInfo',
     }
 
-    this.options = Object.assign(
-      {
-        url: () => `wss://stream.binance.us:9443/ws`,
-      },
-      this.options
-    )
+    this.url = () => `wss://stream.binance.us:9443/ws`
   }
 
   formatProducts(data) {

@@ -4,6 +4,8 @@ console.log('PID: ', process.pid)
 
 const config = require('./src/config')
 const Server = require('./src/server')
+const alertService = require('./src/services/alert')
+const socketService = require('./src/services/socket')
 
 /* Load available exchanges
  */
@@ -19,7 +21,7 @@ if (!config.exchanges || !config.exchanges.length) {
 const exchanges = []
 
 for (let name of config.exchanges) {
-  const exchange = new (require('./src/exchanges/' + name))(config)
+  const exchange = new (require('./src/exchanges/' + name))()
 
   config.exchanges[config.exchanges.indexOf(name)] = exchange.id
 
@@ -29,22 +31,37 @@ for (let name of config.exchanges) {
 /* Start server
  */
 
-const server = new Server(config, exchanges)
+const server = new Server(exchanges)
 
 /* Backup server on SIGINT
  */
-process.on('SIGINT', function () {
+process.on('SIGINT', async function () {
   console.log('\nSIGINT')
 
-  Promise.all([server.backupTrades(true)])
-    .then((data) => {
-      console.log('[init] goodbye')
+  if (config.collect) {
+    try {
+      await alertService.peristAlerts()
+      console.log(`[exit] saved alerts ✓`)
+    } catch (error) {
+      console.error(`[exit] failed to save alerts`, error.message)
+    }
+  
+    try {
+      await server.backupTrades(true)
+      console.log(`[exit] saved last trades ✓`)
+    } catch (error) {
+      console.error(`[exit] failed to save trades`, error.message)
+    }
+  }
 
-      process.exit()
-    })
-    .catch((err) => {
-      console.log(`[server/exit] Something went wrong when executing SIGINT script${err && err.message ? '\n\t' + err.message : ''}`)
+  try {
+    await socketService.close()
+    console.log(`[exit] closed sockets ✓`)
+  } catch (error) {
+    console.error(`[exit] failed to close sockets`, error.message)
+  }
 
-      process.exit()
-    })
+  console.log('[init] goodbye')
+
+  process.exit()
 })

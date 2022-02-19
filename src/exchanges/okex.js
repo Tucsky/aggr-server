@@ -3,8 +3,8 @@ const WebSocket = require('ws')
 const axios = require('axios')
 
 class Okex extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'OKEX'
 
@@ -19,12 +19,7 @@ class Okex extends Exchange {
     this.liquidationProducts = []
     this.liquidationProductsReferences = {}
 
-    this.options = Object.assign(
-      {
-        url: 'wss://ws.okex.com:8443/ws/v5/public',
-      },
-      this.options
-    )
+    this.url = 'wss://ws.okex.com:8443/ws/v5/public'
   }
 
   formatProducts(response) {
@@ -60,10 +55,6 @@ class Okex extends Exchange {
           }
         } else {
           types[pair] = 'spot'
-        }
-
-        if (!pair) {
-          throw new Error('failed to parse product on okex exchange', product)
         }
 
         products.push(pair)

@@ -3,8 +3,8 @@ const axios = require('axios')
 const { getHms } = require('../helper')
 
 class Bitfinex extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'BITFINEX'
     this.channels = {}
@@ -15,12 +15,7 @@ class Bitfinex extends Exchange {
       PRODUCTS: 'https://api.bitfinex.com/v1/symbols',
     }
 
-    this.options = Object.assign(
-      {
-        url: 'wss://api-pub.bitfinex.com/ws/2',
-      },
-      this.options
-    )
+    this.url = 'wss://api-pub.bitfinex.com/ws/2'
   }
 
   formatProducts(pairs) {
@@ -189,8 +184,6 @@ class Bitfinex extends Exchange {
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
-        } else {
-          console.log(endpoint) // debug
         }
 
         return totalRecovered

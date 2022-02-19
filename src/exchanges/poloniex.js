@@ -2,8 +2,8 @@ const Exchange = require('../exchange')
 const WebSocket = require('ws')
 
 class Poloniex extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'POLONIEX'
     this.channels = {}
@@ -12,12 +12,7 @@ class Poloniex extends Exchange {
       PRODUCTS: 'https://www.poloniex.com/public?command=returnTicker',
     }
 
-    this.options = Object.assign(
-      {
-        url: 'wss://api2.poloniex.com',
-      },
-      this.options
-    )
+    this.url = 'wss://api2.poloniex.com'
   }
 
   formatProducts(data) {

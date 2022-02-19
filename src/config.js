@@ -187,6 +187,7 @@ const defaultConfig = {
   publicVapidKey: null,
   privateVapidKey: null,
   alertExpiresAfter: 1000 * 60 * 60 * 24,
+  alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 7,
 
   // verbose
   debug: false,

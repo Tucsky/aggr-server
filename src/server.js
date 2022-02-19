@@ -8,31 +8,30 @@ const path = require('path')
 const rateLimit = require('express-rate-limit')
 const webPush = require('web-push')
 const bodyParser = require('body-parser')
+const config = require('./config')
+const alertService = require('./services/alert')
+const { connections, registerConnection } = require('./services/connections')
 
 class Server extends EventEmitter {
-  constructor(options, exchanges) {
+  constructor(exchanges) {
     super()
 
-    this.options = options
     this.exchanges = exchanges || []
-    this.indexedProducts = {}
     this.storages = null
 
     /**
-     * Raw trades ready to be persisted into storage next save
+     * raw trades ready to be persisted into storage next save
      * @type Trade[]
      */
     this.chunk = []
 
     /**
-     * Keep track of all active connections (exchange + symbol)
-     * @type {{[exchangeAndPair: string]: {exchange: string, pair: string, apiId: string, hit: number, ping: number}}}
-     */
-    this.connections = {}
-
-    /**
-     * Keep track of all active apis
-     * @type {{[apiId: string]: number}}
+     * keep track of all active apis
+     * @type {{[apiId: string]: {
+     *  start: number,
+     *  timestamp: number,
+     *  hit: number
+     * }}}
      */
     this.apiStats = {}
 
@@ -56,15 +55,13 @@ class Server extends EventEmitter {
 
     this.BANNED_IPS = []
 
-    if (this.options.collect) {
+    if (config.collect) {
       console.log(
         `\n[server] collect is enabled`,
-        this.options.broadcast && this.options.broadcastAggr
-          ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)'
-          : '',
-        this.options.broadcast && this.options.broadcastDebounce
-          ? `\n\twill broadcast trades every ${this.options.broadcastDebounce}ms`
-          : this.options.broadcast
+        config.broadcast && config.broadcastAggr ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)' : '',
+        config.broadcast && config.broadcastDebounce
+          ? `\n\twill broadcast trades every ${config.broadcastDebounce}ms`
+          : config.broadcast
           ? `will broadcast trades instantly`
           : ''
       )
@@ -74,11 +71,11 @@ class Server extends EventEmitter {
       this.connectExchanges()
 
       // profile exchanges connections (keep alive)
-      this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, +new Date()), this.options.monitorInterval)
+      this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, Date.now()), config.monitorInterval)
     }
 
     this.initStorages().then(() => {
-      if (this.options.collect) {
+      if (config.collect) {
         if (this.storages) {
           const delay = this.scheduleNextBackup()
 
@@ -88,10 +85,10 @@ class Server extends EventEmitter {
         }
       }
 
-      if (this.options.api || this.options.broadcast) {
-        if (!this.options.port) {
+      if (config.api || config.broadcast) {
+        if (!config.port) {
           console.error(
-            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${this.options.port})\n\n`
+            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${config.port})\n\n`
           )
           process.exit()
         }
@@ -99,10 +96,10 @@ class Server extends EventEmitter {
         this.createHTTPServer()
       }
 
-      if (this.options.broadcast) {
+      if (config.broadcast) {
         this.createWSServer()
 
-        if (this.options.broadcastAggr) {
+        if (config.broadcastAggr) {
           this._broadcastAggregatedTradesInterval = setInterval(this.broadcastAggregatedTrades.bind(this), 50)
         }
       }
@@ -113,7 +110,7 @@ class Server extends EventEmitter {
   }
 
   initStorages() {
-    if (!this.options.storage) {
+    if (!config.storage) {
       return Promise.resolve()
     }
 
@@ -121,14 +118,14 @@ class Server extends EventEmitter {
 
     const promises = []
 
-    for (let name of this.options.storage) {
+    for (let name of config.storage) {
       console.log(`[storage] Using "${name}" storage solution`)
 
-      if (this.options.api && this.options.storage.length > 1 && !this.options.storage.indexOf(name)) {
+      if (config.api && config.storage.length > 1 && !config.storage.indexOf(name)) {
         console.log(`[storage] Set "${name}" as primary storage for API`)
       }
 
-      let storage = new (require(`./storage/${name}`))(this.options)
+      let storage = new (require(`./storage/${name}`))()
 
       if (typeof storage.connect === 'function') {
         promises.push(storage.connect())
@@ -187,10 +184,10 @@ class Server extends EventEmitter {
     }
 
     const now = new Date()
-    let delay = Math.ceil(now / this.options.backupInterval) * this.options.backupInterval - now - 20
+    let delay = Math.ceil(now / config.backupInterval) * config.backupInterval - now - 20
 
     if (delay < 1000) {
-      delay += this.options.backupInterval
+      delay += config.backupInterval
     }
 
     this.backupTimeout = setTimeout(this.backupTrades.bind(this), delay)
@@ -200,7 +197,7 @@ class Server extends EventEmitter {
 
   handleExchangesEvents() {
     this.exchanges.forEach((exchange) => {
-      if (this.options.broadcast && this.options.broadcastAggr) {
+      if (config.broadcast && config.broadcastAggr) {
         exchange.on('trades', this.dispatchAggregateTrade.bind(this, exchange.id))
       } else {
         exchange.on('trades', this.dispatchRawTrades.bind(this, exchange.id))
@@ -208,30 +205,12 @@ class Server extends EventEmitter {
 
       exchange.on('liquidations', this.dispatchRawTrades.bind(this, exchange.id))
 
-      exchange.on('index', (pairs) => {
-        for (let pair of pairs) {
-          if (this.indexedProducts[pair]) {
-            this.indexedProducts[pair].count++
-
-            if (this.indexedProducts[pair].exchanges.indexOf(exchange.id) === -1) {
-              this.indexedProducts[pair].exchanges.push(exchange.id)
-            }
-          } else {
-            this.indexedProducts[pair] = {
-              value: pair,
-              count: 1,
-              exchanges: [exchange.id],
-            }
-          }
-        }
-      })
-
       exchange.on('disconnected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
         console.log(`[server] deleted connection ${id} (${apiLength} connected)`)
-
-        this.connections[id].apiId = null
+      
+        connections[id].apiId = null
 
         if (!apiLength) {
           delete this.apiStats[apiId]
@@ -245,41 +224,17 @@ class Server extends EventEmitter {
       exchange.on('connected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
-        console.log(`[server] registered connection ${id} (${apiLength})`)
-
-        const now = +new Date()
-
-        if (!this.connections[id]) {
-          this.connections[id] = {
-            exchange: exchange.id,
-            pair: pair,
-            hit: 0,
-            start: now,
-            timestamp: now,
-          }
-        } else {
+        if (registerConnection(id, exchange.id, pair, apiLength).hit) {
           if (typeof exchange.getMissingTrades === 'function') {
-            console.log(
-              `\t${getHms(now - this.connections[id].timestamp)} elapsed since last -> register range (${new Date(
-                this.connections[id].timestamp
-              )
-                .toISOString()
-                .split('T')
-                .pop()} to ${new Date(now).toISOString().split('T').pop()})`,
-              +((1000 / (now - this.connections[id].start)) * this.connections[id].hit).toFixed(2) + ' avg.'
-            )
-            exchange.registerRangeForRecovery({
-              pair,
-              from: this.connections[id].timestamp,
-              to: now,
-            })
+            exchange.registerRangeForRecovery(connections[id])
           }
         }
-
-        this.connections[id].timestamp = now
-        this.connections[id].apiId = apiId
+        
+        connections[id].apiId = apiId
 
         if (typeof this.apiStats[apiId] === 'undefined') {
+          const now = Date.now()
+
           this.apiStats[apiId] = {
             exchange: exchange.id,
             totalHits: 0,
@@ -290,14 +245,14 @@ class Server extends EventEmitter {
             timestamp: now,
           }
         }
-
+    
         this.apiStats[apiId].pairs.push(pair)
         this.apiStats[apiId].name =
           this.apiStats[apiId].exchange +
           ':' +
           this.apiStats[apiId].pairs.slice(0, 3).join('+') +
           (this.apiStats[apiId].pairs.length > 3 ? '.. (' + this.apiStats[apiId].pairs.length + ')' : '')
-
+    
         this.checkApiStats()
       })
 
@@ -339,7 +294,7 @@ class Server extends EventEmitter {
   }
 
   createWSServer() {
-    if (!this.options.broadcast) {
+    if (!config.broadcast) {
       return
     }
 
@@ -348,7 +303,7 @@ class Server extends EventEmitter {
     })
 
     this.wss.on('listening', () => {
-      console.log(`[server] websocket server listening at localhost:${this.options.port}`)
+      console.log(`[server] websocket server listening at localhost:${config.port}`)
     })
 
     this.wss.on('connection', (ws, req) => {
@@ -363,10 +318,10 @@ class Server extends EventEmitter {
 
       const data = {
         type: 'welcome',
-        supportedPairs: Object.values(this.connections)
+        supportedPairs: Object.values(connections)
           .filter((connection) => connection.apiId)
           .map((a) => a.exchange + ':' + a.pair),
-        timestamp: +new Date(),
+        timestamp: Date.now(),
         exchanges: this.exchanges.map((exchange) => {
           return {
             id: exchange.id,
@@ -452,10 +407,10 @@ class Server extends EventEmitter {
 
     app.use(cors())
 
-    if (this.options.enableRateLimit) {
+    if (config.enableRateLimit) {
       const limiter = rateLimit({
-        windowMs: this.options.rateLimitTimeWindow,
-        max: this.options.rateLimitMax,
+        windowMs: config.rateLimitTimeWindow,
+        max: config.rateLimitMax,
         handler: function (req, res) {
           res.header('Access-Control-Allow-Origin', '*')
           return res.status(429).send({
@@ -474,7 +429,7 @@ class Server extends EventEmitter {
     app.all('/*', (req, res, next) => {
       var user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
-      if (!req.headers['origin'] || (!new RegExp(this.options.origin).test(req.headers['origin']) && this.options.whitelist.indexOf(user) === -1)) {
+      if (!req.headers['origin'] || (!new RegExp(config.origin).test(req.headers['origin']) && config.whitelist.indexOf(user) === -1)) {
         console.log(`[${user}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
           return res.status(500).json({
@@ -500,39 +455,26 @@ class Server extends EventEmitter {
       })
     })
 
-    if (this.options.publicVapidKey && this.options.privateVapidKey) {
+    if (alertService) {
       app.use(bodyParser.json())
-      webPush.setVapidDetails('mailto:test@example.com', this.options.publicVapidKey, this.options.privateVapidKey)
+      webPush.setVapidDetails('mailto:test@example.com', config.publicVapidKey, config.privateVapidKey)
 
       app.post('/alert', (req, res) => {
         const user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
-        const storage = this.storages[0]
+        const alert = req.body
 
-        if (storage && storage.toggleAlert) {
-          const alert = req.body
+        if (!alert || !alert.endpoint || !alert.keys || typeof alert.market !== 'string' || typeof alert.price !== 'number') {
+          return res.status(400).json({ error: 'invalid alert payload' })
+        }
 
-          if (
-            !alert ||
-            !alert.endpoint ||
-            !alert.keys ||
-            !alert.market ||
-            typeof alert.price !== 'number'
-          ) {
-            return res.status(400).json({ error: 'invalid alert payload' })
-          }
+        alert.user = user
 
-          alert.user = user
-
-          try {
-            storage.toggleAlert(alert)
-            res.status(201).json({ ok: true })
-          } catch (err) {
-            res.status(400).json({ error: err.message })
-          }
-        } else {
-          return res.status(404).json({
-            error: 'unsupported feature',
-          })
+        try {
+          alertService.toggleAlert(alert)
+          res.status(201).json({ ok: true })
+        } catch (error) {
+          console.error(`[alert] couldn't toggle user alert because ${error.message}`)
+          res.status(400).json({ error: error.message })
         }
       })
     }
@@ -553,7 +495,7 @@ class Server extends EventEmitter {
           .filter((a) => a.length)
       }
 
-      if (!this.options.api || !this.storages) {
+      if (!config.api || !this.storages) {
         return res.status(501).json({
           error: 'no storage',
         })
@@ -572,7 +514,7 @@ class Server extends EventEmitter {
 
         length = (to - from) / timeframe
 
-        if (length > this.options.maxFetchLength) {
+        if (length > config.maxFetchLength) {
           return res.status(400).json({
             error: 'too many bars',
           })
@@ -585,7 +527,7 @@ class Server extends EventEmitter {
         })
       }
 
-      const fetchStartAt = +new Date()
+      const fetchStartAt = Date.now()
 
       ;(storage
         ? storage.fetch({
@@ -607,7 +549,7 @@ class Server extends EventEmitter {
             console.log(
               `[${user}/${req.get('origin')}] ${getHms(to - from)} (${markets.length} markets, ${getHms(timeframe, true)} tf) -> ${
                 +length ? parseInt(length) + ' bars into ' : ''
-              }${output.length} ${storage.format}s, took ${getHms(+new Date() - fetchStartAt)}`
+              }${output.length} ${storage.format}s, took ${getHms(Date.now() - fetchStartAt)}`
             )
           }
 
@@ -643,18 +585,15 @@ class Server extends EventEmitter {
       }
     })
 
-    this.server = app.listen(this.options.port, () => {
-      console.log(
-        `[server] http server listening at localhost:${this.options.port}`,
-        !this.options.api ? '(historical api is disabled)' : ''
-      )
+    this.server = app.listen(config.port, () => {
+      console.log(`[server] http server listening at localhost:${config.port}`, !config.api ? '(historical api is disabled)' : '')
     })
 
     this.app = app
   }
 
   connectExchanges() {
-    if (!this.exchanges.length || !this.options.pairs.length) {
+    if (!this.exchanges.length || !config.pairs.length) {
       return
     }
 
@@ -662,9 +601,7 @@ class Server extends EventEmitter {
 
     const exchangesProductsResolver = Promise.all(
       this.exchanges.map((exchange) => {
-        const exchangePairs = this.options.pairs.filter(
-          (pair) => pair.indexOf(':') === -1 || new RegExp('^' + exchange.id + ':').test(pair)
-        )
+        const exchangePairs = config.pairs.filter((pair) => pair.indexOf(':') === -1 || new RegExp('^' + exchange.id + ':').test(pair))
 
         if (!exchangePairs.length) {
           return Promise.resolve()
@@ -678,7 +615,7 @@ class Server extends EventEmitter {
       this.checkApiStats()
     })
 
-    if (this.options.broadcast && this.options.broadcastDebounce && !this.options.broadcastAggr) {
+    if (config.broadcast && config.broadcastDebounce && !config.broadcastAggr) {
       this._broadcastDelayedTradesInterval = setInterval(() => {
         if (!this.delayedForBroadcast.length) {
           return
@@ -687,7 +624,7 @@ class Server extends EventEmitter {
         this.broadcastTrades(this.delayedForBroadcast)
 
         this.delayedForBroadcast = []
-      }, this.options.broadcastDebounce || 1000)
+      }, config.broadcastDebounce || 1000)
     }
   }
 
@@ -708,7 +645,7 @@ class Server extends EventEmitter {
       return
     }
 
-    const groups = groupTrades(trades, true, this.options.broadcastThreshold)
+    const groups = groupTrades(trades, true, config.broadcastThreshold)
 
     this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
@@ -731,7 +668,7 @@ class Server extends EventEmitter {
 
     // print full connection report every hour
     const now = Date.now()
-    const flooredTime = Math.floor(now / this.options.monitorInterval) * this.options.monitorInterval
+    const flooredTime = Math.floor(now / config.monitorInterval) * config.monitorInterval
     const currentHour = Math.floor(now / 3600000) * 3600000
     //const currentHour = Math.floor(now / 10000) * 10000
 
@@ -747,8 +684,8 @@ class Server extends EventEmitter {
   updateApiStats() {
     const now = Date.now()
 
-    for (const marketId in this.connections) {
-      const connection = this.connections[marketId]
+    for (const marketId in connections) {
+      const connection = connections[marketId]
 
       if (!connection.apiId) {
         continue
@@ -801,7 +738,7 @@ class Server extends EventEmitter {
     for (const apiId in this.apiStats) {
       const apiStat = this.apiStats[apiId]
 
-      const avg = +((this.options.monitorInterval / (now - apiStat.start)) * apiStat.totalHits).toFixed(2)
+      const avg = +((config.monitorInterval / (now - apiStat.start)) * apiStat.totalHits).toFixed(2)
       let hit = apiStat.windowHits
 
       const ping = apiStat.ping ? now - apiStat.ping : 0
@@ -809,7 +746,7 @@ class Server extends EventEmitter {
       let thrs
 
       if (typeof apiStat.thrs === 'undefined' || hit > 0) {
-        thrs = Math.max(this.options.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)
+        thrs = Math.max(config.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)
         apiStat.thrs = thrs
       } else {
         thrs = apiStat.thrs
@@ -825,7 +762,7 @@ class Server extends EventEmitter {
         if (ping > thrs) {
           reconnectionThresholdReached = true
           pingHms += '⚠'
-        } else if (thrs < this.options.reconnectionThreshold / 10 && !hit) {
+        } else if (thrs < config.reconnectionThreshold / 10 && !hit) {
           hitThresholdReached = true
           hit += '⚠'
         }
@@ -931,15 +868,15 @@ class Server extends EventEmitter {
   }
 
   dispatchRawTrades(exchange, data) {
-    const now = +new Date()
+    const now = Date.now()
 
     for (let i = 0; i < data.length; i++) {
       const trade = data[i]
       const identifier = exchange + ':' + trade.pair
 
       // ping connection
-      this.connections[identifier].hit++
-      this.connections[identifier].timestamp = now
+      connections[identifier].hit++
+      connections[identifier].timestamp = now
 
       // save trade
       if (this.storages) {
@@ -947,8 +884,8 @@ class Server extends EventEmitter {
       }
     }
 
-    if (this.options.broadcast) {
-      if (this.options.broadcastAggr && !this.options.broadcastDebounce) {
+    if (config.broadcast) {
+      if (config.broadcastAggr && !config.broadcastDebounce) {
         this.broadcastTrades(data)
       } else {
         Array.prototype.push.apply(this.delayedForBroadcast, data)
@@ -957,7 +894,7 @@ class Server extends EventEmitter {
   }
 
   dispatchAggregateTrade(exchange, data) {
-    const now = +new Date()
+    const now = Date.now()
     const length = data.length
 
     for (let i = 0; i < length; i++) {
@@ -965,8 +902,8 @@ class Server extends EventEmitter {
       const identifier = exchange + ':' + trade.pair
 
       // ping connection
-      this.connections[identifier].hit++
-      this.connections[identifier].timestamp = now
+      connections[identifier].hit++
+      connections[identifier].timestamp = now
 
       // save trade
       if (this.storages) {
@@ -993,7 +930,7 @@ class Server extends EventEmitter {
   }
 
   broadcastAggregatedTrades() {
-    const now = +new Date()
+    const now = Date.now()
 
     const onGoingAggregation = Object.keys(this.aggregating)
 

@@ -3,8 +3,8 @@ const { sleep, getHms } = require('../helper')
 const axios = require('axios')
 
 class Binance extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'BINANCE'
     this.lastSubscriptionId = 0
@@ -14,12 +14,7 @@ class Binance extends Exchange {
       PRODUCTS: 'https://api.binance.com/api/v1/ticker/allPrices',
     }
 
-    this.options = Object.assign(
-      {
-        url: () => `wss://stream.binance.com:9443/ws`,
-      },
-      this.options
-    )
+    this.url = () => `wss://stream.binance.com:9443/ws`
   }
 
   formatProducts(data) {
@@ -128,8 +123,6 @@ class Binance extends Exchange {
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
-        } else {
-          console.log(endpoint) // debug
         }
 
         return totalRecovered

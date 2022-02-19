@@ -4,8 +4,8 @@ const axios = require('axios')
 const { getHms } = require('../helper')
 
 class Ftx extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'FTX'
 
@@ -13,14 +13,9 @@ class Ftx extends Exchange {
       PRODUCTS: 'https://ftx.com/api/markets',
     }
 
-    this.options = Object.assign(
-      {
-        url: () => {
+    this.url = () => {
           return `wss://ftx.com/ws/`
-        },
-      },
-      this.options
-    )
+        };
 
     this.missingTrades=[]
   }
@@ -128,8 +123,6 @@ class Ftx extends Exchange {
           } else {
             console.log(endpoint) // debug
           }
-        } else {
-          console.log(endpoint) // debug
         }
 
         return totalRecovered

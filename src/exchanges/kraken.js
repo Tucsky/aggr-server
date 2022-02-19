@@ -2,8 +2,8 @@ const Exchange = require('../exchange')
 const WebSocket = require('ws')
 
 class Kraken extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'KRAKEN'
     this.keepAliveIntervals = {}
@@ -15,18 +15,13 @@ class Kraken extends Exchange {
       ],
     }
 
-    this.options = Object.assign(
-      {
-        url: (pair) => {
+    this.url = (pair) => {
           if (typeof this.specs[pair] !== 'undefined') {
             return 'wss://futures.kraken.com/ws/v1'
           } else {
             return 'wss://ws.kraken.com'
           }
-        },
-      },
-      this.options
-    )
+        };
   }
 
   formatProducts(response) {

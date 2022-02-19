@@ -4,8 +4,8 @@ const WebSocket = require('ws')
 const axios = require('axios')
 
 class Huobi extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'HUOBI'
 
@@ -30,9 +30,7 @@ class Huobi extends Exchange {
       ],
     }
 
-    this.options = Object.assign(
-      {
-        url: (pair) => {
+    this.url = (pair) => {
           if (this.types[pair] === 'futures') {
             return 'wss://www.hbdm.com/ws'
           } else if (this.types[pair] === 'swap') {
@@ -42,10 +40,7 @@ class Huobi extends Exchange {
           } else {
             return 'wss://api.huobi.pro/ws'
           }
-        },
-      },
-      this.options
-    )
+        };
   }
 
   formatProducts(response) {
@@ -267,7 +262,6 @@ class Huobi extends Exchange {
   onApiRemoved(api) {
     if (api._marketDataApi) {
       if (api._marketDataApi.readyState === WebSocket.OPEN) {
-        console.log('close market data api', api._marketDataApi.url)
         api._marketDataApi.close()
       }
     }

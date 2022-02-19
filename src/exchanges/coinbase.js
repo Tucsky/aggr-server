@@ -3,8 +3,8 @@ const axios = require('axios')
 const { getHms, sleep } = require('../helper')
 
 class Coinbase extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'COINBASE'
 
@@ -12,12 +12,7 @@ class Coinbase extends Exchange {
       PRODUCTS: 'https://api.pro.coinbase.com/products',
     }
 
-    this.options = Object.assign(
-      {
-        url: 'wss://ws-feed.pro.coinbase.com',
-      },
-      this.options
-    )
+    this.url = 'wss://ws-feed.pro.coinbase.com'
   }
 
   formatProducts(data) {
@@ -120,8 +115,6 @@ class Coinbase extends Exchange {
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
-        } else {
-          console.log(endpoint) // debug
         }
 
         return totalRecovered

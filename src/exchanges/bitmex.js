@@ -4,8 +4,8 @@ const axios = require('axios')
 const { getHms } = require('../helper')
 
 class Bitmex extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'BITMEX'
     this.pairCurrencies = {}
@@ -18,14 +18,9 @@ class Bitmex extends Exchange {
       PRODUCTS: 'https://www.bitmex.com/api/v1/instrument/active',
     }
 
-    this.options = Object.assign(
-      {
-        url: () => {
+    this.url = () => {
           return `wss://www.bitmex.com/realtime`
-        },
-      },
-      this.options
-    )
+        };
   }
 
   formatProducts(data) {
@@ -167,8 +162,6 @@ class Bitmex extends Exchange {
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
-        } else {
-          console.log(endpoint) // debug
         }
 
         return totalRecovered

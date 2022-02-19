@@ -1,25 +1,25 @@
 const fs = require('fs')
 const zlib = require('zlib')
 const { groupTrades, ensureDirectoryExists, getHms, humanFileSize } = require('../helper')
+const config = require('../config')
 
 class FilesStorage {
-  constructor(options) {
+  constructor() {
     this.name = this.constructor.name
-    this.options = options
     this.format = 'trade'
 
     /** @type {{[timestamp: string]: {stream: fs.WriteStream, timestamp: number}}} */
     this.writableStreams = {}
 
-    if (!this.options.filesInterval) {
-      this.options.filesInterval = 3600000 // 1h file default
+    if (!config.filesInterval) {
+      config.filesInterval = 3600000 // 1h file default
     }
 
-    if (!fs.existsSync(this.options.filesLocation)) {
-      fs.mkdirSync(this.options.filesLocation)
+    if (!fs.existsSync(config.filesLocation)) {
+      fs.mkdirSync(config.filesLocation)
     }
 
-    console.log(`[storage/${this.name}] destination folder: ${this.options.filesLocation}`)
+    console.log(`[storage/${this.name}] destination folder: ${config.filesLocation}`)
   }
 
   /**
@@ -36,20 +36,20 @@ class FilesStorage {
 
     pair = pair.replace(/[/:]/g, '-')
 
-    const folderPart = `${this.options.filesLocation}/${exchange}/${pair}`
+    const folderPart = `${config.filesLocation}/${exchange}/${pair}`
     const datePart = `${date.getUTCFullYear()}-${('0' + (date.getUTCMonth() + 1)).slice(-2)}-${('0' + date.getUTCDate()).slice(-2)}`
 
     let file = `${folderPart}/${datePart}`
 
-    if (this.options.filesInterval < 1000 * 60 * 60 * 24) {
+    if (config.filesInterval < 1000 * 60 * 60 * 24) {
       file += `-${('0' + date.getUTCHours()).slice(-2)}`
     }
 
-    if (this.options.filesInterval < 1000 * 60 * 60) {
+    if (config.filesInterval < 1000 * 60 * 60) {
       file += `-${('0' + date.getUTCMinutes()).slice(-2)}`
     }
 
-    if (this.options.filesInterval < 1000 * 60) {
+    if (config.filesInterval < 1000 * 60) {
       file += `-${('0' + date.getUTCSeconds()).slice(-2)}`
     }
 
@@ -85,7 +85,7 @@ class FilesStorage {
 
     for (let id in this.writableStreams) {
       // close 1 min after file expiration (timestamp + fileInterval)
-      if (now > this.writableStreams[id].timestamp + this.options.filesInterval + 1000 * 60) {
+      if (now > this.writableStreams[id].timestamp + config.filesInterval + 1000 * 60) {
         const path = this.writableStreams[id].stream.path
 
         console.debug(`[storage/${this.name}] close writable stream ${id}`)
@@ -94,7 +94,7 @@ class FilesStorage {
 
         delete this.writableStreams[id]
 
-        if (this.options.filesGzipAfterUse) {
+        if (config.filesGzipAfterUse) {
           this.gzipFileAndRemoveRaw(path)
         }
       }
@@ -140,7 +140,7 @@ class FilesStorage {
       for (let i = 0; i < groups[identifier].length; i++) {
         const trade = groups[identifier][i]
 
-        const ts = Math.floor(trade[0] / this.options.filesInterval) * this.options.filesInterval
+        const ts = Math.floor(trade[0] / config.filesInterval) * config.filesInterval
 
         if (!output[identifier][ts]) {
           output[identifier][ts] = {

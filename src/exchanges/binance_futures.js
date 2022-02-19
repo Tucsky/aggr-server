@@ -4,30 +4,25 @@ const { sleep, getHms } = require('../helper')
 const axios = require('axios')
 
 class BinanceFutures extends Exchange {
-  constructor(options) {
-    super(options)
+  constructor() {
+    super()
 
     this.id = 'BINANCE_FUTURES'
     this.lastSubscriptionId = 0
     this.subscriptions = {}
-    
+
     this.maxConnectionsPerApi = 100
     this.endpoints = {
       PRODUCTS: ['https://fapi.binance.com/fapi/v1/exchangeInfo', 'https://dapi.binance.com/dapi/v1/exchangeInfo'],
     }
 
-    this.options = Object.assign(
-      {
-        url: (pair) => {
-          if (this.dapi[pair]) {
-            return 'wss://dstream.binance.com/ws'
-          } else {
-            return 'wss://fstream.binance.com/ws'
-          }
-        },
-      },
-      this.options
-    )
+    this.url = (pair) => {
+      if (this.dapi[pair]) {
+        return 'wss://dstream.binance.com/ws'
+      } else {
+        return 'wss://fstream.binance.com/ws'
+      }
+    }
   }
 
   formatProducts(response) {
@@ -172,31 +167,33 @@ class BinanceFutures extends Exchange {
     } else {
       endpoint = 'https://fapi.binance.com/fapi/v1/aggTrades' + endpoint
     }
-    
+
     return axios
       .get(endpoint)
       .then((response) => {
         if (response.data.length) {
           const trades = response.data.map((trade) => ({
             ...this.formatTrade(trade, range.pair),
-            count: trade.l - trade.f + 1
+            count: trade.l - trade.f + 1,
           }))
-  
+
           this.emitTrades(null, trades)
 
           totalRecovered += trades.length
           range.from = trades[trades.length - 1].timestamp
 
           const remainingMissingTime = range.to - range.from
-          
+
           if (remainingMissingTime > 1000) {
-            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(remainingMissingTime)} remaining)`)
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(
+                remainingMissingTime
+              )} remaining)`
+            )
             return this.getMissingTrades(range, totalRecovered)
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
-        } else {
-          console.log(endpoint) // debug
         }
 
         return totalRecovered

@@ -1,38 +1,19 @@
 const Influx = require('influx')
 const { getHms, sleep, ID } = require('../helper')
 const net = require('net')
-const { statSync, unlinkSync, cp } = require('fs')
-const webPush = require('web-push')
-const persistence = require('../persistence')
+const config = require('../config')
+const socketService = require('../services/socket')
+const alertService = require('../services/alert')
+const { connections, updateIndexes } = require('../services/connections')
 
 require('../typedef')
 
 const DAY = 1000 * 60 * 60 * 24
 
 class InfluxStorage {
-  constructor(options) {
+  constructor() {
     this.name = this.constructor.name
     this.format = 'point'
-
-    /**
-     * @type {net.Socket}
-     */
-    this.clusterSocket = null
-
-    /**
-     * @type {net.Server}
-     */
-    this.serverSocket = null
-
-    /**
-     * @type {net.Socket[]}
-     */
-    this.clusteredCollectors = []
-
-    /**
-     * @type {{[pendingBarsRequestId: string]: (bars: Bar[]) => void}}
-     */
-    this.promisesOfPendingBars = {}
 
     /**
      * @type {{[identifier: string]: number}}
@@ -40,9 +21,9 @@ class InfluxStorage {
     this.lastClose = {}
 
     /**
-     * @type {{[identifier: string]: Bar}}
+     * @type {{[pendingBarsRequestId: string]: (bars: Bar[]) => void}}
      */
-    this.lastBar = {}
+    this.promisesOfPendingBars = {}
 
     /**
      * @type {{[identifier: string]: Bar[]}}
@@ -58,20 +39,18 @@ class InfluxStorage {
      * @type {{[endpoint: string]: any}}
      */
     this.alertEndpoints = {}
-
-    this.options = options
   }
 
   async connect() {
-    if (/\-/.test(this.options.influxDatabase)) {
+    if (/\-/.test(config.influxDatabase)) {
       throw new Error('dashes not allowed inside influxdb database')
     }
 
-    let host = this.options.influxHost
-    let port = this.options.influxPort
+    let host = config.influxHost
+    let port = config.influxPort
 
-    if (typeof this.options.influxUrl === 'string' && this.options.influxUrl.length) {
-      ;[host, port] = this.options.influxUrl.split(':')
+    if (typeof config.influxUrl === 'string' && config.influxUrl.length) {
+      ;[host, port] = config.influxUrl.split(':')
     }
 
     console.log(`[storage/influx] connecting to ${host}:${port}`)
@@ -80,16 +59,16 @@ class InfluxStorage {
       this.influx = new Influx.InfluxDB({
         host: host || 'localhost',
         port: port || '8086',
-        database: this.options.influxDatabase,
+        database: config.influxDatabase,
       })
 
       const databases = await this.influx.getDatabaseNames()
 
-      if (!databases.includes(this.options.influxDatabase)) {
-        await this.influx.createDatabase(this.options.influxDatabase)
+      if (!databases.includes(config.influxDatabase)) {
+        await this.influx.createDatabase(config.influxDatabase)
       }
 
-      if (this.options.collect) {
+      if (config.collect) {
         await this.ensureRetentionPolicies()
         await this.getPreviousCloses()
       }
@@ -100,25 +79,108 @@ class InfluxStorage {
 
       return this.connect()
     } finally {
-      if (this.options.influxCollectors) {
-        if (this.options.api && !this.options.collect) {
-          // CLUSTER NODE (node is dedicated to serving data)
-          this.createCluster()
+      if (config.influxCollectors) {
+        if (config.api) {
+          this.bindCollectorsEvents()
+        } else if (config.collect) {
+          this.bindClusterEvents()
+        }
 
-          return
-        } else if (!this.options.api && this.options.collect) {
-          // COLLECTOR NODE (node is just collecting + storing data)
-
-          if (this.options.privateVapidKey && (typeof this.options.id === 'undefined' || this.options.id === null)) {
-            console.error(`[storage/alerts] push subscriptions won't be persisted (NEED ID COLLECTORS)`)
-          }
-
-          this.connectToCluster()
+        if (config.api && !config.collect) {
+          // schedule import of all collectors every influxResampleInterval until the scripts die
+          setTimeout(this.importCollectors.bind(this), config.influxResampleInterval)
         }
       }
 
-      this.getAlerts()
+      if (alertService) {
+        this.bindAlertsEvents()
+      }
     }
+  }
+
+  /**
+   * listen for responses from collector node
+   */
+  bindCollectorsEvents() {
+    socketService
+      .on('import', () => {
+        // response from import request
+
+        if (this.promiseOfImport) {
+          this.promiseOfImport() // trigger next import (if any)
+        }
+      })
+      .on('requestPendingBars', (data) => {
+        // response from pending bars request
+
+        if (this.promisesOfPendingBars[data.pendingBarsRequestId]) {
+          this.promisesOfPendingBars[data.pendingBarsRequestId](data.results)
+        } else {
+          console.error('[influx/cluster] there was no promisesOfPendingBars with given pendingBarsRequestId', data.pendingBarsRequestId)
+        }
+      })
+  }
+
+  /**
+   * listen for request from cluster node
+   */
+  bindClusterEvents() {
+    socketService
+      .on('requestPendingBars', (data) => {
+        // this is a request for pending bars from cluster
+        const payload = {
+          pendingBarsRequestId: data.pendingBarsRequestId,
+          results: this.getPendingBars(data.markets, data.from, data.to),
+        }
+
+        socketService.clusterSocket.write(
+          JSON.stringify({
+            op: 'requestPendingBars',
+            data: payload,
+          }) + '#'
+        )
+      })
+      .on('import', () => {
+        // this is a request to import pending data
+
+        this.import().finally(() => {
+          if (socketService.clusterSocket) {
+            socketService.clusterSocket.write(
+              JSON.stringify({
+                op: 'import',
+              }) + '#'
+            )
+          }
+        })
+      })
+  }
+
+  /**
+   * Listen for alerts change
+   */
+  bindAlertsEvents() {
+    alertService.on('change', ({ market, price, user, type }) => {
+      console.log('[influx/alert]', market, price, user, type)
+      this.writePoints(
+        [
+          {
+            measurement: 'alerts',
+            tags: {
+              market,
+            },
+            fields: {
+              price,
+              user,
+              type,
+            },
+            timestamp: Date.now(),
+          },
+        ],
+        {
+          precision: 'ms',
+        }
+      )
+    })
   }
 
   /**
@@ -130,17 +192,17 @@ class InfluxStorage {
       return output
     }, {})
 
-    const timeframes = [this.options.influxTimeframe].concat(this.options.influxResampleTo)
+    const timeframes = [config.influxTimeframe].concat(config.influxResampleTo)
 
     for (let timeframe of timeframes) {
-      const rpDuration = timeframe * this.options.influxRetentionPerTimeframe
+      const rpDuration = timeframe * config.influxRetentionPerTimeframe
       const rpDurationLitteral = getHms(rpDuration, true)
-      const rpName = this.options.influxRetentionPrefix + getHms(timeframe)
+      const rpName = config.influxRetentionPrefix + getHms(timeframe)
 
       if (!retentionsPolicies[rpName]) {
         console.log(`[storage/influx] create retention policy ${rpName} (duration ${rpDurationLitteral})`)
         await this.influx.createRetentionPolicy(rpName, {
-          database: this.options.influxDatabase,
+          database: config.influxDatabase,
           duration: rpDurationLitteral,
           replication: 1,
         })
@@ -150,22 +212,22 @@ class InfluxStorage {
     }
 
     for (let rpName in retentionsPolicies) {
-      if (rpName.indexOf(this.options.influxRetentionPrefix) === 0) {
+      if (rpName.indexOf(config.influxRetentionPrefix) === 0) {
         console.warn(`[storage/influx] unused retention policy ? (${rpName})`)
-        // await this.influx.dropRetentionPolicy(rpName, this.options.influxDatabase)
+        // await this.influx.dropRetentionPolicy(rpName, config.influxDatabase)
         // just warning now because of multiple instances of aggr-server running with different RPs
       }
     }
 
-    this.baseRp = this.options.influxRetentionPrefix + getHms(this.options.influxTimeframe)
+    this.baseRp = config.influxRetentionPrefix + getHms(config.influxTimeframe)
   }
 
   getPreviousCloses() {
-    const timeframeLitteral = getHms(this.options.influxTimeframe)
+    const timeframeLitteral = getHms(config.influxTimeframe)
 
     this.influx
       .query(
-        `SELECT close FROM ${this.options.influxRetentionPrefix}${timeframeLitteral}.${this.options.influxMeasurement}${
+        `SELECT close FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${
           '_' + timeframeLitteral
         } GROUP BY "market" ORDER BY time DESC LIMIT 1`
       )
@@ -186,20 +248,6 @@ class InfluxStorage {
    * @returns
    */
   async save(trades, isExiting) {
-    if (isExiting) {
-      await this.peristAlerts(true)
-
-      if (this.clusterSocket) {
-        console.log('[storage/influx/collector] closing cluster connection')
-        await new Promise((resolve) => {
-          this.clusterSocket.end(() => {
-            console.log('[storage/influx/collector] successfully closed cluster connection')
-            resolve()
-          })
-        })
-      }
-    }
-
     if (!trades || !trades.length) {
       return Promise.resolve()
     }
@@ -212,13 +260,13 @@ class InfluxStorage {
       return this.import()
     }
 
-    if (!this.clusterSocket) {
-      // here the node decide when to write in db
+    if (!socketService.clusterSocket) {
+      // here the cluster node decide when to write in db
       // otherwise cluster will send a command for that (to balance write tasks between collectors nodes)
 
       const now = Date.now()
-      const timeBackupFloored = Math.floor(now / this.options.backupInterval) * this.options.backupInterval
-      const timeMinuteFloored = Math.floor(now / this.options.influxResampleInterval) * this.options.influxResampleInterval
+      const timeBackupFloored = Math.floor(now / config.backupInterval) * config.backupInterval
+      const timeMinuteFloored = Math.floor(now / config.influxResampleInterval) * config.influxResampleInterval
 
       if (timeBackupFloored === timeMinuteFloored) {
         return this.import()
@@ -234,11 +282,15 @@ class InfluxStorage {
     if (typeof bar.close === 'number') {
       // reg close for next bar
       this.lastClose[bar.market] = bar.close
+
+      // reg range for index
+      connections[bar.market].high = Math.max(connections[bar.market].high, bar.high)
+      connections[bar.market].low = Math.min(connections[bar.market].low, bar.low)
     }
 
-    this.lastBar[bar.market] = bar
+    connections[bar.market].bar = bar
 
-    return this.lastBar[bar.market]
+    return connections[bar.market].bar
   }
 
   /**
@@ -268,7 +320,7 @@ class InfluxStorage {
     for (let i = 0; i <= trades.length; i++) {
       const trade = trades[i]
 
-      let tradeIdentifier
+      let market
       let tradeFlooredTime
 
       if (!trade) {
@@ -281,69 +333,62 @@ class InfluxStorage {
 
         break
       } else {
-        tradeIdentifier = trade.exchange + ':' + trade.pair
+        market = trade.exchange + ':' + trade.pair
 
-        tradeFlooredTime = Math.floor(trade.timestamp / this.options.influxTimeframe) * this.options.influxTimeframe
+        tradeFlooredTime = Math.floor(trade.timestamp / config.influxTimeframe) * config.influxTimeframe
 
-        if (!activeBars[tradeIdentifier] || activeBars[tradeIdentifier].time < tradeFlooredTime) {
-          if (activeBars[tradeIdentifier]) {
+        if (!activeBars[market] || activeBars[market].time < tradeFlooredTime) {
+          if (activeBars[market]) {
             // close bar required
-            this.closeBar(activeBars[tradeIdentifier])
+            this.closeBar(activeBars[market])
 
-            delete activeBars[tradeIdentifier]
+            delete activeBars[market]
+          } else {
+            connections[market].high = -Infinity
+            connections[market].low = Infinity
           }
 
-          if (trade) {
-            // create bar required
+          // create bar required
+          if (!this.pendingBars[market]) {
+            this.pendingBars[market] = []
+          }
 
-            if (!this.pendingBars[tradeIdentifier]) {
-              this.pendingBars[tradeIdentifier] = []
+          const debugWrite = /BINANCE_FUTURES.*btcusdt/.test(market)
+
+          if (this.pendingBars[market].length && this.pendingBars[market][this.pendingBars[market].length - 1].time === tradeFlooredTime) {
+            activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
+          } else if (connections[market].bar && connections[market].bar.time === tradeFlooredTime) {
+            // trades passed in save() contains some of the last batch (trade time = last bar time)
+            // recover exchange point of lastbar
+            this.pendingBars[market].push(connections[market].bar)
+            activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
+          } else {
+            // create new bar
+            if (debugWrite) {
+              debugPush.count++
+              debugPush.market = market
+              debugPush.lastTime = tradeFlooredTime
             }
+            this.pendingBars[market].push({
+              time: tradeFlooredTime,
+              market: market,
+              cbuy: 0,
+              csell: 0,
+              vbuy: 0,
+              vsell: 0,
+              lbuy: 0,
+              lsell: 0,
+              open: null,
+              high: null,
+              low: null,
+              close: null,
+            })
 
-            const debugWrite = /BINANCE_FUTURES.*btcusdt/.test(tradeIdentifier)
+            activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
 
-            if (
-              this.pendingBars[tradeIdentifier].length &&
-              this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1].time === tradeFlooredTime
-            ) {
-              activeBars[tradeIdentifier] = this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1]
-            } else if (this.lastBar[tradeIdentifier] && this.lastBar[tradeIdentifier].time === tradeFlooredTime) {
-              // trades passed in save() contains some of the last batch (trade time = last bar time)
-              // recover exchange point of lastbar
-              this.pendingBars[tradeIdentifier].push(this.lastBar[tradeIdentifier])
-              activeBars[tradeIdentifier] = this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1]
-            } else {
-              // create new bar
-              if (debugWrite) {
-                debugPush.count++
-                debugPush.market = tradeIdentifier
-                debugPush.lastTime = tradeFlooredTime
-              }
-              this.pendingBars[tradeIdentifier].push({
-                time: tradeFlooredTime,
-                market: tradeIdentifier,
-                cbuy: 0,
-                csell: 0,
-                vbuy: 0,
-                vsell: 0,
-                lbuy: 0,
-                lsell: 0,
-                open: null,
-                high: null,
-                low: null,
-                close: null,
-              })
-
-              activeBars[tradeIdentifier] = this.pendingBars[tradeIdentifier][this.pendingBars[tradeIdentifier].length - 1]
-
-              if (typeof this.lastClose[tradeIdentifier] === 'number') {
-                // this bar open = last bar close (from last save or getReferencePoint on startup)
-                activeBars[tradeIdentifier].open =
-                  activeBars[tradeIdentifier].high =
-                  activeBars[tradeIdentifier].low =
-                  activeBars[tradeIdentifier].close =
-                    this.lastClose[tradeIdentifier]
-              }
+            if (typeof this.lastClose[market] === 'number') {
+              // this bar open = last bar close (from last save or getReferencePoint on startup)
+              activeBars[market].open = activeBars[market].high = activeBars[market].low = activeBars[market].close = this.lastClose[market]
             }
           }
         }
@@ -351,34 +396,34 @@ class InfluxStorage {
 
       if (trade.liquidation) {
         // trade is a liquidation
-        activeBars[tradeIdentifier]['l' + trade.side] += trade.price * trade.size
+        activeBars[market]['l' + trade.side] += trade.price * trade.size
       } else {
-        if (activeBars[tradeIdentifier].open === null) {
+        if (activeBars[market].open === null) {
           // new bar without close in db, should only happen once
-          console.log(`[storage/influx] register new serie ${tradeIdentifier} (last close was unknown)`)
-          activeBars[tradeIdentifier].open =
-            activeBars[tradeIdentifier].high =
-            activeBars[tradeIdentifier].low =
-            activeBars[tradeIdentifier].close =
-              +trade.price
+          console.log(`[storage/influx] register new serie ${market} (last close was unknown)`)
+          activeBars[market].open = activeBars[market].high = activeBars[market].low = activeBars[market].close = +trade.price
         }
 
-        activeBars[tradeIdentifier].high = Math.max(activeBars[tradeIdentifier].high, +trade.price)
-        activeBars[tradeIdentifier].low = Math.min(activeBars[tradeIdentifier].low, +trade.price)
-        activeBars[tradeIdentifier].close = +trade.price
+        activeBars[market].high = Math.max(activeBars[market].high, +trade.price)
+        activeBars[market].low = Math.min(activeBars[market].low, +trade.price)
+        activeBars[market].close = +trade.price
 
-        activeBars[tradeIdentifier]['c' + trade.side] += trade.count || 1
-        activeBars[tradeIdentifier]['v' + trade.side] += trade.price * trade.size
+        activeBars[market]['c' + trade.side] += trade.count || 1
+        activeBars[market]['v' + trade.side] += trade.price * trade.size
       }
     }
 
-    if (debugPush) {
+    if (config.pairs.indexOf('BINANCE_FUTURES:btcusdt') !== -1) {
       console.log(
-        `[storage/${this.name}] push ${debugPush.count} ${getHms(this.options.influxTimeframe)} bar for market ${
+        `[storage/${this.name}] push ${debugPush.count} ${getHms(config.influxTimeframe)} bar for market ${
           debugPush.market
         } (last time ${new Date(debugPush.lastTime).toISOString().split('T').pop()})`
       )
     }
+
+    updateIndexes((index, high, low) => {
+      alertService.checkPriceCrossover(index, high, low)
+    })
   }
 
   /**
@@ -448,8 +493,6 @@ class InfluxStorage {
     // free up realtime bars
     this.pendingBars = {}
 
-    const pricesRanges = {}
-
     let debugImport = {
       count: 0,
       market: null,
@@ -469,21 +512,6 @@ class InfluxStorage {
           }
 
           if (bar.close !== null) {
-            if (this.alerts[bar.market]) {
-              if (!pricesRanges[bar.market]) {
-                pricesRanges[bar.market] = {
-                  high: -Infinity,
-                  low: Infinity,
-                }
-
-                pricesRanges[bar.market].open = bar.open
-              }
-
-              pricesRanges[bar.market].high = Math.max(bar.high, pricesRanges[bar.market].high)
-              pricesRanges[bar.market].low = Math.min(bar.low, pricesRanges[bar.market].low)
-              pricesRanges[bar.market].close = bar.close
-            }
-
             ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
           }
 
@@ -494,7 +522,7 @@ class InfluxStorage {
           }
 
           return {
-            measurement: 'trades_' + getHms(this.options.influxTimeframe),
+            measurement: 'trades_' + getHms(config.influxTimeframe),
             tags: {
               market: bar.market,
             },
@@ -509,45 +537,12 @@ class InfluxStorage {
       )
     }
 
-    if (debugImport.count) {
+    if (config.pairs.indexOf('BINANCE_FUTURES:btcusdt') !== -1) {
       console.log(
-        `[storage/${this.name}] import ${debugImport.count} ${getHms(this.options.influxTimeframe)} bar for market ${
+        `[storage/${this.name}] import ${debugImport.count} ${getHms(config.influxTimeframe)} bar for market ${
           debugImport.market
         } (last time ${new Date(debugImport.lastTime).toISOString().split('T').pop()})`
       )
-    }
-
-    for (const market in pricesRanges) {
-      const { high, low } = pricesRanges[market]
-
-      let expired = 0
-
-      for (let i = 0; i < this.alerts[market].length; i++) {
-        const alert = this.alerts[market][i]
-
-        if (now - alert.timestamp < this.options.influxResampleInterval) {
-          continue
-        }
-
-        const isTriggered = alert.price <= high && alert.price >= low
-        const isExpired = !isTriggered && alert.timestamp + this.options.alertExpiresAfter < now
-
-        if (isTriggered || isExpired) {
-          if (isTriggered) {
-            this.sendAlert(alert, alert.close > alert.open, now - alert.timestamp)
-          } else {
-            expired++
-          }
-
-          if (this.unregisterAlert(alert, true)) {
-            i--
-          }
-        }
-      }
-
-      if (expired) {
-        console.log(`[alert] removed ${expired} expired alerts on ${market}`)
-      }
     }
 
     return importedRange
@@ -618,11 +613,11 @@ class InfluxStorage {
 
     console.debug(`[storage/influx/resample] resampling ${range.markets.length} markets`)
 
-    this.options.influxResampleTo.sort((a, b) => a - b)
+    config.influxResampleTo.sort((a, b) => a - b)
 
     let bars = 0
 
-    for (let timeframe of this.options.influxResampleTo) {
+    for (let timeframe of config.influxResampleTo) {
       const isOddTimeframe = DAY % timeframe !== 0 && timeframe < DAY
 
       let flooredRange
@@ -640,15 +635,15 @@ class InfluxStorage {
         }
       }
 
-      for (let i = this.options.influxResampleTo.indexOf(timeframe); i >= 0; i--) {
-        if (timeframe <= this.options.influxResampleTo[i] || timeframe % this.options.influxResampleTo[i] !== 0) {
+      for (let i = config.influxResampleTo.indexOf(timeframe); i >= 0; i--) {
+        if (timeframe <= config.influxResampleTo[i] || timeframe % config.influxResampleTo[i] !== 0) {
           if (i === 0) {
-            sourceTimeframeLitteral = getHms(this.options.influxTimeframe)
+            sourceTimeframeLitteral = getHms(config.influxTimeframe)
           }
           continue
         }
 
-        sourceTimeframeLitteral = getHms(this.options.influxResampleTo[i])
+        sourceTimeframeLitteral = getHms(config.influxResampleTo[i])
         break
       }
 
@@ -667,8 +662,8 @@ class InfluxStorage {
       sum(vbuy) AS vbuy, 
       sum(vsell) AS vsell`
 
-      const query_from = `${this.options.influxDatabase}.${this.options.influxRetentionPrefix}${sourceTimeframeLitteral}.${this.options.influxMeasurement}_${sourceTimeframeLitteral}`
-      const query_into = `${this.options.influxDatabase}.${this.options.influxRetentionPrefix}${destinationTimeframeLitteral}.${this.options.influxMeasurement}_${destinationTimeframeLitteral}`
+      const query_from = `${config.influxDatabase}.${config.influxRetentionPrefix}${sourceTimeframeLitteral}.${config.influxMeasurement}_${sourceTimeframeLitteral}`
+      const query_into = `${config.influxDatabase}.${config.influxRetentionPrefix}${destinationTimeframeLitteral}.${config.influxMeasurement}_${destinationTimeframeLitteral}`
 
       let coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
       coverage += ` AND (${range.markets.map((market) => `market = '${market}'`).join(' OR ')})`
@@ -735,7 +730,7 @@ class InfluxStorage {
   fetch({ from, to, timeframe = 60000, markets = [] }) {
     const timeframeLitteral = getHms(timeframe)
 
-    let query = `SELECT * FROM "${this.options.influxDatabase}"."${this.options.influxRetentionPrefix}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
+    let query = `SELECT * FROM "${config.influxDatabase}"."${config.influxRetentionPrefix}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
 
     if (markets.length) {
       query += ` AND (${markets.map((market) => `market = '${market}'`).join(' OR ')})`
@@ -747,8 +742,8 @@ class InfluxStorage {
         epoch: 's',
       })
       .then((results) => {
-        if (to > +new Date() - this.options.influxResampleInterval) {
-          return this.concatWithPendingBars(results.results[0].series ? results.results[0].series[0].values : [], markets, from, to)
+        if (to > +new Date() - config.influxResampleInterval) {
+          return this.appendPendingBarsToResponse(results.results[0].series ? results.results[0].series[0].values : [], markets, from, to)
         } else if (results.results[0].series) {
           return results.results[0].series[0].values
         } else {
@@ -770,8 +765,8 @@ class InfluxStorage {
    * @param {number} to
    * @returns
    */
-  concatWithPendingBars(bars, markets, from, to) {
-    if (this.options.influxCollectors && this.clusteredCollectors.length) {
+  appendPendingBarsToResponse(bars, markets, from, to) {
+    if (config.influxCollectors && socketService.clusteredCollectors.length) {
       // use collectors nodes pending bars
       return this.requestPendingBars(markets, from, to).then((pendingBars) => {
         return bars.concat(pendingBars)
@@ -795,226 +790,8 @@ class InfluxStorage {
       return bars.concat(injectedPendingBars)
     }
   }
-
-  /**
-   * Called from a collector node
-   * Connect current collector node to cluster node
-   * WILL try to reconnect if it fails
-   * @returns {void}
-   */
-  connectToCluster() {
-    if (this.clusterSocket) {
-      console.warn('[storage/influx/collector] already connected (aborting)')
-      return
-    }
-
-    console.debug('[storage/influx/collector] connecting to cluster..')
-
-    this.clusterSocket = net.createConnection(this.options.influxCollectorsClusterSocketPath)
-
-    this.clusterSocket.on('connect', () => {
-      console.log('[storage/influx/collector] successfully connected to cluster')
-      this.clusterSocket.write(JSON.stringify(this.options.pairs) + '#')
-    })
-
-    // store current incoming to be filled by potentialy partial chunks
-    this.pendingSocketData = ''
-
-    this.clusterSocket
-      .on(
-        'data',
-        this.parseSocketData.bind(this, (data) => {
-          if (data.pendingBarsRequestId) {
-            // this is a request for pending bars
-            this.emitPendingBars(data.pendingBarsRequestId, data.markets, data.from, data.to)
-          } else if (data.op === 'import') {
-            // cluster is asking collector to write
-            this.import().finally(() => {
-              if (this.clusterSocket) {
-                this.clusterSocket.write(
-                  JSON.stringify({
-                    op: 'import',
-                  }) + '#'
-                )
-              }
-            })
-          } else if (data.op === 'toggleAlert') {
-            this.toggleAlert(data.alert, true)
-          }
-        })
-      )
-      .on('close', () => {
-        // collector never close connection with cluster by itself
-        console.error('[storage/influx/collector] cluster closed (unexpectedly)')
-
-        // schedule reconnection
-        this.reconnectCluster()
-      })
-      .on('error', (error) => {
-        // the close even destroy the previous strem and may trigger error
-        // reconnect in this situation as well
-        this.reconnectCluster()
-      })
-  }
-
-  /**
-   * Handle connectToCluster failure and unexpected close
-   * @returns {void}
-   */
-  reconnectCluster() {
-    if (this.clusterSocket) {
-      // ensure previous stream is donezo
-      this.clusterSocket.destroy()
-      this.clusterSocket = null
-    }
-
-    if (this._clusterConnectionTimeout) {
-      clearTimeout(this._clusterConnectionTimeout)
-    } else {
-      console.log(`[storage/influx/collector] schedule reconnect to cluster (${this.options.influxCollectorsReconnectionDelay / 1000}s)`)
-    }
-
-    this._clusterConnectionTimeout = setTimeout(() => {
-      this._clusterConnectionTimeout = null
-
-      this.connectToCluster()
-    }, this.options.influxCollectorsReconnectionDelay)
-  }
-
-  /**
-   * Create cluster unix socket
-   * And listen for collectors joining
-   *
-   * Only called once
-   */
-  createCluster() {
-    try {
-      if (statSync(this.options.influxCollectorsClusterSocketPath)) {
-        console.debug(`[storage/influx/cluster] unix socket was not closed properly last time`)
-        unlinkSync(this.options.influxCollectorsClusterSocketPath)
-      }
-    } catch (error) {}
-
-    this.serverSocket = net.createServer((socket) => {
-      console.log('[storage/influx/cluster] collector connected successfully')
-
-      socket.on('end', () => {
-        console.log('[storage/influx/cluster] collector disconnected (unexpectedly)')
-
-        const index = this.clusteredCollectors.indexOf(socket)
-
-        if (index !== -1) {
-          this.clusteredCollectors.splice(index, 1)
-        } else {
-          console.error(`[storage/influx/cluster] disconnected collector WAS NOT found in collectors array`)
-        }
-
-        socket.destroy()
-      })
-
-      // store current incoming to be filled by potentialy partial chunks
-      this.pendingSocketData = ''
-
-      socket.on(
-        'data',
-        this.parseSocketData.bind(this, (data) => {
-          if (!socket.markets) {
-            // this is our welcome message
-            socket.markets = data
-
-            console.log('[storage/influx/cluster] registered collector with markets', socket.markets.join(', '))
-
-            this.clusteredCollectors.push(socket)
-          } else if (data.pendingBarsRequestId) {
-            // this is a pending data response to cluster
-
-            if (this.promisesOfPendingBars[data.pendingBarsRequestId]) {
-              this.promisesOfPendingBars[data.pendingBarsRequestId](data.results)
-            } else {
-              console.error('there was no promisesOfPendingBars with given pendingBarsRequestId', data.pendingBarsRequestId)
-            }
-          } else if (data.op === 'import') {
-            // this is a import response to cluster
-
-            if (this.promiseOfImport) {
-              this.promiseOfImport() // trigger next import (if any)
-            }
-          }
-        })
-      )
-    })
-
-    this.serverSocket.on('error', (error) => {
-      console.error(`[storage/influx/cluster] server socket error`, error)
-    })
-
-    this.serverSocket.listen(this.options.influxCollectorsClusterSocketPath)
-    setTimeout(this.importCollectors.bind(this), this.options.influxResampleInterval)
-  }
-
-  parseSocketData(callback, data) {
-    // data is a stringified json inside a buffer
-    // BUT it can also be a part of a json, or contain multiple
-
-    // convert to string
-    const stringData = data.toString()
-
-    // complete data has a # char at it's end
-    const incompleteData = stringData[stringData.length - 1] !== '#'
-
-    if (stringData.indexOf('#') !== -1) {
-      // data has delimiter
-
-      // split chunks using given delimiter
-      const chunks = stringData.split('#')
-
-      for (let i = 0; i < chunks.length; i++) {
-        if (!chunks[i].length) {
-          // chunk is empty (last one can be as # used as divider:
-          // partial_chunk#complete_chunk#*empty_chunk <-)
-          // complete_chunk#complete_chunk#*empty_chunk <-)
-          // partial_chunk#*empty_chunk <-)
-          // complete_chunk#*empty_chunk <-)
-          continue
-        }
-
-        // add to already existing incoming data (if i not last: this is a end of chunk)
-        this.pendingSocketData += chunks[i]
-
-        if (i === chunks.length - 1 && incompleteData) {
-          // last chunk and incomplete
-          // wait for next data event
-          continue
-        }
-
-        // this is a complete chunk either because i < last OR last and # at this end of the total stringData
-        let json
-
-        try {
-          json = JSON.parse(this.pendingSocketData)
-        } catch (error) {
-          console.error('[storage/influx] failed to parse socket data', error.message, this.pendingSocketData)
-        }
-
-        if (json) {
-          try {
-            callback(json)
-          } catch (error) {
-            console.error('[storage/influx] failed to execute callback data', error.message, json)
-          }
-        }
-
-        // flush incoming data for next chunk
-        this.pendingSocketData = ''
-      }
-    } else {
-      // no delimiter in payload so this *has* to be incomplete data
-      this.pendingSocketData += stringData
-    }
-  }
-
   async importCollectors() {
-    for (const collector of this.clusteredCollectors) {
+    for (const collector of socketService.clusteredCollectors) {
       await new Promise((resolve) => {
         let importTimeout = setTimeout(() => {
           console.error('[storage/influx/cluster] collector import was resolved early (5s timeout fired)')
@@ -1033,7 +810,7 @@ class InfluxStorage {
       })
     }
 
-    setTimeout(this.importCollectors.bind(this), this.options.influxResampleInterval)
+    setTimeout(this.importCollectors.bind(this), config.influxResampleInterval)
   }
 
   /**
@@ -1048,9 +825,12 @@ class InfluxStorage {
     const collectors = []
 
     for (let i = 0; i < markets.length; i++) {
-      for (let j = 0; j < this.clusteredCollectors.length; j++) {
-        if (collectors.indexOf(this.clusteredCollectors[j]) === -1 && this.clusteredCollectors[j].markets.indexOf(markets[i]) !== -1) {
-          collectors.push(this.clusteredCollectors[j])
+      for (let j = 0; j < socketService.clusteredCollectors.length; j++) {
+        if (
+          collectors.indexOf(socketService.clusteredCollectors[j]) === -1 &&
+          socketService.clusteredCollectors[j].markets.indexOf(markets[i]) !== -1
+        ) {
+          collectors.push(socketService.clusteredCollectors[j])
         }
       }
     }
@@ -1100,16 +880,19 @@ class InfluxStorage {
 
       collector.write(
         JSON.stringify({
-          pendingBarsRequestId,
-          markets,
-          from,
-          to,
+          op: 'requestPendingBars',
+          data: {
+            pendingBarsRequestId,
+            markets,
+            from,
+            to,
+          },
         }) + '#'
       )
     })
   }
 
-  emitPendingBars(pendingBarsRequestId, markets, from, to) {
+  getPendingBars(markets, from, to) {
     const results = []
 
     for (const market of markets) {
@@ -1122,288 +905,7 @@ class InfluxStorage {
       }
     }
 
-    this.clusterSocket.write(
-      JSON.stringify({
-        pendingBarsRequestId,
-        results,
-      }) + '#'
-    )
-  }
-
-  toggleAlert(alert, fromCluster = false) {
-    if (!fromCluster && this.options.influxCollectors && this.clusteredCollectors.length) {
-      const collector = this.getCollectorByMarket(alert.market)
-
-      if (!collector) {
-        throw new Error('unsupported market')
-      }
-
-      collector.write(
-        JSON.stringify({
-          op: 'toggleAlert',
-          alert: alert,
-        }) + '#'
-      )
-    } else {
-      if (!fromCluster && this.options.pairs.indexOf(alert.market) === -1) {
-        throw new Error('unsupported market')
-      }
-      const activeAlert = this.getActiveAlert(alert)
-
-      if (activeAlert) {
-        activeAlert.user = alert.user
-
-        if (typeof alert.newPrice === 'number') {
-          this.moveAlert(activeAlert, alert.newPrice)
-        } else if (alert.unsubscribe) {
-          this.unregisterAlert(activeAlert)
-        }
-
-        return
-      } else if (!alert.unsubscribe) {
-        this.registerAlert(alert)
-      }
-    }
-  }
-
-  getActiveAlert(alert) {
-    if (!this.alerts[alert.market]) {
-      return null
-    }
-
-    return this.alerts[alert.market].find((activeAlert) => activeAlert.endpoint === alert.endpoint && activeAlert.price === alert.price)
-  }
-
-  registerAlert(alert) {
-    if (!this.alerts[alert.market]) {
-      this.alerts[alert.market] = []
-    }
-
-    if (!this.alertEndpoints[alert.endpoint]) {
-      this.alertEndpoints[alert.endpoint] = {
-        user: alert.user,
-        endpoint: alert.endpoint,
-        keys: alert.keys,
-        count: 0,
-      }
-    }
-
-    if (typeof alert.newPrice === 'number') {
-      alert.price = alert.newPrice
-    }
-
-    this.alertEndpoints[alert.endpoint].count++
-
-    console.debug(
-      `[alert/${alert.user}] create alert ${alert.market} @ ${alert.price} (user now have ${
-        this.alertEndpoints[alert.endpoint].count
-      } active alerts)`
-    )
-
-    this.alerts[alert.market].push({
-      endpoint: alert.endpoint,
-      market: alert.market,
-      price: alert.price,
-      origin: alert.origin,
-      timestamp: Date.now(),
-    })
-
-    return true
-  }
-
-  unregisterAlert(alert, wasAutomatic) {
-    const index = this.alerts[alert.market].indexOf(alert)
-
-    this.scheduleAlertsCleanup(alert)
-
-    if (index !== -1) {
-      let user
-      let count = 0
-      if (this.alertEndpoints[alert.endpoint]) {
-        this.alertEndpoints[alert.endpoint].count--
-        user = this.alertEndpoints[alert.endpoint].user
-        count = this.alertEndpoints[alert.endpoint].count
-      }
-
-      if (wasAutomatic) {
-        console.debug(`[alert/${user || 'unknown'}] server removed ${alert.market} @ ${alert.price} (user now have ${count} active alerts)`)
-      } else {
-        console.debug(
-          `[alert/${user || 'unknown'}] user removed alert ${alert.market} @ ${alert.price} (user now have ${count} active alerts)`
-        )
-      }
-
-      this.alerts[alert.market].splice(index, 1)
-
-      return true
-    }
-
-    return false
-  }
-
-  moveAlert(alert, newPrice) {
-    const index = this.alerts[alert.market].indexOf(alert)
-
-    if (index !== -1) {
-      this.alerts[alert.market].splice(index, 1)
-
-      let count = 0
-
-      if (this.alertEndpoints[alert.endpoint]) {
-        count = this.alertEndpoints[alert.endpoint].count
-      }
-
-      console.debug(`[alert/${alert.user}] move alert on ${alert.market} @ ${alert.price} (user now have ${count} active alerts)`)
-      
-      const now = Date.now()
-
-      alert.price = newPrice
-      alert.timestamp = now
-
-      this.alerts[alert.market].push(alert)
-    }
-  }
-
-  async scheduleAlertsCleanup(alert) {
-    setTimeout(() => {
-      if (this.alerts[alert.market] && !this.alerts[alert.market].length) {
-        delete this.alerts[alert.market]
-      }
-
-      if (this.alertEndpoints[alert.endpoint] && !this.alertEndpoints[alert.endpoint].count) {
-        delete this.alertEndpoints[alert.endpoint]
-      }
-    }, 100)
-  }
-
-  async getAlerts() {
-    const now = Date.now()
-    this.alertEndpoints = (await persistence.get(this.options.id + '-alerts-endpoints')) || {}
-
-    console.debug(`[alert] this node handle ${Object.keys(this.alertEndpoints).length} alert users`)
-
-    let totalCount = 0
-    let pairsCount = 0
-
-    for (const pair of this.options.pairs) {
-      const marketAlerts = await persistence.get(this.options.id + '-alerts-' + pair)
-
-      if (marketAlerts) {
-        pairsCount++
-
-        for (let i = 0; i < marketAlerts.length; i++) {
-          const alert = marketAlerts[i]
-          if (!this.alertEndpoints[alert.endpoint]) {
-            marketAlerts.splice(i--, 1)
-            continue
-          } else {
-            const subscription = this.alertEndpoints[alert.endpoint]
-
-            if (!subscription.found) {
-              subscription.found = 1
-            } else {
-              subscription.found++
-            }
-          }
-        }
-
-        console.debug(`[alert] ${pair} has ${marketAlerts.length} alerts`)
-
-        totalCount += marketAlerts.length
-
-        this.alerts[pair] = marketAlerts
-      }
-    }
-
-    for (const endpoint in this.alertEndpoints) {
-      const subscription = this.alertEndpoints[endpoint]
-
-      if (!subscription.found) {
-        delete this.alertEndpoints[endpoint]
-      }
-    }
-
-    console.log(`[alert] total ${totalCount} alerts across ${pairsCount} pairs`)
-
-    this._persistAlertsTimeout = setTimeout(this.peristAlerts.bind(this), 1000 * 60 * 30 + Math.random() * 1000 * 60 * 30)
-  }
-
-  async peristAlerts(isExiting = false) {
-    clearTimeout(this._persistAlertsTimeout)
-
-    try {
-      await persistence.set(this.options.id + '-alerts-endpoints', this.alertEndpoints)
-    } catch (error) {
-      console.error('[alert] persistence error (saving endpoints)', error.message)
-    }
-
-    let totalCount = 0
-    let pairsCount = 0
-
-    for (const market in this.alerts) {
-      const count = this.alerts[market].length
-
-      if (count) {
-        totalCount += count
-        pairsCount++
-      }
-
-      try {
-        await persistence.set(this.options.id + '-alerts-' + market, this.alerts[market])
-      } catch (error) {
-        console.error('[alert] persistence error (saving alerts)', error.message)
-      }
-    }
-
-    console.log(`[alert] save alerts in persistence (${totalCount} alerts across ${pairsCount} pairs)`)
-
-    if (!isExiting) {
-      this._persistAlertsTimeout = setTimeout(this.peristAlerts.bind(this), 1000 * 60 * 30 + Math.random() * 1000 * 60 * 30)
-    }
-  }
-
-  sendAlert(alert, isGreen, elapsedTime) {
-    if (!this.alertEndpoints[alert.endpoint]) {
-      console.error(`[alert] attempted to send alert without matching endpoint`, alert)
-      return
-    }
-
-    console.debug(
-      `[alert/${this.alertEndpoints[alert.endpoint].user}] send alert ${alert.market} @ ${alert.price} (${getHms(elapsedTime)} after)`
-    )
-
-    alert.triggered = true
-
-    const payload = JSON.stringify({
-      title: `${alert.market}`,
-      body: `Price crossed ${alert.price}`,
-      origin: alert.origin,
-      price: alert.price,
-      market: alert.market,
-    })
-
-    return webPush
-      .sendNotification(this.alertEndpoints[alert.endpoint], payload, {
-        TTL: 60,
-        vapidDetails: {
-          subject: 'mailto: contact@aggr.trade',
-          publicKey: this.options.publicVapidKey,
-          privateKey: this.options.privateVapidKey,
-        },
-        contentEncoding: 'aes128gcm',
-      })
-      .catch((err) => {
-        console.error(`[alert] push notification failure\n\t`, err.message, '| payload :')
-        console.error(JSON.parse(payload))
-      })
-  }
-
-  getCollectorByMarket(market) {
-    for (let j = 0; j < this.clusteredCollectors.length; j++) {
-      if (this.clusteredCollectors[j].markets.indexOf(market) !== -1) {
-        return this.clusteredCollectors[j]
-      }
-    }
+    return results
   }
 }
 
