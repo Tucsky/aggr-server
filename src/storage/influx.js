@@ -313,15 +313,25 @@ class InfluxStorage {
 
     let debugPush = {
       count: 0,
+      count: 0,
       market: null,
       lastTime: null,
+      firstTime: null,
+      found: false
     }
+
+    console.log(`[storage/influx/processTrades] process ${trades.length} trades`)
 
     for (let i = 0; i <= trades.length; i++) {
       const trade = trades[i]
 
       let market
       let tradeFlooredTime
+
+      if (!debugPush.found && trade && trade.exchange + ':' + trade.pair === 'BINANCE_FUTURES:btcusdt') {
+        debugPush.found = true
+        console.log(`[storage/influx/processTrades] BINANCE_FUTURES:btcusdt found in trades (time is ${new Date(+trade.timestamp).toISOString()})`)
+      }
 
       if (!trade) {
         // end of loop reached = close all bars
@@ -356,18 +366,25 @@ class InfluxStorage {
           const debugWrite = /BINANCE_FUTURES.*btcusdt/.test(market)
 
           if (this.pendingBars[market].length && this.pendingBars[market][this.pendingBars[market].length - 1].time === tradeFlooredTime) {
+            debugWrite && console.log(`[storage/influx/processTrades] last pending bar of market .time === tradeFlooredTime (${new Date(tradeFlooredTime).toISOString()}) -> use it as active`)
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
           } else if (connections[market].bar && connections[market].bar.time === tradeFlooredTime) {
+            debugWrite && console.log(`[storage/influx/processTrades] lase closed bar of market .time === tradeFlooredTime (${new Date(tradeFlooredTime).toISOString()}) -> push bar to pending and use it as active`)
             // trades passed in save() contains some of the last batch (trade time = last bar time)
             // recover exchange point of lastbar
             this.pendingBars[market].push(connections[market].bar)
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
+            if (debugWrite) {
+              debugPush.recover++
+            }
           } else {
             // create new bar
             if (debugWrite) {
               debugPush.count++
               debugPush.market = market
-              debugPush.lastTime = tradeFlooredTime
+              debugPush.firstTime = !debugPush.firstTime ? tradeFlooredTime : Math.min(tradeFlooredTime, debugPush.firstTime)
+              debugPush.lastTime = !debugPush.lastTime ? tradeFlooredTime : Math.max(tradeFlooredTime, debugPush.lastTime)
+              debugWrite && console.log(`[storage/influx/processTrades] create pending bar at time ${new Date(tradeFlooredTime).toISOString()}`)
             }
             this.pendingBars[market].push({
               time: tradeFlooredTime,
@@ -417,7 +434,7 @@ class InfluxStorage {
       console.log(
         `[storage/${this.name}] push ${debugPush.count} ${getHms(config.influxTimeframe)} bar for market ${
           debugPush.market
-        } (last time ${new Date(debugPush.lastTime).toISOString().split('T').pop()})`
+        } (first time ${new Date(debugPush.firstTime).toISOString().split('T').pop()} - last time ${new Date(debugPush.lastTime).toISOString().split('T').pop()})`
       )
     }
 
@@ -496,6 +513,7 @@ class InfluxStorage {
     let debugImport = {
       count: 0,
       market: null,
+      firstTime: null,
       lastTime: null,
     }
 
@@ -517,7 +535,8 @@ class InfluxStorage {
 
           if (/BINANCE_FUTURES.*btcusdt/.test(bar.market)) {
             debugImport.count++
-            debugImport.lastTime = bar.time
+            debugImport.firstTime = !debugImport.firstTime ? bar.time : Math.min(bar.time, debugImport.firstTime)
+            debugImport.lastTime = !debugImport.lastTime ? bar.time : Math.max(bar.time, debugImport.lastTime)
             debugImport.market = bar.market
           }
 
@@ -541,7 +560,7 @@ class InfluxStorage {
       console.log(
         `[storage/${this.name}] import ${debugImport.count} ${getHms(config.influxTimeframe)} bar for market ${
           debugImport.market
-        } (last time ${new Date(debugImport.lastTime).toISOString().split('T').pop()})`
+        } (first time ${new Date(debugImport.firstTime).toISOString().split('T').pop()} - last time ${new Date(debugImport.lastTime).toISOString().split('T').pop()})`
       )
     }
 

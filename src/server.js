@@ -151,6 +151,20 @@ class Server extends EventEmitter {
 
     const chunk = this.chunk.splice(0, this.chunk.length)
 
+    if (config.id === 'btceth' && chunk.length) {
+      const ftt = +chunk[0].timestamp
+      const ltt = +chunk[chunk.length - 1].timestamp
+      try {
+        console.log(
+          `[server] backup trades ${chunk.length} ${new Date(ftt).toISOString()} ->  ${new Date(ltt).toISOString()}`
+        )
+      } catch (error) {
+        console.log(
+          `[server] backup trades (errored) ${chunk.length} ${ftt} ->  ${ltt}`
+        )
+      }
+    }
+
     return Promise.all(
       this.storages.map((storage) => {
         if (exitBackup) {
@@ -209,7 +223,7 @@ class Server extends EventEmitter {
         const id = exchange.id + ':' + pair
 
         console.log(`[server] deleted connection ${id} (${apiLength} connected)`)
-      
+
         connections[id].apiId = null
 
         if (!apiLength) {
@@ -229,7 +243,7 @@ class Server extends EventEmitter {
             exchange.registerRangeForRecovery(connections[id])
           }
         }
-        
+
         connections[id].apiId = apiId
 
         if (typeof this.apiStats[apiId] === 'undefined') {
@@ -245,14 +259,14 @@ class Server extends EventEmitter {
             timestamp: now,
           }
         }
-    
+
         this.apiStats[apiId].pairs.push(pair)
         this.apiStats[apiId].name =
           this.apiStats[apiId].exchange +
           ':' +
           this.apiStats[apiId].pairs.slice(0, 3).join('+') +
           (this.apiStats[apiId].pairs.length > 3 ? '.. (' + this.apiStats[apiId].pairs.length + ')' : '')
-    
+
         this.checkApiStats()
       })
 

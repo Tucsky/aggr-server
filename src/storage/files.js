@@ -160,6 +160,20 @@ class FilesStorage {
 
   save(trades) {
     return new Promise((resolve) => {
+      let firstTime = null
+      for (let i = 0; i < trades.length; i++) {
+        if (trades[i].exchange === 'BINANCE_FUTURES' && trades[i].pair === 'btcusdt') {
+          firstTime = trades[i].timestamp
+          break;
+        }
+      }
+      let lastTime = null
+      for (let i = trades.length - 1; i >= 0; i--) {
+        if (trades[i].exchange === 'BINANCE_FUTURES' && trades[i].pair === 'btcusdt') {
+          lastTime = trades[i].timestamp
+          break;
+        }
+      }
       const output = this.prepareTrades(trades)
       
       const promises = []
@@ -193,7 +207,7 @@ class FilesStorage {
                   }
 
                   if (debugTimestamp) {
-                    console.log(`[storage/${this.name}] stream.write ${output[identifier][ts].data.split('\n').length} trades to ${identifier}'s stream took ${getHms(Date.now() - debugTimestamp)} (current stream size ${humanFileSize(stream.bytesWritten)})`)
+                    console.log(`[storage/${this.name}] stream.write ${output[identifier][ts].data.split('\n').length} trades (first time ${new Date(firstTime).toISOString().split('T').pop()} - last time ${new Date(lastTime).toISOString().split('T').pop()}) to ${identifier}'s stream took ${getHms(Date.now() - debugTimestamp)} (current stream size ${humanFileSize(stream.bytesWritten)})`)
                   }
 
                   if (!waitDrain) {

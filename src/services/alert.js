@@ -340,6 +340,8 @@ class AlertService extends EventEmitter {
 
     clearTimeout(this._persistAlertsTimeout)
 
+    const now = Date.now()
+
     const otherAlertEndpoints = (await persistenceService.get(config.id + '-alerts-endpoints') || {})
 
     for (const endpoint in otherAlertEndpoints) {
