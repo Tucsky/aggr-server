@@ -3,7 +3,7 @@ const socketService = require('./socket')
 const persistenceService = require('./persistence')
 const EventEmitter = require('events')
 const { indexes, getIndex } = require('./connections')
-const { getHms, sleep } = require('../helper')
+const { getHms, sleep, ago } = require('../helper')
 const webPush = require('web-push')
 
 class AlertService extends EventEmitter {
@@ -14,9 +14,6 @@ class AlertService extends EventEmitter {
     this.alertEndpoints = {}
 
     if (config.influxCollectors && config.collect && !config.api) {
-      if (config.privateVapidKey && (typeof config.id === 'undefined' || config.id === null)) {
-        console.error(`[alerts] push subscriptions won't be persisted (NEED ID COLLECTORS)`)
-      }
 
       // node is a collector: listen for toggleAlerts op
       socketService.on('toggleAlert', this.toggleAlert.bind(this))
@@ -245,77 +242,50 @@ class AlertService extends EventEmitter {
   }
 
   async getAlerts() {
-    this.alertEndpoints = (await persistenceService.get(config.id + '-alerts-endpoints')) || {}
+    this.alertEndpoints = (await persistenceService.get('alerts-endpoints')) || {}
 
     const now = Date.now()
-    let expired = 0
 
     for (const endpoint in this.alertEndpoints) {
       if (this.alertEndpoints[endpoint].timestamp && now - this.alertEndpoints[endpoint].timestamp > config.alertEndpointExpiresAfter) {
         
+        console.warn(`[alert/get] removed expired endpoint (last updated ${ago(this.alertEndpoints[endpoint].timestamp)} ago)`)
         delete this.alertEndpoints[endpoint]
-        expired++
       }
     }
 
-    if (expired) {
-      console.log(`[alert/get] removed ${expired} expired endpoint${expired > 1 ? 's' : ''}`)
-    }
-
-    console.log(`[alert/get] this node handle ${Object.keys(this.alertEndpoints).length} alert user(s)`)
+    console.log(`[alert/get] retrieved ${Object.keys(this.alertEndpoints).length} alert user(s)`)
 
     let totalCount = 0
     let pairsCount = 0
+    let isolatedCount = 0
 
     for (const index of indexes) {
-      let marketAlerts = (await persistenceService.get(config.id + '-alerts-' + index.id)) || {}
-
-      if (!Object.keys(marketAlerts).length) {
-        console.log(`[alert] migrates ${index.id} market alerts to index based alerts`)
-
-        for (const market of index.markets) {
-          const oldMarketsAlerts = (await persistenceService.get(config.id + '-alerts-' + market)) || []
-  
-          if (oldMarketsAlerts.length) {
-            console.log(`[alert] converted ${oldMarketsAlerts.length} ${market}'s alerts (into ${index.id})`)
-            await persistenceService.delete(config.id + '-alerts-' + market)
-
-            marketAlerts = oldMarketsAlerts.reduce((acc, alert) => {
-              const rangePrice = this.getRangePrice(alert.price)
-    
-              if (!acc[rangePrice]) {
-                acc[rangePrice] = []
-              }
-    
-              acc[rangePrice].push(alert)
-    
-              return acc
-            }, marketAlerts)
-          }
-        }
-      }
+      const marketAlerts = (await persistenceService.get('alerts-' + index.id)) || {}
 
       let hasValidAlerts = false
-      let unlinkedAlerts = 0
 
       for (const rangePrice in marketAlerts) {
         for (let i = 0; i < marketAlerts[rangePrice].length; i++) {
           const alert = marketAlerts[rangePrice][i]
           if (!this.alertEndpoints[alert.endpoint]) {
-            unlinkedAlerts++
+            console.warn(`[alert/get] removed unattached alert on ${index.id} @ ${alert.price} (last updated ${ago(alert.timestamp)} ago)`)
             marketAlerts[rangePrice].splice(i--, 1)
             continue
           }
         }
 
-        if (unlinkedAlerts) {
-          console.warn(`[alert/get] ${index.id} had ${unlinkedAlerts} unattached alert (no matching endpoint)`)
-        }
+        const count = marketAlerts[rangePrice].length
         
-        if (marketAlerts[rangePrice].length) {
-          console.log(`[alert/get] ${index.id} has ${marketAlerts[rangePrice].length} alerts in the ${rangePrice} region`)
+        if (count) {
+          if (count > 1) {
+            console.log(`[alert/get] ${index.id} has ${count} alerts in the ${rangePrice} region`)
+          } else {
+            isolatedCount++
+          }
+
           hasValidAlerts = true
-          totalCount += marketAlerts[rangePrice].length
+          totalCount += count
         } else {
           delete marketAlerts[rangePrice]
         }
@@ -326,14 +296,18 @@ class AlertService extends EventEmitter {
       }
 
       pairsCount++
+
+      if (isolatedCount) {
+        console.log(`[alert/get] ${index.id} has ${isolatedCount} isolated price ranges (ranges with only 1 alert each)`)
+      }
     }
 
     console.log(`[alert] total ${totalCount} alerts across ${pairsCount} pairs`)
 
-    this._persistAlertsTimeout = setTimeout(this.peristAlerts.bind(this), 1000 * 60 * 30 + Math.random() * 1000 * 60 * 30)
+    this._persistAlertsTimeout = setTimeout(this.persistAlerts.bind(this), 1000 * 60 * 30 + Math.random() * 1000 * 60 * 30)
   }
 
-  async peristAlerts(isExiting = false) {
+  async persistAlerts(isExiting = false) {
     if (!config.collect) {
       return
     }
@@ -342,7 +316,7 @@ class AlertService extends EventEmitter {
 
     const now = Date.now()
 
-    const otherAlertEndpoints = (await persistenceService.get(config.id + '-alerts-endpoints') || {})
+    const otherAlertEndpoints = (await persistenceService.get('alerts-endpoints') || {})
 
     for (const endpoint in otherAlertEndpoints) {
       if (this.alertEndpoints[endpoint]) {
@@ -354,8 +328,11 @@ class AlertService extends EventEmitter {
       }
     }
 
+    console.log(`[alert/persist] save ${Object.keys(this.alertEndpoints).length} alert user(s)`)
+
     try {
-      await persistenceService.set(config.id + '-alerts-endpoints', this.alertEndpoints)
+      console.log('')
+      await persistenceService.set('alerts-endpoints', this.alertEndpoints)
     } catch (error) {
       console.error('[alert/persist] persistence error (saving endpoints)', error.message)
     }
@@ -374,24 +351,26 @@ class AlertService extends EventEmitter {
         totalCount += count
         pairsCount++
 
+        console.log(`[alert/persist] save ${count} alert(s) on ${market} (across ${Object.keys(this.alerts[market]).length} ranges)`)
+
         try {
-          await persistenceService.set(config.id + '-alerts-' + market, this.alerts[market])
+          await persistenceService.set('alerts-' + market, this.alerts[market])
         } catch (error) {
           console.error('[alert/persist] persistence error (saving alerts)', error.message)
         }
       } else {
         try {
-          await persistenceService.delete(config.id + '-alerts-' + market)
+          await persistenceService.delete('alerts-' + market)
         } catch (error) {
           console.error('[alert/persist] persistence error (removing alerts pair)', error.message)
         }
       }
     }
 
-    console.log(`[alert/persist] save alerts in persistence (${totalCount} alerts across ${pairsCount} pairs)`)
+    console.log(`[alert/persist] ${totalCount} alerts across ${pairsCount} pairs`)
 
     if (!isExiting) {
-      this._persistAlertsTimeout = setTimeout(this.peristAlerts.bind(this), 1000 * 60 * 30 + Math.random() * 1000 * 60 * 30)
+      this._persistAlertsTimeout = setTimeout(this.persistAlerts.bind(this), 1000 * 60 * 30 + Math.random() * 1000 * 60 * 30)
     }
   }
 
@@ -482,12 +461,9 @@ class AlertService extends EventEmitter {
       }
 
       const isTriggered = alert.price <= high && alert.price >= low
-      const isExpired = !isTriggered && alert.timestamp + config.alertExpiresAfter < now
 
-      if (isTriggered || isExpired) {
-        if (isTriggered) {
-          this.sendAlert(alert, market, now - alert.timestamp)
-        }
+      if (isTriggered) {
+        this.sendAlert(alert, market, now - alert.timestamp)
 
         if (this.unregisterAlert(alert, market, true)) {
           i--

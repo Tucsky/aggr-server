@@ -2,6 +2,7 @@ const e = require('express')
 const Exchange = require('../exchange')
 const { sleep, getHms } = require('../helper')
 const axios = require('axios')
+const { debugReportedTrades } = require('../services/connections')
 
 class BinanceFutures extends Exchange {
   constructor() {
@@ -82,7 +83,7 @@ class BinanceFutures extends Exchange {
     )
 
     // BINANCE: WebSocket connections have a limit of 10 incoming messages per second.
-    await sleep(101)
+    await sleep(250)
   }
 
   /**
@@ -134,6 +135,15 @@ class BinanceFutures extends Exchange {
   }
 
   formatTrade(trade, symbol) {
+    if (symbol === 'btcusdt' && debugReportedTrades.btcusdt) {
+      if (!this._lastTimestamp || trade.T - this._lastTimestamp > 10) {
+        console.log(trade.T, this._lastTimestampCount + 1)
+        this._lastTimestampCount = 0
+      }
+      this._lastTimestamp = trade.T
+      this._lastTimestampCount++
+    }
+
     return {
       exchange: this.id,
       pair: symbol,

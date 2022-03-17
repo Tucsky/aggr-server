@@ -3,6 +3,11 @@ const { parseMarket } = require('./catalog')
 
 require('../typedef')
 
+// only for debug purposes
+module.exports.debugReportedTrades = {
+  btcusdt: false
+}
+
 /**
  * @type {{[id: string]: Connection}}
  */
