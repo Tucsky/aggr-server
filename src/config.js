@@ -68,21 +68,8 @@ const defaultConfig = {
   // bypass origin restriction for given ips (comma separated)
   whitelist: [],
 
-  // enable websocket server (if you only use this for storing trade data set to false)
-  broadcast: false,
-
-  // separate the broadcasts by n ms (0 = broadcast instantly)
-  broadcastDebounce: 0,
-
-  // aggregate trades that came within same millisecond before broadcast
-  // (note) saving to storage is NOT impacted
-  // (warning) will add +50ms delay for confirmation that trade actually came on same ms
-  broadcastAggr: true,
-
-  // will only broadcast trades >= broadcastThreshold
-  // expressed in base currency (ex: BTC)
-  // default 0
-  broadcastThreshold: 0,
+  // time grouping (ex 1 of 1ms, 1000 for 1s etc)
+  aggregationLength: 1,
 
   // enable api (historical/{from in ms}/{to in ms}/{timesfame in ms}/{markets separated by +})
   api: true,

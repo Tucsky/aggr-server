@@ -1,4 +1,3 @@
-const axios = require('axios')
 const config = require('../config')
 const Exchange = require('../exchange')
 
@@ -9,14 +8,36 @@ class Deribit extends Exchange {
     this.id = 'DERIBIT'
 
     this.endpoints = {
-      PRODUCTS: 'https://www.deribit.com/api/v1/public/getinstruments',
+      PRODUCTS: [
+        'https://www.deribit.com/api/v2/public/get_instruments?currency=BTC',
+        'https://www.deribit.com/api/v2/public/get_instruments?currency=ETH',
+        'https://www.deribit.com/api/v2/public/get_instruments?currency=USDC',
+      ],
     }
 
     this.url = `wss://www.deribit.com/ws/api/v2`
   }
 
-  formatProducts(data) {
-    return data.result.map((product) => product.instrumentName)
+  formatProducts(response) {
+    const products = []
+    const types = {}
+
+    for (const data of response) {
+      for (const product of data.result) {
+        if (!product.is_active) {
+          continue
+        }
+
+        types[product.instrument_name] = product.future_type
+
+        products.push(product.instrument_name)
+      }
+    }
+
+    return {
+      products,
+      types,
+    }
   }
 
   /**
@@ -31,9 +52,11 @@ class Deribit extends Exchange {
 
     if (api._connected.length === 1) {
       if (!config.deribitClientId) {
-        throw new Error('As of 15 Jan 2022 Deribit will no longer allow unauthenticated connections to subscribe to raw feeds\n\nAdd deribitClientId & deribitClientSecret to the config and restart server')
+        throw new Error(
+          'As of 15 Jan 2022 Deribit will no longer allow unauthenticated connections to subscribe to raw feeds\n\nAdd deribitClientId & deribitClientSecret to the config and restart server'
+        )
       }
-      
+
       api.send(
         JSON.stringify({
           jsonrpc: '2.0',
@@ -79,6 +102,24 @@ class Deribit extends Exchange {
     )
   }
 
+  formatTrade(trade) {
+    let size = trade.amount
+
+    if (this.types[trade.instrument_name] === 'reversed') {
+      size /= trade.price
+    }
+
+    return {
+      exchange: this.id,
+      pair: trade.instrument_name,
+      timestamp: +trade.timestamp,
+      price: +trade.price,
+      size: size,
+      side: trade.direction,
+      liquidation: trade.liquidation,
+    }
+  }
+
   onMessage(event, api) {
     const json = JSON.parse(event.data)
 
@@ -88,22 +129,7 @@ class Deribit extends Exchange {
 
     return this.emitTrades(
       api.id,
-      json.params.data.map((a) => {
-        const trade = {
-          exchange: this.id,
-          pair: a.instrument_name,
-          timestamp: +a.timestamp,
-          price: +a.price,
-          size: a.amount / a.price,
-          side: a.direction,
-        }
-
-        if (a.liquidation) {
-          trade.liquidation = true
-        }
-
-        return trade
-      })
+      json.params.data.map((a) => this.formatTrade(a))
     )
   }
 

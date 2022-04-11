@@ -36,34 +36,28 @@ class Server extends EventEmitter {
     this.apiStats = {}
 
     /**
-     * delayedForBroadcast trades ready to be broadcasted next interval (see _broadcastDelayedTradesInterval)
-     * @type Trade[]
-     */
-    this.delayedForBroadcast = []
-
-    /**
      * active trades aggregations
      * @type {{[aggrIdentifier: string]: Trade}}
      */
-    this.aggregating = {}
+    this.onGoingAggregation = {}
 
     /**
-     * already aggregated trades ready to be broadcasted (see _broadcastAggregatedTradesInterval)
+     * aggregation timeouts
+     * @type {{[aggrIdentifier: string]: number}}
+     */
+    this.aggregationTimeouts = {}
+
+    /**
+     * already aggregated trades
      * @type Trade[]
      */
-    this.aggregated = []
+    this.pendingTrades = []
 
     this.BANNED_IPS = []
 
     if (config.collect) {
       console.log(
         `\n[server] collect is enabled`,
-        config.broadcast && config.broadcastAggr ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)' : '',
-        config.broadcast && config.broadcastDebounce
-          ? `\n\twill broadcast trades every ${config.broadcastDebounce}ms`
-          : config.broadcast
-          ? `will broadcast trades instantly`
-          : ''
       )
       console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
 
@@ -85,10 +79,10 @@ class Server extends EventEmitter {
         }
       }
 
-      if (config.api || config.broadcast) {
+      if (config.api) {
         if (!config.port) {
           console.error(
-            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${config.port})\n\n`
+            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API (value is ${config.port})\n\n`
           )
           process.exit()
         }
@@ -96,13 +90,9 @@ class Server extends EventEmitter {
         this.createHTTPServer()
       }
 
-      if (config.broadcast) {
-        this.createWSServer()
+      this.createWSServer()
 
-        if (config.broadcastAggr) {
-          this._broadcastAggregatedTradesInterval = setInterval(this.broadcastAggregatedTrades.bind(this), 50)
-        }
-      }
+      this._timeoutExpiredAggregationsInterval = setInterval(this.timeoutExpiredAggregations.bind(this), 50)
 
       // update banned users
       this.listenBannedIps()
@@ -149,7 +139,22 @@ class Server extends EventEmitter {
       return Promise.resolve()
     }
 
-    const chunk = this.chunk.splice(0, this.chunk.length)
+    const chunk = this.chunk.splice(0, this.chunk.length).sort((a, b) => a.timestamp - b.timestamp)
+
+    if (config.id === 'btceth' && chunk.length) {
+      // only for debug purposes
+      const firstTradeTimestamp = +chunk[0].timestamp
+      const lastTradeTimestamp = +chunk[chunk.length - 1].timestamp
+      try {
+        console.log(
+          `[server] backup trades ${chunk.length} ${new Date(firstTradeTimestamp).toISOString()} ->  ${new Date(lastTradeTimestamp).toISOString()}`
+        )
+      } catch (error) {
+        console.log(
+          `[server] backup trades (errored) ${chunk.length} ${firstTradeTimestamp} ->  ${lastTradeTimestamp}`
+        )
+      }
+    }
 
     return Promise.all(
       this.storages.map((storage) => {
@@ -197,19 +202,14 @@ class Server extends EventEmitter {
 
   handleExchangesEvents() {
     this.exchanges.forEach((exchange) => {
-      if (config.broadcast && config.broadcastAggr) {
-        exchange.on('trades', this.dispatchAggregateTrade.bind(this, exchange.id))
-      } else {
-        exchange.on('trades', this.dispatchRawTrades.bind(this, exchange.id))
-      }
-
-      exchange.on('liquidations', this.dispatchRawTrades.bind(this, exchange.id))
+      exchange.on('trades', this.aggregateTrades.bind(this, exchange.id))
+      exchange.on('liquidations', this.aggregateLiquidations.bind(this, exchange.id))
 
       exchange.on('disconnected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
         console.log(`[server] deleted connection ${id} (${apiLength} connected)`)
-      
+
         connections[id].apiId = null
 
         if (!apiLength) {
@@ -229,7 +229,7 @@ class Server extends EventEmitter {
             exchange.registerRangeForRecovery(connections[id])
           }
         }
-        
+
         connections[id].apiId = apiId
 
         if (typeof this.apiStats[apiId] === 'undefined') {
@@ -245,14 +245,14 @@ class Server extends EventEmitter {
             timestamp: now,
           }
         }
-    
+
         this.apiStats[apiId].pairs.push(pair)
         this.apiStats[apiId].name =
           this.apiStats[apiId].exchange +
           ':' +
           this.apiStats[apiId].pairs.slice(0, 3).join('+') +
           (this.apiStats[apiId].pairs.length > 3 ? '.. (' + this.apiStats[apiId].pairs.length + ')' : '')
-    
+
         this.checkApiStats()
       })
 
@@ -609,18 +609,6 @@ class Server extends EventEmitter {
     exchangesProductsResolver.then(() => {
       this.checkApiStats()
     })
-
-    if (config.broadcast && config.broadcastDebounce && !config.broadcastAggr) {
-      this._broadcastDelayedTradesInterval = setInterval(() => {
-        if (!this.delayedForBroadcast.length) {
-          return
-        }
-
-        this.broadcastTrades(this.delayedForBroadcast)
-
-        this.delayedForBroadcast = []
-      }, config.broadcastDebounce || 1000)
-    }
   }
 
   broadcastJson(data) {
@@ -631,24 +619,6 @@ class Server extends EventEmitter {
     this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(data))
-      }
-    })
-  }
-
-  broadcastTrades(trades) {
-    if (!this.wss) {
-      return
-    }
-
-    const groups = groupTrades(trades, true, config.broadcastThreshold)
-
-    this.wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        for (let i = 0; i < client.pairs.length; i++) {
-          if (groups[client.pairs[i]]) {
-            client.send(JSON.stringify([client.pairs[i], groups[client.pairs[i]]]))
-          }
-        }
       }
     })
   }
@@ -878,71 +848,85 @@ class Server extends EventEmitter {
         this.chunk.push(trade)
       }
     }
-
-    if (config.broadcast) {
-      if (config.broadcastAggr && !config.broadcastDebounce) {
-        this.broadcastTrades(data)
-      } else {
-        Array.prototype.push.apply(this.delayedForBroadcast, data)
-      }
-    }
   }
 
-  dispatchAggregateTrade(exchange, data) {
+  aggregateTrades(trades) {
     const now = Date.now()
-    const length = data.length
 
-    for (let i = 0; i < length; i++) {
-      const trade = data[i]
-      const identifier = exchange + ':' + trade.pair
+    for (let i = 0; i < trades.length; i++) {
+      const trade = trades[i]
+      const marketKey = trade.exchange + ':' + trade.pair
 
-      // ping connection
-      connections[identifier].hit++
-      connections[identifier].timestamp = now
-
-      // save trade
-      if (this.storages) {
-        this.chunk.push(trade)
+      if (!this.connections[marketKey]) {
+        continue
       }
 
-      if (this.aggregating[identifier]) {
-        const queuedTrade = this.aggregating[identifier]
+      if (this.onGoingAggregations[marketKey]) {
+        const aggTrade = this.onGoingAggregations[marketKey]
 
-        if (queuedTrade.timestamp === trade.timestamp && queuedTrade.side === trade.side) {
-          queuedTrade.size += trade.size
-          queuedTrade.price += trade.price * trade.size
+        if (aggTrade.timestamp + config.aggregationLength > trade.timestamp && aggTrade.side === trade.side) {
+          aggTrade.size += trade.size
+          aggTrade.price = trade.price
+          aggTrade.count++
           continue
         } else {
-          queuedTrade.price /= queuedTrade.size
-          this.aggregated.push(queuedTrade)
+          this.pendingTrades.push(aggTrade)
         }
       }
 
-      this.aggregating[identifier] = Object.assign({}, trade)
-      this.aggregating[identifier].timeout = now + 50
-      this.aggregating[identifier].price *= this.aggregating[identifier].size
+      trade.count = 1
+      this.aggregationTimeouts[marketKey] = now + 50
+      this.onGoingAggregations[marketKey] = trade
     }
   }
 
-  broadcastAggregatedTrades() {
+  aggregateLiquidations(trades) {
     const now = Date.now()
 
-    const onGoingAggregation = Object.keys(this.aggregating)
+    for (let i = 0; i < trades.length; i++) {
+      const trade = trades[i]
+      const marketKey = trade.exchange + ':' + trade.pair
+      const tradeKey = 'liq_' + marketKey
 
-    for (let i = 0; i < onGoingAggregation.length; i++) {
-      const trade = this.aggregating[onGoingAggregation[i]]
-      if (now > trade.timeout) {
-        trade.price /= trade.size
-        this.aggregated.push(trade)
-
-        delete this.aggregating[onGoingAggregation[i]]
+      if (!this.connections[marketKey]) {
+        continue
       }
+
+      if (this.onGoingAggregations[tradeKey]) {
+        const aggTrade = this.onGoingAggregations[tradeKey]
+
+        if (aggTrade.timestamp + config.aggregationLength > trade.timestamp && aggTrade.side === trade.side) {
+          aggTrade.size += trade.size
+          aggTrade.count++
+          continue
+        } else {
+          this.pendingTrades.push(aggTrade)
+        }
+      }
+
+      trade.count = 1
+      this.aggregationTimeouts[tradeKey] = now + 50
+      this.onGoingAggregations[tradeKey] = trade
     }
+  }
 
-    if (this.aggregated.length) {
-      this.broadcastTrades(this.aggregated)
+  timeoutExpiredAggregations() {
+    const now = Date.now()
 
-      this.aggregated.splice(0, this.aggregated.length)
+    const tradeKeys = Object.keys(this.onGoingAggregations)
+
+    for (let i = 0; i < tradeKeys.length; i++) {
+      const aggTrade = this.onGoingAggregations[tradeKeys[i]]
+
+      if (now > this.aggregationTimeouts[tradeKeys[i]]) {
+        if (aggTrade.liquidation) {
+          this.pendingTrades.push(this.processLiquidation(aggTrade))
+        } else {
+          this.pendingTrades.push(this.processTrade(aggTrade))
+        }
+
+        delete this.onGoingAggregations[tradeKeys[i]]
+      }
     }
   }
 }

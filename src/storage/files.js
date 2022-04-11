@@ -182,18 +182,9 @@ class FilesStorage {
                   return resolve()
                 }
                 
-                let debugTimestamp
-                if (/BINANCE_FUTURES.*btcusdt/.test(identifier)) {
-                  debugTimestamp = Date.now()
-                }
-                
                 const waitDrain = !stream.write(output[identifier][ts].data, (err) => {
                   if (err) {
                     console.error(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
-                  }
-
-                  if (debugTimestamp) {
-                    console.log(`[storage/${this.name}] stream.write ${output[identifier][ts].data.split('\n').length} trades to ${identifier}'s stream took ${getHms(Date.now() - debugTimestamp)} (current stream size ${humanFileSize(stream.bytesWritten)})`)
                   }
 
                   if (!waitDrain) {
@@ -253,10 +244,6 @@ class FilesStorage {
         if (!stat) {
           path += '.gz'
           stat = await this.statFile(path)
-        }
-
-        if (lastTradeTimestampInsert - firstTradeTimestampInsert < 0) {
-          debugger
         }
 
         console.log(`[storage/file] insert ${getHms(lastTradeTimestampInsert - firstTradeTimestampInsert)} of trades into ${path} (${stat ? 'file exists' : 'file doesn\'t exists'})`)

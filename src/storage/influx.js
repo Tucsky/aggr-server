@@ -5,7 +5,7 @@ const net = require('net')
 const config = require('../config')
 const socketService = require('../services/socket')
 const alertService = require('../services/alert')
-const { connections, updateIndexes } = require('../services/connections')
+const { connections, updateIndexes, debugReportedTrades } = require('../services/connections')
 
 require('../typedef')
 
@@ -52,13 +52,13 @@ class InfluxStorage {
       throw new Error('dashes not allowed inside influxdb database')
     }
 
-    console.log(`[storage/influx] connecting to ${this.options.influxUrl}`)
+    console.log(`[storage/influx] connecting to ${config.influxUrl}`)
 
     try {
-      this.influx = new InfluxDB({ url: this.options.influxUrl, token: this.options.influxToken })
-      this.queryAPI = this.influx.getQueryApi(this.options.influxOrg)
+      this.influx = new InfluxDB({ url: config.influxUrl, token: config.influxToken })
+      this.queryAPI = this.influx.getQueryApi(config.influxOrg)
 
-      if (this.options.collect) {
+      if (config.collect) {
         await this.prepareBuckets()
         await this.getPreviousCloses()
       }
@@ -192,7 +192,7 @@ class InfluxStorage {
         return
       }
     } catch (e) {
-      if (!(e instanceof HttpError && e.statusCode == 404)) {
+      if (e.statusCode !== 404) {
         throw e
       }
     }
@@ -219,14 +219,14 @@ class InfluxStorage {
    */
   async prepareBuckets() {
     const orgsAPI = new OrgsAPI(this.influx)
-    const organizations = await orgsAPI.getOrgs({ org: this.options.influxOrg })
+    const organizations = await orgsAPI.getOrgs({ org: config.influxOrg })
 
     if (!organizations || !organizations.orgs || !organizations.orgs.length) {
-      console.error(`No organization named "${this.options.influxOrg}" found!`)
+      console.error(`No organization named "${config.influxOrg}" found!`)
     }
 
     const orgID = organizations.orgs[0].id
-    console.log(`Using organization "${this.options.influxOrg}" identified by "${orgID}"`)
+    console.log(`Using organization "${config.influxOrg}" identified by "${orgID}"`)
 
     console.log('*** Get buckets by name ***')
     const bucketsAPI = new BucketsAPI(this.influx)
@@ -234,10 +234,10 @@ class InfluxStorage {
       .buckets.map((a) => a.name)
       .filter((a) => a.indexOf('/') !== -1)
 
-    const timeframes = [this.options.influxTimeframe].concat(this.options.influxResampleTo)
+    const timeframes = [config.influxTimeframe].concat(config.influxResampleTo)
 
     for (let timeframe of timeframes) {
-      const rpDuration = (timeframe * this.options.influxRetentionPerTimeframe) / 1000
+      const rpDuration = (timeframe * config.influxRetentionPerTimeframe) / 1000
       const bucketName = this.getBucketName(timeframe)
 
       const bucketIndex = existingBuckets.indexOf(bucketName)
@@ -250,14 +250,17 @@ class InfluxStorage {
     }
 
     for (const bucketName of existingBuckets) {
-      console.warn(`[storage/influx] unused bucket ? (${bucketName})`)
+      if (bucketName.indexOf(config.influxDatabase) === 0) {
+        // same namespace but unsued bucket
+        console.warn(`[storage/influx] unused bucket ? (${bucketName})`)
+      }
     }
 
-    this.baseBucket = this.getBucketName(this.options.influxTimeframe)
+    this.baseBucket = this.getBucketName(config.influxTimeframe)
   }
 
   getBucketName(timeframe) {
-    return this.options.influxDatabase + '/' + this.options.influxRetentionPrefix + getHms(timeframe)
+    return config.influxDatabase + '/' + config.influxRetentionPrefix + getHms(timeframe)
   }
 
   async getPreviousCloses() {
@@ -349,11 +352,9 @@ class InfluxStorage {
      */
     const activeBars = {}
 
-    let debugPush = {
-      count: 0,
-      market: null,
-      lastTime: null,
-    }
+    let binanceFuturesBtcusdtCreations = 0
+
+    console.log(`[storage/influx/processTrades] process ${trades.length} trades`)
 
     for (let i = 0; i <= trades.length; i++) {
       const trade = trades[i]
@@ -391,8 +392,6 @@ class InfluxStorage {
             this.pendingBars[market] = []
           }
 
-          const debugWrite = /BINANCE_FUTURES.*btcusdt/.test(market)
-
           if (this.pendingBars[market].length && this.pendingBars[market][this.pendingBars[market].length - 1].time === tradeFlooredTime) {
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
           } else if (connections[market].bar && connections[market].bar.time === tradeFlooredTime) {
@@ -402,11 +401,12 @@ class InfluxStorage {
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
           } else {
             // create new bar
-            if (debugWrite) {
-              debugPush.count++
-              debugPush.market = market
-              debugPush.lastTime = tradeFlooredTime
+
+            if (/BINANCE_FUTURES.*btcusdt/.test(market)) {
+              // only for debug purposes
+              binanceFuturesBtcusdtCreations++
             }
+
             this.pendingBars[market].push({
               time: tradeFlooredTime,
               market: market,
@@ -451,12 +451,12 @@ class InfluxStorage {
       }
     }
 
-    if (config.pairs.indexOf('BINANCE_FUTURES:btcusdt') !== -1) {
-      console.log(
-        `[storage/${this.name}] push ${debugPush.count} ${getHms(config.influxTimeframe)} bar for market ${
-          debugPush.market
-        } (last time ${new Date(debugPush.lastTime).toISOString().split('T').pop()})`
-      )
+    if (!binanceFuturesBtcusdtCreations && !debugReportedTrades.btcusdt) {
+      console.log('** START DEBUG BINANCE_FUTURES:btcusdt **')
+      debugReportedTrades.btcusdt = true
+    } else if (binanceFuturesBtcusdtCreations && debugReportedTrades.btcusdt) {
+      console.log('** STOP DEBUG BINANCE_FUTURES:btcusdt **')
+      debugReportedTrades.btcusdt = false
     }
 
     updateIndexes((index, high, low) => {
@@ -510,7 +510,7 @@ class InfluxStorage {
       return importedRange
     }
 
-    const writeAPI = this.influx.getWriteApi(this.options.influxOrg, this.baseBucket, 'ms')
+    const writeAPI = this.influx.getWriteApi(config.influxOrg, this.baseBucket, 'ms')
     console.log(`import pending bar (cuurent time: ${new Date().toISOString()})`)
 
     for (const identifier in this.pendingBars) {
@@ -578,7 +578,7 @@ class InfluxStorage {
    *
    * @memberof InfluxStorage
    */
-  async resample(range) {
+  async resample(range, fromTimeframe) {
     let sourceTimeframeLitteral
     let destinationTimeframeLitteral
 
@@ -587,11 +587,19 @@ class InfluxStorage {
 
     console.debug(`[storage/influx/resample] resampling ${range.markets.length} markets`)
 
-    config.influxResampleTo.sort((a, b) => a - b)
+    let minimumTimeframe
+    let timeframes
+    if (fromTimeframe) {
+       minimumTimeframe = Math.max(fromTimeframe, config.influxTimeframe)
+       timeframes = config.influxResampleTo.filter(a => a > fromTimeframe)
+    } else {
+       minimumTimeframe = config.influxTimeframe
+       timeframes = config.influxResampleTo
+    }
 
     let bars = 0
 
-    for (let timeframe of config.influxResampleTo) {
+    for (let timeframe of timeframes) {
       const isOddTimeframe = DAY % timeframe !== 0 && timeframe < DAY
 
       let flooredRange
@@ -609,15 +617,15 @@ class InfluxStorage {
         }
       }
 
-      for (let i = config.influxResampleTo.indexOf(timeframe); i >= 0; i--) {
-        if (timeframe <= config.influxResampleTo[i] || timeframe % config.influxResampleTo[i] !== 0) {
+      for (let i = timeframes.indexOf(timeframe); i >= 0; i--) {
+        if (timeframe <= timeframes[i] || timeframe % timeframes[i] !== 0) {
           if (i === 0) {
-            sourceTimeframeLitteral = getHms(config.influxTimeframe)
+            sourceTimeframeLitteral = getHms(minimumTimeframe)
           }
           continue
         }
 
-        sourceTimeframeLitteral = getHms(config.influxResampleTo[i])
+        sourceTimeframeLitteral = getHms(timeframes[i])
         break
       }
 
