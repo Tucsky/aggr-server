@@ -149,21 +149,22 @@ class Server extends EventEmitter {
       return Promise.resolve()
     }
 
-    const chunk = this.chunk.splice(0, this.chunk.length)
+    const chunk = this.chunk.splice(0, this.chunk.length).sort((a, b) => a.timestamp - b.timestamp)
 
-    if (config.id === 'btceth' && chunk.length) {
-      const ftt = +chunk[0].timestamp
-      const ltt = +chunk[chunk.length - 1].timestamp
+    /*if (config.id === 'btceth' && chunk.length) {
+      // only for debug purposes
+      const firstTradeTimestamp = +chunk[0].timestamp
+      const lastTradeTimestamp = +chunk[chunk.length - 1].timestamp
       try {
         console.log(
-          `[server] backup trades ${chunk.length} ${new Date(ftt).toISOString()} ->  ${new Date(ltt).toISOString()}`
+          `[server] backup trades ${chunk.length} ${new Date(firstTradeTimestamp).toISOString()} ->  ${new Date(lastTradeTimestamp).toISOString()}`
         )
       } catch (error) {
         console.log(
-          `[server] backup trades (errored) ${chunk.length} ${ftt} ->  ${ltt}`
+          `[server] backup trades (errored) ${chunk.length} ${firstTradeTimestamp} ->  ${lastTradeTimestamp}`
         )
       }
-    }
+    }*/
 
     return Promise.all(
       this.storages.map((storage) => {

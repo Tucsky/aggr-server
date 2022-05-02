@@ -4,7 +4,7 @@ const net = require('net')
 const config = require('../config')
 const socketService = require('../services/socket')
 const alertService = require('../services/alert')
-const { connections, updateIndexes } = require('../services/connections')
+const { connections, updateIndexes, debugReportedTrades } = require('../services/connections')
 
 require('../typedef')
 
@@ -14,11 +14,6 @@ class InfluxStorage {
   constructor() {
     this.name = this.constructor.name
     this.format = 'point'
-
-    /**
-     * @type {{[identifier: string]: number}}
-     */
-    this.lastClose = {}
 
     /**
      * @type {{[pendingBarsRequestId: string]: (bars: Bar[]) => void}}
@@ -70,7 +65,7 @@ class InfluxStorage {
 
       if (config.collect) {
         await this.ensureRetentionPolicies()
-        await this.getPreviousCloses()
+        await this.getPreviousBars()
       }
     } catch (error) {
       console.error(`[storage/influx] ${error.message}... retrying in 1s`)
@@ -159,7 +154,17 @@ class InfluxStorage {
    * Listen for alerts change
    */
   bindAlertsEvents() {
-    alertService.on('change', ({ market, price, user, type }) => {
+    alertService.on('change', ({ market, price, user, type, previousPrice }) => {
+      const fields = {
+        price,
+        user,
+        type,
+      }
+
+      if (typeof previousPrice !== 'undefined') {
+        fields.previousPrice = previousPrice
+      }
+
       console.log('[influx/alert]', market, price, user, type)
       this.writePoints(
         [
@@ -168,11 +173,7 @@ class InfluxStorage {
             tags: {
               market,
             },
-            fields: {
-              price,
-              user,
-              type,
-            },
+            fields,
             timestamp: Date.now(),
           },
         ],
@@ -222,18 +223,28 @@ class InfluxStorage {
     this.baseRp = config.influxRetentionPrefix + getHms(config.influxTimeframe)
   }
 
-  getPreviousCloses() {
+  getPreviousBars() {
     const timeframeLitteral = getHms(config.influxTimeframe)
+    const now = +new Date()
 
     this.influx
       .query(
-        `SELECT close FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${
+        `SELECT * FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${
           '_' + timeframeLitteral
         } GROUP BY "market" ORDER BY time DESC LIMIT 1`
       )
       .then((data) => {
         for (let bar of data) {
-          this.lastClose[bar.market] = bar.close
+          if (now - bar.time > config.influxTimeframe) {
+            continue
+          }
+
+          this.pendingBars[bar.market] = [
+            {
+              ...bar,
+              time: +bar.time,
+            },
+          ]
         }
       })
   }
@@ -280,9 +291,6 @@ class InfluxStorage {
    */
   closeBar(bar) {
     if (typeof bar.close === 'number') {
-      // reg close for next bar
-      this.lastClose[bar.market] = bar.close
-
       // reg range for index
       connections[bar.market].high = Math.max(connections[bar.market].high, bar.high)
       connections[bar.market].low = Math.min(connections[bar.market].low, bar.low)
@@ -311,27 +319,15 @@ class InfluxStorage {
      */
     const activeBars = {}
 
-    let debugPush = {
-      count: 0,
-      count: 0,
-      market: null,
-      lastTime: null,
-      firstTime: null,
-      found: false
-    }
+    let binanceFuturesBtcusdtCreations = 0
 
-    console.log(`[storage/influx/processTrades] process ${trades.length} trades`)
+    // console.log(`[storage/influx/processTrades] process ${trades.length} trades`)
 
     for (let i = 0; i <= trades.length; i++) {
       const trade = trades[i]
 
       let market
       let tradeFlooredTime
-
-      if (!debugPush.found && trade && trade.exchange + ':' + trade.pair === 'BINANCE_FUTURES:btcusdt') {
-        debugPush.found = true
-        console.log(`[storage/influx/processTrades] BINANCE_FUTURES:btcusdt found in trades (time is ${new Date(+trade.timestamp).toISOString()})`)
-      }
 
       if (!trade) {
         // end of loop reached = close all bars
@@ -363,29 +359,21 @@ class InfluxStorage {
             this.pendingBars[market] = []
           }
 
-          const debugWrite = /BINANCE_FUTURES.*btcusdt/.test(market)
-
           if (this.pendingBars[market].length && this.pendingBars[market][this.pendingBars[market].length - 1].time === tradeFlooredTime) {
-            debugWrite && console.log(`[storage/influx/processTrades] last pending bar of market .time === tradeFlooredTime (${new Date(tradeFlooredTime).toISOString()}) -> use it as active`)
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
           } else if (connections[market].bar && connections[market].bar.time === tradeFlooredTime) {
-            debugWrite && console.log(`[storage/influx/processTrades] lase closed bar of market .time === tradeFlooredTime (${new Date(tradeFlooredTime).toISOString()}) -> push bar to pending and use it as active`)
             // trades passed in save() contains some of the last batch (trade time = last bar time)
             // recover exchange point of lastbar
             this.pendingBars[market].push(connections[market].bar)
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
-            if (debugWrite) {
-              debugPush.recover++
-            }
           } else {
             // create new bar
-            if (debugWrite) {
-              debugPush.count++
-              debugPush.market = market
-              debugPush.firstTime = !debugPush.firstTime ? tradeFlooredTime : Math.min(tradeFlooredTime, debugPush.firstTime)
-              debugPush.lastTime = !debugPush.lastTime ? tradeFlooredTime : Math.max(tradeFlooredTime, debugPush.lastTime)
-              debugWrite && console.log(`[storage/influx/processTrades] create pending bar at time ${new Date(tradeFlooredTime).toISOString()}`)
+
+            if (/BINANCE_FUTURES.*btcusdt/.test(market)) {
+              // only for debug purposes
+              binanceFuturesBtcusdtCreations++
             }
+
             this.pendingBars[market].push({
               time: tradeFlooredTime,
               market: market,
@@ -402,11 +390,6 @@ class InfluxStorage {
             })
 
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
-
-            if (typeof this.lastClose[market] === 'number') {
-              // this bar open = last bar close (from last save or getReferencePoint on startup)
-              activeBars[market].open = activeBars[market].high = activeBars[market].low = activeBars[market].close = this.lastClose[market]
-            }
           }
         }
       }
@@ -417,7 +400,6 @@ class InfluxStorage {
       } else {
         if (activeBars[market].open === null) {
           // new bar without close in db, should only happen once
-          console.log(`[storage/influx] register new serie ${market} (last close was unknown)`)
           activeBars[market].open = activeBars[market].high = activeBars[market].low = activeBars[market].close = +trade.price
         }
 
@@ -430,12 +412,12 @@ class InfluxStorage {
       }
     }
 
-    if (config.pairs.indexOf('BINANCE_FUTURES:btcusdt') !== -1) {
-      console.log(
-        `[storage/${this.name}] push ${debugPush.count} ${getHms(config.influxTimeframe)} bar for market ${
-          debugPush.market
-        } (first time ${new Date(debugPush.firstTime).toISOString().split('T').pop()} - last time ${new Date(debugPush.lastTime).toISOString().split('T').pop()})`
-      )
+    if (!binanceFuturesBtcusdtCreations && !debugReportedTrades.btcusdt) {
+      //console.log('** START DEBUG BINANCE_FUTURES:btcusdt **')
+      debugReportedTrades.btcusdt = true
+    } else if (binanceFuturesBtcusdtCreations && debugReportedTrades.btcusdt) {
+      //console.log('** STOP DEBUG BINANCE_FUTURES:btcusdt **')
+      debugReportedTrades.btcusdt = false
     }
 
     updateIndexes((index, high, low) => {
@@ -447,10 +429,10 @@ class InfluxStorage {
    * Import pending bars (minimum tf bars) and resample into bigger timeframes
    */
   async import() {
-    let now = Date.now()
+    /*let now = Date.now()
     let before = now
 
-    console.log(`[storage/influx/import] import start`)
+    console.log(`[storage/influx/import] import start`)*/
 
     const resampleRange = await this.importPendingBars()
 
@@ -458,8 +440,8 @@ class InfluxStorage {
       await this.resample(resampleRange)
     }
 
-    now = Date.now()
-    console.log(`[storage/influx/import] import end (took ${getHms(now - before, true)})`)
+    /*now = Date.now()
+    console.log(`[storage/influx/import] import end (took ${getHms(now - before, true)})`)*/
   }
 
   /**
@@ -473,8 +455,6 @@ class InfluxStorage {
    * @memberof InfluxStorage
    */
   async importPendingBars() {
-    const now = Date.now()
-
     /**
      * closed bars
      * @type {Bar[]}
@@ -510,16 +490,9 @@ class InfluxStorage {
     // free up realtime bars
     this.pendingBars = {}
 
-    let debugImport = {
-      count: 0,
-      market: null,
-      firstTime: null,
-      lastTime: null,
-    }
-
     if (barsToImport.length) {
       await this.writePoints(
-        barsToImport.map((bar, index) => {
+        barsToImport.map((bar) => {
           const fields = {
             cbuy: bar.cbuy,
             csell: bar.csell,
@@ -531,13 +504,6 @@ class InfluxStorage {
 
           if (bar.close !== null) {
             ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
-          }
-
-          if (/BINANCE_FUTURES.*btcusdt/.test(bar.market)) {
-            debugImport.count++
-            debugImport.firstTime = !debugImport.firstTime ? bar.time : Math.min(bar.time, debugImport.firstTime)
-            debugImport.lastTime = !debugImport.lastTime ? bar.time : Math.max(bar.time, debugImport.lastTime)
-            debugImport.market = bar.market
           }
 
           return {
@@ -553,14 +519,6 @@ class InfluxStorage {
           precision: 'ms',
           retentionPolicy: this.baseRp,
         }
-      )
-    }
-
-    if (config.pairs.indexOf('BINANCE_FUTURES:btcusdt') !== -1) {
-      console.log(
-        `[storage/${this.name}] import ${debugImport.count} ${getHms(config.influxTimeframe)} bar for market ${
-          debugImport.market
-        } (first time ${new Date(debugImport.firstTime).toISOString().split('T').pop()} - last time ${new Date(debugImport.lastTime).toISOString().split('T').pop()})`
       )
     }
 
@@ -623,7 +581,7 @@ class InfluxStorage {
    *
    * @memberof InfluxStorage
    */
-  async resample(range) {
+  async resample(range, fromTimeframe, toTimeframe = null) {
     let sourceTimeframeLitteral
     let destinationTimeframeLitteral
 
@@ -632,12 +590,24 @@ class InfluxStorage {
 
     console.debug(`[storage/influx/resample] resampling ${range.markets.length} markets`)
 
-    config.influxResampleTo.sort((a, b) => a - b)
+    let minimumTimeframe
+    let timeframes
+    if (fromTimeframe) {
+      minimumTimeframe = Math.max(fromTimeframe, config.influxTimeframe)
+      timeframes = config.influxResampleTo.filter((a) => a > fromTimeframe)
+    } else {
+      minimumTimeframe = config.influxTimeframe
+      timeframes = config.influxResampleTo
+    }
 
     let bars = 0
 
-    for (let timeframe of config.influxResampleTo) {
+    for (let timeframe of timeframes) {
       const isOddTimeframe = DAY % timeframe !== 0 && timeframe < DAY
+
+      if (toTimeframe && timeframe !== toTimeframe) {
+        continue
+      }
 
       let flooredRange
 
@@ -654,15 +624,15 @@ class InfluxStorage {
         }
       }
 
-      for (let i = config.influxResampleTo.indexOf(timeframe); i >= 0; i--) {
-        if (timeframe <= config.influxResampleTo[i] || timeframe % config.influxResampleTo[i] !== 0) {
+      for (let i = timeframes.indexOf(timeframe); i >= 0; i--) {
+        if (timeframe <= timeframes[i] || timeframe % timeframes[i] !== 0) {
           if (i === 0) {
-            sourceTimeframeLitteral = getHms(config.influxTimeframe)
+            sourceTimeframeLitteral = getHms(minimumTimeframe)
           }
           continue
         }
 
-        sourceTimeframeLitteral = getHms(config.influxResampleTo[i])
+        sourceTimeframeLitteral = getHms(timeframes[i])
         break
       }
 

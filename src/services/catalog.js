@@ -120,7 +120,7 @@ module.exports.fetchProducts = async function (exchangeId, endpoints) {
  * @param {string} market 
  * @returns {Product}
  */
-module.exports.parseMarket = function (market) {
+module.exports.parseMarket = function (market, mergeStable = true) {
   const [exchangeId, pair] = market.match(/([^:]*):(.*)/).slice(1, 3)
 
   const baseRegex = '([a-z0-9]{2,})'
@@ -172,6 +172,10 @@ module.exports.parseMarket = function (market) {
     localSymbol = localSymbol.replace(/_CW|_CQ|_NW|_NQ/i, 'USD')
   }
 
+  if (exchangeId === 'DERIBIT') {
+    localSymbol = localSymbol.replace(/_(\w+)-PERPETUAL/i, '$1')
+  }
+
   localSymbol = localSymbol
     .replace(/-PERP(ETUAL)?/i, 'USD')
     .replace(/[^a-z0-9](perp|swap|perpetual)$/i, '')
@@ -215,7 +219,7 @@ module.exports.parseMarket = function (market) {
     base = match[1]
     quote = match[2]
 
-    localSymbol = base + quote.replace(/usdt/i, 'USD')
+    localSymbol = base + (mergeStable ? quote.replace(/usd\w|ust/i, 'USD') : quote)
   }
 
   console.log(`[catalog] registered product ${base}/${quote} from ${exchangeId} (${type})`)

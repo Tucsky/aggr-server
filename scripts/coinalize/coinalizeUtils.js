@@ -2,7 +2,7 @@ const fetch = require('node-fetch')
 const fs = require('fs')
 
 const config = require('../../src/config')
-const { sleep } = require('../../src/helper')
+const { sleep, resolution } = require('../../src/helper')
 
 module.exports.COINALIZE_RESOLUTIONS = [1, 5, 15, 30, 60, 60 * 2, 60 * 4, 60 * 6, 60 * 12, 60 * 24]
 
@@ -58,7 +58,7 @@ function readReqKey() {
     fs.readFile(COINALIZE_REQ_KEY_PATH, 'utf8', (err, keyStamp) => {
       if (err) {
         if (err.code === 'ENOENT') {
-          resolve()
+          resolve([null, null])
           return
         }
 
@@ -118,8 +118,8 @@ function fetchReqKey() {
     })
 }
 
-module.exports.getAllData = async function(from, to, resolution, symbol) {
-  const timePerBar = resolution * 1000 * 60
+module.exports.getAllData = async function(from, to, timeframe, symbol) {
+  const timePerBar = timeframe * 1000 * 60
   const timePerRequest = timePerBar * BARS_PER_REQUEST
 
   const data = []
@@ -130,11 +130,17 @@ module.exports.getAllData = async function(from, to, resolution, symbol) {
 
   for (let time = to; time >= from; time -= timePerRequest) {
 
-    await sleep(1000)
+    await sleep(Math.random() * 1500 + 1500)
     const reqFrom = Math.max(from, time - timePerRequest)
     const reqTo = Math.min(to, time)
     console.log('- from', new Date(reqFrom).toISOString(), 'to', new Date(reqTo).toISOString())
-    Array.prototype.push.apply(data, await getData(reqFrom, reqTo, resolution, symbol, first))
+    const chunk = await getData(reqFrom, reqTo, timeframe, symbol, first)
+
+    if (chunk.length) {
+      Array.prototype.push.apply(data, chunk)
+    } else {
+      break;
+    }
 
     first = false
   }
@@ -142,7 +148,7 @@ module.exports.getAllData = async function(from, to, resolution, symbol) {
   return data
 }
 
-function getBars(from, to, resolution, symbol, first, dataset) {
+function getBars(from, to, timeframe, symbol, first, dataset) {
   let source = [symbol]
 
   if (dataset === 'liquidations') {
@@ -153,20 +159,18 @@ function getBars(from, to, resolution, symbol, first, dataset) {
 
   source = source.join(',') + (dataset ? '#' + dataset : '')
 
-  const msResolution = resolution * 1000 * 60
+  const msResolution = timeframe * 1000 * 60
 
   const flooredFrom = Math.floor(from / msResolution) * msResolution
   const flooredTo = Math.floor(to / msResolution) * msResolution
 
-  console.log('[FETCH]', `${source} (${new Date(flooredFrom).toISOString()} -> ${new Date(flooredTo).toISOString()})`)
+  // console.log('[FETCH]', `${source} (${new Date(flooredFrom).toISOString()} -> ${new Date(flooredTo).toISOString()})`)
 
   const body = `{"from":${flooredFrom / 1000},"to":${
     flooredTo / 1000
-  },"resolution":"${resolution}","symbol":"${source}","firstDataRequest":${
+  },"resolution":"${resolution(timeframe)}","symbol":"${source}","firstDataRequest":${
     first ? 'true' : 'false'
   },"symbolsForUsdConversion":[],"rk":"${REQ_KEY}"}`
-
-  console.log(body)
 
   return fetch('https://coinalyze.net/chart/getBars/', {
     headers: baseJSONHeaders,
@@ -182,8 +186,8 @@ function getBars(from, to, resolution, symbol, first, dataset) {
     })
 }
 
-function getOHLC(from, to, resolution, symbol, first) {
-  return getBars(from, to, resolution, symbol, first).then(({ barData }) => {
+function getOHLC(from, to, timeframe, symbol, first) {
+  return getBars(from, to, timeframe, symbol, first).then(({ barData }) => {
     return barData.reduce((output, dataPoint) => {
       output[dataPoint[0] * 1000] = {
         open: dataPoint[1],
@@ -197,8 +201,8 @@ function getOHLC(from, to, resolution, symbol, first) {
   })
 }
 
-function getBuySellVolume(from, to, resolution, symbol, first) {
-  return getBars(from, to, resolution, symbol, first, 'buy_sell_volume').then(({ barData }) => {
+function getBuySellVolume(from, to, timeframe, symbol, first) {
+  return getBars(from, to, timeframe, symbol, first, 'buy_sell_volume').then(({ barData }) => {
     return barData.reduce((output, dataPoint) => {
       output[dataPoint[0] * 1000] = {
         vbuy: dataPoint[1],
@@ -254,14 +258,14 @@ async function getData(from, to, resolution, symbol, first) {
 
   const bars = []
 
-  console.log('- - getOHLC')
   const ohlcData = await getOHLC(from, to, resolution, symbol, first)
-  console.log('- - getBuySellVolume')
+  await sleep(Math.random() * 100 + 100)
   const buySellVolumeData = await getBuySellVolume(from, to, resolution, symbol, first)
-  console.log('- - getBuySellCount')
+  await sleep(Math.random() * 100 + 100)
   const buySellCountData = await getBuySellCount(from, to, resolution, symbol, first)
-  console.log('- - getBuySellLiquidations')
+  await sleep(Math.random() * 100 + 100)
   const buySellLiquidationsData = await getBuySellLiquidations(from, to, resolution, symbol, first)
+  await sleep(Math.random() * 100 + 100)
 
   const timePerBar = resolution * 1000 * 60
 

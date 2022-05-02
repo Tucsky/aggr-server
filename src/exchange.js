@@ -359,6 +359,10 @@ class Exchange extends EventEmitter {
    * @param {Connection} connection to recover
    */
   registerRangeForRecovery(connection) {
+    if (!connection.timestamp) {
+      return
+    }
+
     const now = Date.now()
 
     console.log(

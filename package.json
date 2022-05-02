@@ -23,7 +23,7 @@
     "decamelize": "^4.0.0",
     "express": "^4.17.1",
     "express-rate-limit": "^5.1.1",
-    "influx": "^5.0.7",
+    "influx": "^5.9.3",
     "jsoning": "^0.13.23",
     "pako": "^1.0.6",
     "web-push": "^3.4.5",

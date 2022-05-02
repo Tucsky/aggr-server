@@ -50,6 +50,16 @@ module.exports = {
     return output.trim()
   },
 
+  resolution(time) {
+    if (time >= 10080) {
+      return time / 10080 + 'W'
+    } else if (time >= 1440) {
+      return time / 1440 + 'D'
+    } else {
+      return time
+    }
+  },
+
   ago(timestamp) {
     const seconds = Math.floor((new Date() - timestamp) / 1000)
     let interval, output
@@ -192,7 +202,7 @@ module.exports = {
       }
     })
   },
-  async prepareStandalone() {
+  async prepareStandalone(onlyNativeRecovery = true) {
     if (!config.exchanges || !config.exchanges.length) {
       config.exchanges = []
 
@@ -207,7 +217,7 @@ module.exports = {
       const name = config.exchanges[i]
       const exchange = new (require('../src/exchanges/' + name))(config)
 
-      if (typeof exchange.getMissingTrades === 'function') {
+      if (!onlyNativeRecovery || typeof exchange.getMissingTrades === 'function') {
         config.exchanges[i] = exchange.id
 
         exchanges.push(exchange)
@@ -239,8 +249,10 @@ module.exports = {
       throw new Error('invalid resolution')
     }
 
-    for (const exchange of exchanges) {
-      await exchange.getProducts()
+    if (onlyNativeRecovery) {
+      for (const exchange of exchanges) {
+        await exchange.getProducts()
+      }
     }
 
     for (let name of config.storage) {
@@ -268,5 +280,5 @@ module.exports = {
   humanFileSize(size) {
     var i = Math.floor(Math.log(size) / Math.log(1024))
     return (size / Math.pow(1024, i)).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
-  }
+  },
 }

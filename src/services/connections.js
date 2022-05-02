@@ -3,6 +3,11 @@ const { parseMarket } = require('./catalog')
 
 require('../typedef')
 
+// only for debug purposes
+module.exports.debugReportedTrades = {
+  btcusdt: false
+}
+
 /**
  * @type {{[id: string]: Connection}}
  */
@@ -49,10 +54,9 @@ module.exports.registerConnection = function(id, exchange, pair, apiLength) {
       pair,
       hit: 0,
       start: now,
+      timestamp: now
     }
   }
-
-  connections[id].timestamp = now
 
   return connections[id]
 }
