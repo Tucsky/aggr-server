@@ -223,7 +223,7 @@ class Server extends EventEmitter {
       exchange.on('disconnected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
-        console.log(`[server] deleted connection ${id} (${apiLength} connected)`)
+        console.log(`[connections] ${id} disconnected from ${apiId} (${apiLength} remaining)`)
 
         connections[id].apiId = null
 
@@ -238,6 +238,8 @@ class Server extends EventEmitter {
 
       exchange.on('connected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
+
+        console.log(`[connections] ${id} connected to ${apiId} (${apiLength} total)`)
 
         if (registerConnection(id, exchange.id, pair, apiLength).hit) {
           if (typeof exchange.getMissingTrades === 'function') {
@@ -294,7 +296,7 @@ class Server extends EventEmitter {
 
           setTimeout(
             () => {
-              this.reconnectApis([apiId])
+              this.reconnectApis([apiId], 'unexpected close')
             },
             this.apiStats[apiId] ? 100 : 2000
           )
@@ -803,19 +805,17 @@ class Server extends EventEmitter {
     }
 
     if (apisToReconnect.length) {
-      this.reconnectApis(apisToReconnect)
+      this.reconnectApis(apisToReconnect, 'reconnection threshold reached')
     }
   }
 
-  reconnectApis(apiIds) {
-    console.log(`[server.reconnectApis] reconnect ${apiIds.length} apis`)
-
+  reconnectApis(apiIds, reason) {
     for (let exchange of this.exchanges) {
       for (let api of exchange.apis) {
         const index = apiIds.indexOf(api.id)
 
         if (index !== -1) {
-          exchange.reconnectApi(api)
+          exchange.reconnectApi(api, reason)
 
           apiIds.splice(index, 1)
 
@@ -882,21 +882,40 @@ class Server extends EventEmitter {
     })
   }
 
-  dispatchRawTrades(exchange, data) {
+  dispatchRawTrades(exchange, data, apiId) {
     const now = Date.now()
+    let reconnectApi = 0
+    let lag = 0
 
     for (let i = 0; i < data.length; i++) {
       const trade = data[i]
       const identifier = exchange + ':' + trade.pair
 
+      // check laggy stream
+      if (apiId && now - trade.timestamp > 30000) {
+        lag += now - trade.timestamp
+
+        if (exchange === 'BINANCE' || exchange === 'BINANCE_FUTURES') {
+          if (!reconnectApi) {
+            console.log(exchange + ' trade at ' + new Date(trade.timestamp).toISOString() + ' is lagging behind realtime by ' + ((now - trade.timestamp) / 1000) + 's')
+          }
+
+          reconnectApi = now - trade.timestamp
+        }
+      }
+
       // ping connection
       connections[identifier].hit++
-      connections[identifier].timestamp = now
+      connections[identifier].timestamp = trade.timestamp
 
       // save trade
       if (this.storages) {
         this.chunk.push(trade)
       }
+    }
+
+    if (reconnectApi) {
+      this.reconnectApis([apiId], 'trade lag of ' + lag / data.length / 1000 + 's')
     }
 
     if (config.broadcast) {
@@ -908,7 +927,7 @@ class Server extends EventEmitter {
     }
   }
 
-  dispatchAggregateTrade(exchange, data) {
+  dispatchAggregateTrade(exchange, data, apiId) {
     const now = Date.now()
     const length = data.length
 
@@ -918,7 +937,7 @@ class Server extends EventEmitter {
 
       // ping connection
       connections[identifier].hit++
-      connections[identifier].timestamp = now
+      connections[identifier].timestamp = trade.timestamp
 
       // save trade
       if (this.storages) {

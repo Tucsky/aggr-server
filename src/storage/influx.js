@@ -4,7 +4,7 @@ const net = require('net')
 const config = require('../config')
 const socketService = require('../services/socket')
 const alertService = require('../services/alert')
-const { connections, updateIndexes, debugReportedTrades } = require('../services/connections')
+const { connections, updateIndexes } = require('../services/connections')
 
 require('../typedef')
 
@@ -165,7 +165,6 @@ class InfluxStorage {
         fields.previousPrice = previousPrice
       }
 
-      console.log('[influx/alert]', market, price, user, type)
       this.writePoints(
         [
           {
@@ -313,15 +312,13 @@ class InfluxStorage {
    * @memberof InfluxStorage
    */
   async processTrades(trades) {
+    const now = Date.now()
+
     /**
      * Current bars
      * @type {{[identifier: string]: Bar}}
      */
     const activeBars = {}
-
-    let binanceFuturesBtcusdtCreations = 0
-
-    // console.log(`[storage/influx/processTrades] process ${trades.length} trades`)
 
     for (let i = 0; i <= trades.length; i++) {
       const trade = trades[i]
@@ -366,12 +363,14 @@ class InfluxStorage {
             // recover exchange point of lastbar
             this.pendingBars[market].push(connections[market].bar)
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
-          } else {
+          } else if (
+            !this.pendingBars[market].length ||
+            !(activeBars[market] = this.pendingBars[market].find((a) => a.time === tradeFlooredTime))
+          ) {
             // create new bar
 
-            if (/BINANCE_FUTURES.*btcusdt/.test(market)) {
-              // only for debug purposes
-              binanceFuturesBtcusdtCreations++
+            if (tradeFlooredTime < now - config.influxResampleInterval) {
+              continue
             }
 
             this.pendingBars[market].push({
@@ -410,14 +409,6 @@ class InfluxStorage {
         activeBars[market]['c' + trade.side] += trade.count || 1
         activeBars[market]['v' + trade.side] += trade.price * trade.size
       }
-    }
-
-    if (!binanceFuturesBtcusdtCreations && !debugReportedTrades.btcusdt) {
-      //console.log('** START DEBUG BINANCE_FUTURES:btcusdt **')
-      debugReportedTrades.btcusdt = true
-    } else if (binanceFuturesBtcusdtCreations && debugReportedTrades.btcusdt) {
-      //console.log('** STOP DEBUG BINANCE_FUTURES:btcusdt **')
-      debugReportedTrades.btcusdt = false
     }
 
     updateIndexes((index, high, low) => {
@@ -493,13 +484,18 @@ class InfluxStorage {
     if (barsToImport.length) {
       await this.writePoints(
         barsToImport.map((bar) => {
-          const fields = {
-            cbuy: bar.cbuy,
-            csell: bar.csell,
-            vbuy: bar.vbuy,
-            vsell: bar.vsell,
-            lbuy: bar.lbuy,
-            lsell: bar.lsell,
+          const fields = {}
+
+          if (bar.vbuy || bar.vsell) {
+            fields.vbuy = bar.vbuy
+            fields.vsell = bar.vsell
+            fields.cbuy = bar.cbuy
+            fields.csell = bar.csell
+          }
+
+          if (bar.lbuy || bar.lsell) {
+            fields.lbuy = bar.lbuy
+            fields.lsell = bar.lsell
           }
 
           if (bar.close !== null) {
@@ -767,7 +763,7 @@ class InfluxStorage {
       for (const market of markets) {
         if (this.pendingBars[market] && this.pendingBars[market].length) {
           for (const bar of this.pendingBars[market]) {
-            if (bar.time >= from && bar.time < to) {
+            if (bar.time >= from && bar.time < to && bar.close !== null) {
               injectedPendingBars.push(bar)
             }
           }

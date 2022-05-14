@@ -1,8 +1,6 @@
-const e = require('express')
 const Exchange = require('../exchange')
 const { sleep, getHms } = require('../helper')
 const axios = require('axios')
-const { debugReportedTrades } = require('../services/connections')
 
 class BinanceFutures extends Exchange {
   constructor() {
@@ -11,6 +9,8 @@ class BinanceFutures extends Exchange {
     this.id = 'BINANCE_FUTURES'
     this.lastSubscriptionId = 0
     this.subscriptions = {}
+    this.attempts = 0
+    this.doomeet = false
 
     this.maxConnectionsPerApi = 100
     this.endpoints = {
@@ -86,6 +86,16 @@ class BinanceFutures extends Exchange {
     await sleep(250)
   }
 
+  /*onOpen(event, api) {
+    super.onOpen(event, api)
+
+    if (this.doomeet) {
+      setTimeout(() => {
+        api.close()
+      }, Math.random() * 1000)
+    }
+  }*/
+
   /**
    * Sub
    * @param {WebSocket} api
@@ -113,6 +123,10 @@ class BinanceFutures extends Exchange {
   }
 
   onMessage(event, api) {
+    if (api.down) {
+      return
+    }
+
     const json = JSON.parse(event.data)
 
     if (!json) {
@@ -135,15 +149,6 @@ class BinanceFutures extends Exchange {
   }
 
   formatTrade(trade, symbol) {
-    if (symbol === 'btcusdt' && debugReportedTrades.btcusdt) {
-      if (!this._lastTimestamp || trade.T - this._lastTimestamp > 10) {
-        console.log(trade.T, this._lastTimestampCount + 1)
-        this._lastTimestampCount = 0
-      }
-      this._lastTimestamp = trade.T
-      this._lastTimestampCount++
-    }
-
     return {
       exchange: this.id,
       pair: symbol,
@@ -171,7 +176,6 @@ class BinanceFutures extends Exchange {
   getMissingTrades(range, totalRecovered = 0) {
     const startTime = range.from
     let endpoint = `?symbol=${range.pair.toUpperCase()}&startTime=${startTime + 1}&endTime=${range.to}&limit=1000`
-
     if (this.dapi[range.pair]) {
       endpoint = 'https://dapi.binance.com/dapi/v1/aggTrades' + endpoint
     } else {
@@ -214,6 +218,35 @@ class BinanceFutures extends Exchange {
         return totalRecovered
       })
   }
+
+  /*onApiCreated(api) {
+    if (!this.doomeet) {
+      setTimeout(() => {
+        this.doomeet++
+        api.close()
+      }, 1000 * 20)
+    } else {
+      this.doomeet++
+
+      if (this.doomeet > 10) {
+        this.doomeet = 0
+      }
+    }
+  }*/
+
+  /*onApiCreated(api) {
+    this.attempts++
+    api.downSimTimeout = setTimeout(() => {
+      api.downSimTimeout = null
+      api.down = true
+    }, 1000 * 15 * this.attempts)
+  }
+
+  onApiRemoved(api) {
+    if (api.downSimTimeout) {
+      clearTimeout(api.downSimTimeout)
+    }
+  }*/
 }
 
 module.exports = BinanceFutures

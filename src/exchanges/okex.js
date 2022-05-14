@@ -166,7 +166,7 @@ class Okex extends Exchange {
     return {
       exchange: this.id,
       pair: trade.instId,
-      timestamp: trade.ts,
+      timestamp: +trade.ts,
       price: +trade.px,
       size: +size,
       side: trade.side,
@@ -179,7 +179,8 @@ class Okex extends Exchange {
     return {
       exchange: this.id,
       pair: pair,
-      timestamp: trade.ts,
+      timestamp: Date.now(), // avoid repainting old candles
+      //timestamp: +trade.ts,
       price: +trade.bkPx,
       size: size,
       side: trade.side,

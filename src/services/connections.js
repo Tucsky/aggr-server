@@ -45,8 +45,6 @@ module.exports.registerConnection = function(id, exchange, pair, apiLength) {
 
   const exists = connections[id]
 
-  console.log(`[connections] registered ${exists ? 'connection' : 'new connection'} ${id} (${apiLength})`)
-
   if (!exists) {
 
     connections[id] = {
@@ -54,8 +52,10 @@ module.exports.registerConnection = function(id, exchange, pair, apiLength) {
       pair,
       hit: 0,
       start: now,
-      timestamp: now
+      timestamp: null
     }
+  } else {
+    connections[id].start = now
   }
 
   return connections[id]
