@@ -120,8 +120,6 @@ class Huobi extends Exchange {
         id: pair,
       })
     )
-
-    this.unsubscribeLiquidations(api, pair)
   }
 
   onMessage(event, api) {
@@ -196,7 +194,7 @@ class Huobi extends Exchange {
     if (api.url === 'wss://api.hbdm.com/swap-ws') {
       api._marketDataApi = new WebSocket('wss://api.hbdm.com/swap-notification') // coin margined
     } else if (api.url === 'wss://api.hbdm.com/linear-swap-ws') {
-      api._marketDataApi = new WebSocket('wss://api.btcgateway.pro/linear-swap-notification') // usdt margined
+      api._marketDataApi = new WebSocket('wss://api.hbdm.com/linear-swap-notification') // usdt margined
     }
 
     if (api._marketDataApi) {

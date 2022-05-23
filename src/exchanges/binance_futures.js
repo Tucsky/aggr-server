@@ -86,16 +86,6 @@ class BinanceFutures extends Exchange {
     await sleep(250)
   }
 
-  /*onOpen(event, api) {
-    super.onOpen(event, api)
-
-    if (this.doomeet) {
-      setTimeout(() => {
-        api.close()
-      }, Math.random() * 1000)
-    }
-  }*/
-
   /**
    * Sub
    * @param {WebSocket} api
@@ -231,6 +221,16 @@ class BinanceFutures extends Exchange {
       if (this.doomeet > 10) {
         this.doomeet = 0
       }
+    }
+  }
+
+  onOpen(event, api) {
+    super.onOpen(event, api)
+
+    if (this.doomeet) {
+      setTimeout(() => {
+        api.close()
+      }, Math.random() * 1000)
     }
   }*/
 

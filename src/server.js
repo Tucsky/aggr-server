@@ -26,16 +26,6 @@ class Server extends EventEmitter {
     this.chunk = []
 
     /**
-     * keep track of all active apis
-     * @type {{[apiId: string]: {
-     *  start: number,
-     *  timestamp: number,
-     *  hit: number
-     * }}}
-     */
-    this.apiStats = {}
-
-    /**
      * delayedForBroadcast trades ready to be broadcasted next interval (see _broadcastDelayedTradesInterval)
      * @type Trade[]
      */
@@ -151,21 +141,6 @@ class Server extends EventEmitter {
 
     const chunk = this.chunk.splice(0, this.chunk.length).sort((a, b) => a.timestamp - b.timestamp)
 
-    /*if (config.id === 'btceth' && chunk.length) {
-      // only for debug purposes
-      const firstTradeTimestamp = +chunk[0].timestamp
-      const lastTradeTimestamp = +chunk[chunk.length - 1].timestamp
-      try {
-        console.log(
-          `[server] backup trades ${chunk.length} ${new Date(firstTradeTimestamp).toISOString()} ->  ${new Date(lastTradeTimestamp).toISOString()}`
-        )
-      } catch (error) {
-        console.log(
-          `[server] backup trades (errored) ${chunk.length} ${firstTradeTimestamp} ->  ${lastTradeTimestamp}`
-        )
-      }
-    }*/
-
     return Promise.all(
       this.storages.map((storage) => {
         if (exitBackup) {
@@ -223,54 +198,44 @@ class Server extends EventEmitter {
       exchange.on('disconnected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
-        console.log(`[connections] ${id} disconnected from ${apiId} (${apiLength} remaining)`)
+        let lastPing = ''
+
+        if (connections[id].timestamp) {
+          lastPing = ' (last ping ' + new Date(+connections[id].timestamp).toISOString() + ')'
+        }
+
+        console.log(`[connections] ${id}${lastPing} disconnected from ${apiId} (${apiLength} remaining)`)
 
         connections[id].apiId = null
 
-        if (!apiLength) {
-          delete this.apiStats[apiId]
-        } else {
-          this.apiStats[apiId].pairs.splice(this.apiStats[apiId].pairs.indexOf(pair), 1)
-        }
-
-        this.checkApiStats()
+        this.checkApiStats(true)
       })
 
       exchange.on('connected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
-        console.log(`[connections] ${id} connected to ${apiId} (${apiLength} total)`)
+        registerConnection(id, exchange.id, pair, apiLength)
 
-        if (registerConnection(id, exchange.id, pair, apiLength).hit) {
-          if (typeof exchange.getMissingTrades === 'function') {
-            exchange.registerRangeForRecovery(connections[id])
-          }
+        if (typeof exchange.getMissingTrades === 'function') {
+          exchange.registerRangeForRecovery(connections[id])
         }
+
+        let lastPing = ''
+
+        if (connections[id].timestamp) {
+          lastPing =
+            ' (last ping ' +
+            new Date(+connections[id].timestamp).toISOString() +
+            ', ' +
+            connections[id].lastConnectionMissEstimate +
+            ' estimated miss)'
+        }
+
+        console.log(`[connections] ${id}${lastPing} connected to ${apiId} (${apiLength} total)`)
 
         connections[id].apiId = apiId
 
-        if (typeof this.apiStats[apiId] === 'undefined') {
-          const now = Date.now()
-
-          this.apiStats[apiId] = {
-            exchange: exchange.id,
-            totalHits: 0,
-            windowHits: 0,
-            ping: 0,
-            pairs: [],
-            start: now,
-            timestamp: now,
-          }
-        }
-
-        this.apiStats[apiId].pairs.push(pair)
-        this.apiStats[apiId].name =
-          this.apiStats[apiId].exchange +
-          ':' +
-          this.apiStats[apiId].pairs.slice(0, 3).join('+') +
-          (this.apiStats[apiId].pairs.length > 3 ? '.. (' + this.apiStats[apiId].pairs.length + ')' : '')
-
-        this.checkApiStats()
+        this.checkApiStats(true)
       })
 
       exchange.on('open', (apiId, pairs) => {
@@ -298,7 +263,7 @@ class Server extends EventEmitter {
             () => {
               this.reconnectApis([apiId], 'unexpected close')
             },
-            this.apiStats[apiId] ? 100 : 2000
+            1000
           )
         }
 
@@ -570,16 +535,6 @@ class Server extends EventEmitter {
             )
           }
 
-          if (storage.format === 'trade') {
-            for (let i = 0; i < this.chunk.length; i++) {
-              if (this.chunk[i][1] <= from || this.chunk[i][1] >= to) {
-                continue
-              }
-
-              output.push(this.chunk[i])
-            }
-          }
-
           return res.status(200).json({
             format: storage.format,
             results: output,
@@ -629,7 +584,7 @@ class Server extends EventEmitter {
     )
 
     exchangesProductsResolver.then(() => {
-      this.checkApiStats()
+      this.checkApiStats(true)
     })
 
     if (config.broadcast && config.broadcastDebounce && !config.broadcastAggr) {
@@ -680,68 +635,26 @@ class Server extends EventEmitter {
    * Check activity within that time window for every active apis
    */
   monitorExchangesActivity() {
-    this.updateApiStats()
-    this.checkApiStats(true)
-
-    // print full connection report every hour
     const now = Date.now()
     const flooredTime = Math.floor(now / config.monitorInterval) * config.monitorInterval
     const currentHour = Math.floor(now / 3600000) * 3600000
-    //const currentHour = Math.floor(now / 10000) * 10000
-
-    if (flooredTime === currentHour) {
-      this.checkApiStats()
-    }
+    this.checkApiStats(currentHour === flooredTime)
   }
 
   /**
-   * Aggregate individual connections stats (markets) into api stats (group of markets)
-   * @param {number} now timestamp
+   * Check api hit rate & unusual activity
+   * @param {boolean} print console log API stats even if there is nothing wrong with them
+   * @param {boolean} force check immediately 
    */
-  updateApiStats() {
-    const now = Date.now()
-
-    for (const marketId in connections) {
-      const connection = connections[marketId]
-
-      if (!connection.apiId) {
-        continue
-      }
-
-      const apiStat = this.apiStats[connection.apiId]
-
-      if (apiStat.timestamp !== now) {
-        apiStat.windowHits = 0
-        apiStat.ping = 0
-        apiStat.timestamp = now
-      }
-
-      const currentHits = typeof connection.lastHit !== 'undefined' ? connection.hit - connection.lastHit : connection.hit
-      apiStat.windowHits += currentHits
-      apiStat.totalHits += currentHits
-      apiStat.ping = Math.max(connection.timestamp || connection.start, apiStat.ping)
-
-      connection.lastHit = connection.hit
-    }
-  }
-
-  /**
-   * Check if an API is having more idle time than usual
-   * Or sudden stops of very active feeds
-   * By default only prints the APIs that fits in one of those 2 situations
-   * Reconnect if reconnectIfNeeded is true
-   * @param {boolean} reconnectIfNeeded reconnect above threshold apis
-   * @param {boolean} bypassTimeout
-   */
-  checkApiStats(reconnectIfNeeded, bypassTimeout) {
-    if (!reconnectIfNeeded && !bypassTimeout) {
+  checkApiStats(print = false, force = false) {
+    if (!force) {
       if (this._checkApiStatsTimeout) {
         clearTimeout(this._checkApiStatsTimeout)
       }
 
       this._checkApiStatsTimeout = setTimeout(() => {
         this._checkApiStatsTimeout = null
-        this.checkApiStats(false, true)
+        this.checkApiStats(print, true)
       }, 2500)
 
       return
@@ -749,59 +662,81 @@ class Server extends EventEmitter {
 
     const now = Date.now()
 
-    const table = {}
-    const apisToReconnect = []
+    const apis = {}
 
-    for (const apiId in this.apiStats) {
-      const apiStat = this.apiStats[apiId]
+    for (const market in connections) {
+      const connection = connections[market]
+      const name = `${connection.exchange}#${connection.apiId || 'OFFLINE'}`
 
-      const avg = +((config.monitorInterval / (now - apiStat.start)) * apiStat.totalHits).toFixed(2)
-      let hit = apiStat.windowHits
+      if (!apis[name]) {
+        apis[name] = {
+          apiId: connection.apiId,
+          total: 0,
+          hits: [],
+          pairs: [],
+          markets: [],
+          ping: now - connection.startedAt,
+          exchange: connection.exchange
+        }
+      }
 
-      const ping = apiStat.ping ? now - apiStat.ping : 0
-
-      let thrs
-
-      if (typeof apiStat.thrs === 'undefined' || hit > 0) {
-        thrs = Math.max(config.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)
-        apiStat.thrs = thrs
+      apis[name].pairs.push(connection.pair)
+      apis[name].markets.push(market)
+      
+      if (!connection.timestamp) {
+        apis[name].hits.push(0)
       } else {
-        thrs = apiStat.thrs
-      }
+        const activeDuration = connection.timestamp - connection.startedAt
+        apis[name].hits.push(connection.hit * (config.monitorInterval / activeDuration))
+        apis[name].ping = Math.min(now - Math.max(connection.lastConnectedAt, connection.timestamp), apis[name].ping)
 
-      const thrsHms = getHms(thrs, true)
-      let pingHms = ping ? getHms(ping, true) : 'never'
-
-      let reconnectionThresholdReached = false
-      let hitThresholdReached = false
-
-      if (reconnectIfNeeded && now - apiStat.start > 10000) {
-        if (ping > thrs) {
-          reconnectionThresholdReached = true
-          pingHms += '⚠'
-        } else if (thrs < config.reconnectionThreshold / 10 && !hit) {
-          hitThresholdReached = true
-          hit += '⚠'
+        if (typeof connection.lastHit !== 'undefined') {
+          apis[name].total += connection.hit - connection.lastHit
+        } else {
+          apis[name].total += connection.hit
         }
       }
+        
+      connection.lastHit = connection.hit
+    }
 
-      if (!reconnectIfNeeded || reconnectionThresholdReached || hitThresholdReached) {
-        table[apiStat.name] = {
-          hit,
-          avg,
-          ping: pingHms,
-          thrs: thrsHms,
+    const apisToReconnect = []
+    const apisTable = {}
+
+    for (const name in apis) {
+      const avg = apis[name].hits.reduce((acc, a) => acc + a, 0) / apis[name].hits.length
+      const thrs = Math.max(config.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)
+      const ping = apis[name].ping
+      const hit = apis[name].total
+
+      if (ping > thrs) {
+        apisToReconnect.push(apis[name].apiId)
+        apisTable[name] = {
+          hit: hit,
+          avg: +avg.toFixed(1),
+          ping: getHms(ping) + ' ⚠️',
+          thrs: getHms(thrs),
         }
-
-        if (reconnectIfNeeded && (reconnectionThresholdReached || hitThresholdReached)) {
-          console.warn(`[server] reconnect api ${apiId} (${reconnectionThresholdReached ? 'ping' : 'hit'} threshold reached)`)
-          apisToReconnect.push(apiId)
+      } else if (thrs < config.reconnectionThreshold / 10 && !hit) {
+        apisToReconnect.push(apis[name].apiId)
+        apisTable[name] = {
+          hit: hit + ' ⚠️',
+          avg: +avg.toFixed(1),
+          ping: getHms(ping),
+          thrs: getHms(thrs),
+        }
+      } else if (print) {
+        apisTable[name] = {
+          hit: hit,
+          avg: +avg.toFixed(1),
+          ping: getHms(ping),
+          thrs: getHms(Math.max(config.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)),
         }
       }
     }
 
-    if (Object.keys(table).length) {
-      console.table(table)
+    if (Object.keys(apisTable).length) {
+      console.table(apisTable)
     }
 
     if (apisToReconnect.length) {
@@ -897,7 +832,14 @@ class Server extends EventEmitter {
 
         if (exchange === 'BINANCE' || exchange === 'BINANCE_FUTURES') {
           if (!reconnectApi) {
-            console.log(exchange + ' trade at ' + new Date(trade.timestamp).toISOString() + ' is lagging behind realtime by ' + ((now - trade.timestamp) / 1000) + 's')
+            console.log(
+              exchange +
+                ' trade at ' +
+                new Date(trade.timestamp).toISOString() +
+                ' is lagging behind realtime by ' +
+                (now - trade.timestamp) / 1000 +
+                's'
+            )
           }
 
           reconnectApi = now - trade.timestamp

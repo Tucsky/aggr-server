@@ -47,7 +47,7 @@ class AlertService extends EventEmitter {
       const collector = socketService.getNodeByMarket(alert.market)
 
       if (!collector) {
-        throw new Error('unsupported market')
+        throw new Error(`unsupported market ${alert.market}`)
       }
 
       collector.write(
@@ -61,7 +61,7 @@ class AlertService extends EventEmitter {
 
       if (!index) {
         if (!fromCluster) {
-          throw new Error('unsupported market')
+          throw new Error(`unsupported market ${alert.market}`)
         }
 
         return

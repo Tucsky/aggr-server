@@ -3,6 +3,7 @@ const WebSocket = require('ws')
 
 const { ID, getHms, sleep } = require('./helper')
 const { readProducts, fetchProducts, saveProducts } = require('./services/catalog')
+const { connections } = require('./services/connections')
 
 require('./typedef')
 
@@ -125,7 +126,7 @@ class Exchange extends EventEmitter {
     pair = pair.replace(/[^:]*:/, '')
 
     if (!this.isMatching(pair)) {
-      return Promise.reject(`${this.id} couldn't match with ${pair}`)
+      throw new Error(`${pair} did NOT match with any existing symbol on ${this.id}`)
     }
 
     console.debug(`[${this.id}.link] connecting ${pair}`)
@@ -358,9 +359,9 @@ class Exchange extends EventEmitter {
     }
 
     console.debug(
-      `[${this.id}.reconnectApi] reconnect api ${api.id}${reason ? ' reason: ' + reason : ''} (url: ${api.url}, _connected: ${api._connected.join(
-        ', '
-      )}, _pending: ${api._connected.join(', ')})`
+      `[${this.id}.reconnectApi] reconnect api ${api.id}${reason ? ' reason: ' + reason : ''} (url: ${
+        api.url
+      }, _connected: ${api._connected.join(', ')}, _pending: ${api._connected.join(', ')})`
     )
 
     const pairsToReconnect = [...api._pending, ...api._connected]
@@ -385,17 +386,14 @@ class Exchange extends EventEmitter {
     const now = Date.now()
 
     console.log(
-      `\t${getHms(now - connection.timestamp)} elapsed since last -> register range (${new Date(connection.timestamp)
-        .toISOString()
-        .split('T')
-        .pop()} to ${new Date(now).toISOString().split('T').pop()})`,
-      +((1000 / (now - connection.start)) * connection.hit).toFixed(2) + ' avg.'
+      `\tregister range to recover of ${getHms(now - connection.timestamp)} for ${connection.pair} (${connection.lastConnectionMissEstimate} missing estimated)`
     )
 
     const range = {
       pair: connection.pair,
       from: connection.timestamp,
       to: now,
+      missEstimate: connection.lastConnectionMissEstimate,
     }
 
     this.recoveryRanges.push(range)
@@ -424,11 +422,40 @@ class Exchange extends EventEmitter {
 
     try {
       const recoveredCount = await this.getMissingTrades(range)
+
       console.info(
-        `[${this.id}.recoverTrades] recovered ${recoveredCount} trades on ${this.id}:${range.pair} (${getHms(
-          missingTime - (range.to - range.from)
-        )} recovered out of ${getHms(missingTime)} | ${getHms(range.to - range.from)} remaining)`
+        `[${this.id}.recoverTrades] recovered ${recoveredCount} (expected ${range.missEstimate}) trades on ${this.id}:${
+          range.pair
+        } (${getHms(missingTime - (range.to - range.from))} recovered out of ${getHms(missingTime)} | ${getHms(
+          range.to - range.from
+        )} remaining)`
       )
+
+      // save new timestamp to connection
+      const connection = connections[this.id + ':' + range.pair]
+
+      if (connection) {
+        connection.timestamp = range.to
+        connection.hit += recoveredCount
+      }
+
+      // in rare case of slow recovery and fast reconnection happening, propagate to pending ranges for that pair
+      for (let i = 0; i < this.recoveryRanges.length; i++) {
+        const nextRange = this.recoveryRanges[i]
+  
+        if (nextRange.pair === range.pair) {
+          const newFrom = Math.max(nextRange.from, range.from)
+
+          if (nextRange.from !== newFrom) {
+            nextRange.from = Math.max(nextRange.from, range.from)
+  
+            if (nextRange.from > nextRange.to) {
+              this.recoveryRanges.splice(i--, 1)
+              continue
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error(`[${this.id}.recoverTrades] something went wrong while recovering ${range.pair}'s missing trades`, error.message)
     }
@@ -688,11 +715,11 @@ class Exchange extends EventEmitter {
    * @param {Trade[]} trades
    */
   emitTrades(source, trades) {
-    if (!(trades = this.queueControl(trades)) || (source && this.promisesOfApiReconnections[source])) {
+    if (source && this.promisesOfApiReconnections[source]) {
       return
     }
 
-    this.emit('trades', trades, source)
+    this.queueControl(source, trades, 'liquidations')
 
     return true
   }
@@ -703,16 +730,16 @@ class Exchange extends EventEmitter {
    * @param {Trade[]} trades
    */
   emitLiquidations(source, trades) {
-    if (!(trades = this.queueControl(trades)) || (source && this.promisesOfApiReconnections[source])) {
+    if (source && this.promisesOfApiReconnections[source]) {
       return
     }
 
-    this.emit('liquidations', trades, source)
+    this.queueControl(source, trades, 'liquidations')
 
     return true
   }
 
-  queueControl(trades) {
+  queueControl(source, trades, type) {
     if (!trades || !trades.length) {
       return null
     }
@@ -724,9 +751,10 @@ class Exchange extends EventEmitter {
       console.log(`[${this.id}] release trades queue (${this.queuedTrades.length} trades)`)
       trades = trades.concat(this.queuedTrades).sort((a, b) => a.timestamp - b.timestamp)
       this.queuedTrades = []
+      source = null
     }
 
-    return trades
+    this.emit(type, trades, source)
   }
 
   startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {

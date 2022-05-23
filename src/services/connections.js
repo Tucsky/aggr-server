@@ -18,6 +18,11 @@ const connections = module.exports.connections = {}
  */
 const indexes = module.exports.indexes = Object.values(config.pairs.reduce((acc, market) => {
   const product = parseMarket(market)
+
+  if (config.priceIndexesBlacklist.indexOf(product.exchange) !== -1) {
+    return acc
+  }
+  
   console.log(`[index] registered product ${product.id} aka ${product.exchange} ${product.local} (${product.type})`)
 
   if (acc[product.local]) {
@@ -51,11 +56,18 @@ module.exports.registerConnection = function(id, exchange, pair, apiLength) {
       exchange,
       pair,
       hit: 0,
-      start: now,
+      startedAt: now,
+      lastConnectedAt: now,
       timestamp: null
     }
   } else {
-    connections[id].start = now
+    if (connections[id].timestamp) {
+      const activeDuration = connections[id].timestamp - connections[id].startedAt
+      const missDuration = now - connections[id].timestamp
+      connections[id].lastConnectionMissEstimate = Math.floor(connections[id].hit * (missDuration / activeDuration))
+    }
+
+    connections[id].lastConnectedAt = now
   }
 
   return connections[id]

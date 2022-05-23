@@ -88,15 +88,15 @@ const defaultConfig = {
   api: true,
 
   // monitor connection health interval
-  // checks average of hit per api within that interval
-  // reconnect if hit is too low or ping is too high
+  // checks average of hit per api
+  // reconnect if hit is too low or ping is too high relative to avg
   // default 5s
   monitorInterval: 5000,
 
-  // base threshold for which a 1 trades per monitorInterval will be equal to 
-  // ex: with a monitorInterval of 5s & reconnectionThreshold of 3m, an api of 1 trade per 5s average will reconnect after idling for 3m
-  // default 3m, increase this value if you notice too many reconnections, decrease otherwise
-  reconnectionThreshold: 180000,
+  // base reconnection threshold
+  // ex: with a monitorInterval of 5s & reconnectionThreshold of 5m, an api of 1 trade per 5m average will reconnect after idling for 5m
+  // (increase this value if you notice too many reconnections, decrease otherwise)
+  reconnectionThreshold: 300000,
 
   // storage solution, either
   // false | null (no storage, everything is wiped out after broadcast)
@@ -183,11 +183,11 @@ const defaultConfig = {
   // you must set an ID to each cluster in order to use push notifications with collectors (unique id to associate with notification endpoints persistences)
   id: null,
 
-  // push (WARNING: must set id to use in cluster mode)
   publicVapidKey: null,
   privateVapidKey: null,
-  alertExpiresAfter: 1000 * 60 * 60 * 24,
-  alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 7,
+  alertExpiresAfter: 1000 * 60 * 60 * 24 * 7,
+  alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 30,
+  priceIndexesBlacklist: ['HITBTC', 'BITSTAMP', 'HUOBI', 'KRAKEN', 'POLONIEX'],
 
   // verbose
   debug: false,
