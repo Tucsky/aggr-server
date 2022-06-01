@@ -48,7 +48,7 @@ class InfluxStorage {
       ;[host, port] = config.influxUrl.split(':')
     }
 
-    console.log(`[storage/influx] connecting to ${host}:${port}`)
+    console.log(`[storage/influx] connecting to ${host}:${port} on db "${config.influxDatabase}"`)
 
     try {
       this.influx = new Influx.InfluxDB({
@@ -226,26 +226,61 @@ class InfluxStorage {
     const timeframeLitteral = getHms(config.influxTimeframe)
     const now = +new Date()
 
+    let query = `SELECT * FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${
+      '_' + timeframeLitteral
+    }`
+
+    query += ` WHERE (${config.pairs.map((market) => `market = '${market}'`).join(' OR ')})`
+
+    query += `GROUP BY "market" ORDER BY time DESC LIMIT 1`
+
     this.influx
-      .query(
-        `SELECT * FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${
-          '_' + timeframeLitteral
-        } GROUP BY "market" ORDER BY time DESC LIMIT 1`
-      )
+      .query(query)
       .then((data) => {
         for (let bar of data) {
-          if (now - bar.time > config.influxTimeframe) {
+          if (now - bar.time > config.influxResampleInterval) {
+            console.log(`[getLastBars] can't use lastBar because it is too old anyway (closed ${getHms(now - bar.time)}) ago`)
             continue
           }
 
-          this.pendingBars[bar.market] = [
-            {
-              ...bar,
-              time: +bar.time,
-            },
-          ]
+          console.log(`[getLastBars] initial pending bar at time ${bar.time}`)
+          
+          let originalBar
+
+          if (!this.pendingBars[bar.market]) {
+            this.pendingBars[bar.market] = []
+          }
+          
+          if (this.pendingBars[bar.market] && (originalBar = this.pendingBars[bar.market].find(({ time }) => bar.time == time))) {
+            this.sumBar(originalBar, bar)
+          } else {
+            this.pendingBars[bar.market].push(this.sumBar({}, bar))
+          }
         }
       })
+  }
+
+  sumBar(barToMutate, barToAdd) {
+    const props = Object.keys(barToMutate)
+      .concat(Object.keys(barToAdd))
+      .filter((x, i, a) => a.indexOf(x) == i)
+
+    for (let i = 0; i < props.length; i++) {
+      const prop = props[i]
+
+      const value = isNaN(barToAdd[prop]) ? barToAdd[prop] : +barToAdd[prop]
+
+      if (typeof barToMutate[prop] === 'undefined') {
+        barToMutate[prop] = value
+        continue
+      }
+
+      if (typeof barToMutate[prop] === 'number') {
+        barToMutate[props] += value
+      }
+    }
+
+    return barToMutate
   }
 
   /**
@@ -312,8 +347,6 @@ class InfluxStorage {
    * @memberof InfluxStorage
    */
   async processTrades(trades) {
-    const now = Date.now()
-
     /**
      * Current bars
      * @type {{[identifier: string]: Bar}}
@@ -363,13 +396,20 @@ class InfluxStorage {
             // recover exchange point of lastbar
             this.pendingBars[market].push(connections[market].bar)
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
+            //console.log(`use connection bar (time ${new Date(activeBars[market].time).toISOString().split('T').pop()}`)
           } else if (
             !this.pendingBars[market].length ||
             !(activeBars[market] = this.pendingBars[market].find((a) => a.time === tradeFlooredTime))
           ) {
             // create new bar
 
-            if (tradeFlooredTime < now - config.influxResampleInterval) {
+            if (connections[market].bar && tradeFlooredTime < connections[market].bar.time) {
+              // at this point we could query the last bar from the db (but I won't because of performance issue with influx)
+              console.log(
+                `[influx] prevented creating new bar for ${market} at time ${new Date(tradeFlooredTime).toISOString()}, because last closed bar is more recent (${
+                  connections[market].bar.time
+                })`
+              )
               continue
             }
 
@@ -420,19 +460,11 @@ class InfluxStorage {
    * Import pending bars (minimum tf bars) and resample into bigger timeframes
    */
   async import() {
-    /*let now = Date.now()
-    let before = now
-
-    console.log(`[storage/influx/import] import start`)*/
-
     const resampleRange = await this.importPendingBars()
 
     if (resampleRange.to - resampleRange.from >= 0) {
       await this.resample(resampleRange)
     }
-
-    /*now = Date.now()
-    console.log(`[storage/influx/import] import end (took ${getHms(now - before, true)})`)*/
   }
 
   /**

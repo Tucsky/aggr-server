@@ -14,7 +14,6 @@ class AlertService extends EventEmitter {
     this.alertEndpoints = {}
 
     if (config.influxCollectors && config.collect && !config.api) {
-
       // node is a collector: listen for toggleAlerts op
       socketService.on('toggleAlert', this.toggleAlert.bind(this))
     }
@@ -128,9 +127,7 @@ class AlertService extends EventEmitter {
 
     this.alertEndpoints[alert.endpoint].timestamp = now
 
-    console.log(
-      `[alert/${alert.user}] create alert ${market} @ ${alert.price}`
-    )
+    console.log(`[alert/${alert.user}] create alert ${market} @ ${alert.price}`)
 
     this.emit('change', {
       market: market,
@@ -233,16 +230,12 @@ class AlertService extends EventEmitter {
 
       if (this.alerts[market]) {
         if (this.alerts[market][rangePrice] && !this.alerts[market][rangePrice].length) {
-          console.log(
-            `[alert/cleanup] no more alerts for ${market} in the ${rangePrice} region`
-          )
+          console.log(`[alert/cleanup] no more alerts for ${market} in the ${rangePrice} region`)
           delete this.alerts[market][rangePrice]
         }
 
         if (!Object.keys(this.alerts[market])) {
-          console.log(
-            `[alert/cleanup] no more alerts for ${market}`
-          )
+          console.log(`[alert/cleanup] no more alerts for ${market}`)
           delete this.alerts[market]
         }
       }
@@ -256,7 +249,6 @@ class AlertService extends EventEmitter {
 
     for (const endpoint in this.alertEndpoints) {
       if (this.alertEndpoints[endpoint].timestamp && now - this.alertEndpoints[endpoint].timestamp > config.alertEndpointExpiresAfter) {
-        
         console.warn(`[alert/get] removed expired endpoint (last updated ${ago(this.alertEndpoints[endpoint].timestamp)} ago)`)
         delete this.alertEndpoints[endpoint]
       }
@@ -284,7 +276,7 @@ class AlertService extends EventEmitter {
         }
 
         const count = marketAlerts[rangePrice].length
-        
+
         if (count) {
           if (count > 1) {
             console.log(`[alert/get] ${index.id} has ${count} alerts in the ${rangePrice} region`)
@@ -324,11 +316,14 @@ class AlertService extends EventEmitter {
 
     const now = Date.now()
 
-    const otherAlertEndpoints = (await persistenceService.get('alerts-endpoints') || {})
+    const otherAlertEndpoints = (await persistenceService.get('alerts-endpoints')) || {}
 
     for (const endpoint in otherAlertEndpoints) {
       if (this.alertEndpoints[endpoint]) {
-        otherAlertEndpoints[endpoint].timestamp = Math.max(this.alertEndpoints[endpoint].timestamp || 0, otherAlertEndpoints[endpoint].timestamp || 0)
+        otherAlertEndpoints[endpoint].timestamp = Math.max(
+          this.alertEndpoints[endpoint].timestamp || 0,
+          otherAlertEndpoints[endpoint].timestamp || 0
+        )
       }
 
       if (!otherAlertEndpoints[endpoint].timestamp || now - otherAlertEndpoints[endpoint].timestamp < config.alertEndpointExpiresAfter) {
@@ -388,7 +383,9 @@ class AlertService extends EventEmitter {
       return
     }
 
-    console.log(`[alert/send/${this.alertEndpoints[alert.endpoint].user}] send alert ${market} @ ${alert.price} (${getHms(elapsedTime)} after)`)
+    console.log(
+      `[alert/send/${this.alertEndpoints[alert.endpoint].user}] send alert ${market} @ ${alert.price} (${getHms(elapsedTime)} after)`
+    )
 
     alert.triggered = true
 
@@ -420,14 +417,7 @@ class AlertService extends EventEmitter {
         return sleep(100)
       })
       .catch((err) => {
-        console.error(
-          `[alert/send] push notification failure\n\t`,
-          err.message,
-          '| payload :',
-          JSON.parse(payload),
-          this.alertEndpoints[alert.endpoint]
-        )
-        console.error(JSON.parse(payload))
+        console.error(`[alert/send] failed to send push notification`, err.message)
       })
   }
 
@@ -437,7 +427,7 @@ class AlertService extends EventEmitter {
    * @param {number} high index high range
    * @param {number} low index low range
    */
-   checkPriceCrossover(market, high, low) {
+  checkPriceCrossover(market, high, low) {
     const rangePriceHigh = this.getRangePrice(high)
     const rangePriceLow = this.getRangePrice(low)
 

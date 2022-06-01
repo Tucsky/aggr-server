@@ -3,11 +3,6 @@ const { parseMarket } = require('./catalog')
 
 require('../typedef')
 
-// only for debug purposes
-module.exports.debugReportedTrades = {
-  btcusdt: false
-}
-
 /**
  * @type {{[id: string]: Connection}}
  */
@@ -16,26 +11,36 @@ const connections = module.exports.connections = {}
 /**
  * @type {ProductIndex[]}
  */
-const indexes = module.exports.indexes = Object.values(config.pairs.reduce((acc, market) => {
-  const product = parseMarket(market)
+const indexes = module.exports.indexes = [];
 
-  if (config.priceIndexesBlacklist.indexOf(product.exchange) !== -1) {
-    return acc
-  }
+(module.exports.registerIndexes = function() {
+  indexes.splice(0, indexes.length)
+
+  const cacheIndexes = {}
+
+  for (const market of config.pairs) {
+    const product = parseMarket(market)
   
-  console.log(`[index] registered product ${product.id} aka ${product.exchange} ${product.local} (${product.type})`)
-
-  if (acc[product.local]) {
-    acc[product.local].markets.push(market)
-  } else {
-    acc[product.local] = {
-      markets: [market],
-      id: product.local
+    if (config.priceIndexesBlacklist.indexOf(product.exchange) !== -1) {
+      continue
     }
+
+    if (!cacheIndexes[product.local]) {
+      cacheIndexes[product.local] = {
+        id: product.local,
+        markets: []
+      }
+    }
+
+    // console.log(`[index] registered product ${product.id} aka ${product.exchange} ${product.local} (${product.type})`)
+
+    cacheIndexes[product.local].markets.push(market)
   }
 
-  return acc
-}, {}))
+  for (const localPair in cacheIndexes) {
+    indexes.push(cacheIndexes[localPair])
+  }
+})()
 
 /**
  * Register or update a connection
@@ -80,7 +85,7 @@ module.exports.updateIndexes = function(callback) {
     let nbSources = 0
   
     for (const market of index.markets) {
-      if (!connections[market] || !isFinite(connections[market].high)) {
+      if (!connections[market] || !connections[market].apiId || !isFinite(connections[market].high)) {
         continue
       }
   

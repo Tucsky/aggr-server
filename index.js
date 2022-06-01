@@ -1,4 +1,5 @@
 const fs = require('fs')
+const tx2 = require('tx2')
 
 console.log('PID: ', process.pid)
 
@@ -65,3 +66,21 @@ process.on('SIGINT', async function () {
 
   process.exit()
 })
+
+if (process.env.pmx) {
+  tx2.action('connect', function (market, reply) {
+    server.connect(market).then(() => {
+      reply(`successfully connected ${market}`)
+    }).catch(err => {
+      reply(`FAILED to connect ${market} (${err.message})`)
+    })
+  })
+  
+  tx2.action('disconnect', function (market, reply) {
+    server.disconnect(market).then(() => {
+      reply(`successfully disconnected ${market}`)
+    }).catch(err => {
+      reply(`FAILED to disconnect ${market} (${err.message})`)
+    })
+  })
+}

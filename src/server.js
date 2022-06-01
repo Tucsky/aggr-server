@@ -10,7 +10,8 @@ const webPush = require('web-push')
 const bodyParser = require('body-parser')
 const config = require('./config')
 const alertService = require('./services/alert')
-const { connections, registerConnection } = require('./services/connections')
+const socketService = require('./services/socket')
+const { connections, registerConnection, registerIndexes } = require('./services/connections')
 
 class Server extends EventEmitter {
   constructor(exchanges) {
@@ -259,12 +260,9 @@ class Server extends EventEmitter {
             `[${exchange.id}] api closed unexpectedly (${event.code}, ${event.reason || 'no reason'}) (was handling ${pairs.join(',')})`
           )
 
-          setTimeout(
-            () => {
-              this.reconnectApis([apiId], 'unexpected close')
-            },
-            1000
-          )
+          setTimeout(() => {
+            this.reconnectApis([apiId], 'unexpected close')
+          }, 1000)
         }
 
         this.broadcastJson({
@@ -413,19 +411,11 @@ class Server extends EventEmitter {
 
       if (!req.headers['origin'] || (!new RegExp(config.origin).test(req.headers['origin']) && config.whitelist.indexOf(user) === -1)) {
         console.log(`[${user}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
-        setTimeout(() => {
-          return res.status(500).json({
-            error: 'ignored',
-          })
-        }, 5000 + Math.random() * 5000)
+        return res.status(500).send('💀')
       } else if (this.BANNED_IPS.indexOf(user) !== -1) {
         console.debug(`[${user}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
 
-        setTimeout(() => {
-          return res.status(500).json({
-            error: 'ignored',
-          })
-        }, 5000 + Math.random() * 5000)
+        return res.status(500).send('💀')
       } else {
         next()
       }
@@ -460,6 +450,22 @@ class Server extends EventEmitter {
         }
       })
     }
+
+    app.get('/products', (req, res) => {
+      let products = []
+
+      if (socketService.clusteredCollectors.length) {
+        // node is a cluster
+
+        products = socketService.clusteredCollectors
+          .reduce((acc, collectorSocket) => acc.concat(collectorSocket.markets), [])
+          .filter((x, i, a) => a.indexOf(x) == i)
+      } else {
+        products = config.pairs
+      }
+
+      res.json(products)
+    })
 
     app.get('/historical/:from/:to/:timeframe?/:markets([^/]*)?', (req, res) => {
       const user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
@@ -600,6 +606,83 @@ class Server extends EventEmitter {
     }
   }
 
+  async connect(market) {
+    if (config.pairs.indexOf(market) !== -1) {
+      console.log(`[server.connect] ${market} is already added`)
+      return
+    }
+
+    const [exchangeId] = market.match(/([^:]*):(.*)/).slice(1, 3)
+
+    for (const exchange of this.exchanges) {
+      if (exchange.id === exchangeId) {
+        await exchange.getProductsAndConnect([market], true)
+        break
+      }
+    }
+
+    config.pairs.push(market)
+
+    registerIndexes()
+    socketService.syncMarkets()
+
+    return this.savePairs()
+  }
+
+  async disconnect(market) {
+    const marketIndex = config.pairs.indexOf(market)
+
+    if (marketIndex === -1) {
+      console.log(`[server.disconnect] ${market} is not in pairs, aborting`)
+      return
+    }
+
+    const [exchangeId] = market.match(/([^:]*):(.*)/).slice(1, 3)
+
+    for (const exchange of this.exchanges) {
+      if (exchange.id === exchangeId) {
+        await exchange.unlink(market)
+        break
+      }
+    }
+
+    config.pairs.splice(marketIndex, 1)
+
+    registerIndexes()
+    socketService.syncMarkets()
+
+    return this.savePairs()
+  }
+
+  savePairs() {
+    if (!config.configPath) {
+      console.warn(`[server] couldn't save config because configPath isn't known`)
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve, reject) => {
+      fs.readFile(config.configPath, 'utf8', (err, rawConfig) => {
+        if (err) {
+          return reject(new Error(`failed to read config file (${err.message})`))
+        }
+
+        const jsonConfig = JSON.parse(rawConfig)
+
+        jsonConfig.pairs = config.pairs
+
+        fs.writeFile(config.configPath, JSON.stringify(jsonConfig, null, '\t'), (err) => {
+          if (err) {
+            return reject(new Error(`failed to write config file (${err.message})`))
+          }
+
+          console.log(`[server] saved active pairs in ${config.configPath}`)
+
+          resolve()
+        })
+      })
+    })
+  }
+
   broadcastJson(data) {
     if (!this.wss) {
       return
@@ -644,7 +727,7 @@ class Server extends EventEmitter {
   /**
    * Check api hit rate & unusual activity
    * @param {boolean} print console log API stats even if there is nothing wrong with them
-   * @param {boolean} force check immediately 
+   * @param {boolean} force check immediately
    */
   checkApiStats(print = false, force = false) {
     if (!force) {
@@ -666,6 +749,11 @@ class Server extends EventEmitter {
 
     for (const market in connections) {
       const connection = connections[market]
+
+      if (!connection.apiId && config.pairs.indexOf(market) === -1) {
+        continue
+      }
+
       const name = `${connection.exchange}#${connection.apiId || 'OFFLINE'}`
 
       if (!apis[name]) {
@@ -675,14 +763,14 @@ class Server extends EventEmitter {
           hits: [],
           pairs: [],
           markets: [],
-          ping: now - connection.startedAt,
-          exchange: connection.exchange
+          ping: now - Math.max(connection.lastConnectedAt, connection.startedAt),
+          exchange: connection.exchange,
         }
       }
 
       apis[name].pairs.push(connection.pair)
       apis[name].markets.push(market)
-      
+
       if (!connection.timestamp) {
         apis[name].hits.push(0)
       } else {
@@ -696,7 +784,7 @@ class Server extends EventEmitter {
           apis[name].total += connection.hit
         }
       }
-        
+
       connection.lastHit = connection.hit
     }
 

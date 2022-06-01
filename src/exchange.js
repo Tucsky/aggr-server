@@ -495,13 +495,13 @@ class Exchange extends EventEmitter {
    * Ensure product are fetched then connect to given pairs
    * @returns {Promise<any>}
    */
-  async getProductsAndConnect(pairs) {
+  async getProductsAndConnect(pairs, forceRefreshProducts = false) {
     try {
-      await this.getProducts()
+      await this.getProducts(forceRefreshProducts)
     } catch (error) {
       this.scheduledOperationsDelays.getProducts = this.schedule(
         () => {
-          this.getProductsAndConnect(pairs)
+          this.getProductsAndConnect(pairs, forceRefreshProducts)
         },
         'getProducts',
         4000,
@@ -526,13 +526,15 @@ class Exchange extends EventEmitter {
    * Get exchange products
    * @returns {Promise<void>}
    */
-  async getProducts() {
+  async getProducts(forceRefreshProducts = false) {
     let formatedProducts
 
-    try {
-      formatedProducts = await readProducts(this.id)
-    } catch (error) {
-      console.error(`[${this.id}/getProducts] failed to read products`, error)
+    if (!forceRefreshProducts) {
+      try {
+        formatedProducts = await readProducts(this.id)
+      } catch (error) {
+        console.error(`[${this.id}/getProducts] failed to read products`, error)
+      }
     }
 
     if (!formatedProducts) {

@@ -222,7 +222,7 @@ module.exports.parseMarket = function (market, mergeStable = true) {
     localSymbol = base + (mergeStable ? quote.replace(/usd\w|ust/i, 'USD') : quote)
   }
 
-  console.log(`[catalog] registered product ${base}/${quote} from ${exchangeId} (${type})`)
+  // console.log(`[catalog] registered product ${base}/${quote} from ${exchangeId} (${type})`)
 
   return {
     id,

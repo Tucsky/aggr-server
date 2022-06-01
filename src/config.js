@@ -187,7 +187,7 @@ const defaultConfig = {
   privateVapidKey: null,
   alertExpiresAfter: 1000 * 60 * 60 * 24 * 7,
   alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 30,
-  priceIndexesBlacklist: ['HITBTC', 'BITSTAMP', 'HUOBI', 'KRAKEN', 'POLONIEX'],
+  priceIndexesBlacklist: ['HITBTC', 'BITSTAMP', 'KRAKEN', 'POLONIEX'],
 
   // verbose
   debug: false,
@@ -238,6 +238,8 @@ try {
   if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath) && !specificConfigFile) {
     fs.copyFileSync(configExamplePath, configPath)
   }
+
+  commandSettings.configPath = configPath
 
   userSettings = require(configPath) || {}
 } catch (error) {

@@ -55,15 +55,8 @@ class SocketService extends EventEmitter {
 
     this.clusterSocket.on('connect', () => {
       console.log('[socket/collector] successfully connected to cluster')
-      this.clusterSocket.write(
-        JSON.stringify({
-          op: 'welcome',
-          data: {
-            markets: config.pairs,
-            indexes: indexes.map(a => a.id),
-          },
-        }) + '#'
-      )
+
+      this.syncMarkets()
     })
 
     // store current incoming to be filled by potentialy partial chunks
@@ -88,6 +81,22 @@ class SocketService extends EventEmitter {
         // reconnect in this situation as well
         this.reconnectCluster()
       })
+  }
+
+  syncMarkets() {
+    if (!this.clusterSocket) {
+      return
+    }
+    
+    this.clusterSocket.write(
+      JSON.stringify({
+        op: 'markets',
+        data: {
+          markets: config.pairs,
+          indexes: indexes.map(a => a.id),
+        },
+      }) + '#'
+    )
   }
 
   /**
@@ -149,15 +158,22 @@ class SocketService extends EventEmitter {
       socket.on(
         'data',
         this.parseSocketData.bind(this, (data) => {
-          if (data.op === 'welcome') {
+          if (data.op === 'markets') {
             // this is our welcome message
             const { markets, indexes } = data.data
             socket.markets = markets
             socket.indexes = indexes
+            
+            const collectorIndex = this.clusteredCollectors.indexOf(socket)
 
-            console.log('[socket/cluster] registered collector with indexes', socket.indexes.join(', '))
+            if (collectorIndex === -1) {
+              console.log('[socket/cluster] registered collector with indexes', socket.indexes.join(', '))
 
-            this.clusteredCollectors.push(socket)
+              this.clusteredCollectors.push(socket)
+            } else {
+              console.log('[socket/cluster] updated collector with indexes', socket.indexes.join(', '))
+            }
+
             return
           }
 

@@ -175,12 +175,10 @@ class Okex extends Exchange {
 
   formatLiquidation(trade, pair) {
     const size = (trade.sz * this.specs[pair]) / (this.inversed[pair] ? trade.bkPx : 1)
-
     return {
       exchange: this.id,
       pair: pair,
-      timestamp: Date.now(), // avoid repainting old candles
-      //timestamp: +trade.ts,
+      timestamp: +trade.ts,
       price: +trade.bkPx,
       size: size,
       side: trade.side,
@@ -251,10 +249,10 @@ class Okex extends Exchange {
 
         this.liquidationProductsReferences[productId] = +liquidations[0].ts
 
-        this.emitLiquidations(
-          null,
-          liquidations.map((liquidation) => this.formatLiquidation(liquidation, productId))
-        )
+          this.emitLiquidations(
+            null,
+            liquidations.map((liquidation) => this.formatLiquidation(liquidation, productId))
+          )
       })
       .catch((err) => {
         let message = `[okex.fetchLatestLiquidations] ${productType}/${productId} ${err.message} at ${endpoint}`
