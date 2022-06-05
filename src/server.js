@@ -533,18 +533,15 @@ class Server extends EventEmitter {
             })
           }
 
-          if (output.length > 10000) {
+          if (output.results.length > 10000) {
             console.log(
               `[${user}/${req.get('origin')}] ${getHms(to - from)} (${markets.length} markets, ${getHms(timeframe, true)} tf) -> ${
                 +length ? parseInt(length) + ' bars into ' : ''
-              }${output.length} ${storage.format}s, took ${getHms(Date.now() - fetchStartAt)}`
+              }${output.results.length} ${storage.format}s, took ${getHms(Date.now() - fetchStartAt)}`
             )
           }
 
-          return res.status(200).json({
-            format: storage.format,
-            results: output,
-          })
+          return res.status(200).json(output)
         })
         .catch((err) => {
           return res.status(500).json({
@@ -793,11 +790,12 @@ class Server extends EventEmitter {
 
     for (const name in apis) {
       const avg = apis[name].hits.reduce((acc, a) => acc + a, 0) / apis[name].hits.length
+      const max = Math.max.apply(null, apis[name].hits)
       const thrs = Math.max(config.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)
       const ping = apis[name].ping
       const hit = apis[name].total
 
-      if (ping > thrs) {
+      if (max > 1000 * 60 * 60 || ping > thrs) {
         apisToReconnect.push(apis[name].apiId)
         apisTable[name] = {
           hit: hit,

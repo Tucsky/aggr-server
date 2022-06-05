@@ -23,6 +23,11 @@ class InfluxStorage {
     /**
      * @type {{[identifier: string]: Bar[]}}
      */
+    this.recentlyClosedBars = {}
+
+    /**
+     * @type {{[identifier: string]: Bar[]}}
+     */
     this.pendingBars = {}
 
     /**
@@ -226,38 +231,32 @@ class InfluxStorage {
     const timeframeLitteral = getHms(config.influxTimeframe)
     const now = +new Date()
 
-    let query = `SELECT * FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${
-      '_' + timeframeLitteral
-    }`
+    let query = `SELECT * FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${'_' + timeframeLitteral}`
 
     query += ` WHERE (${config.pairs.map((market) => `market = '${market}'`).join(' OR ')})`
 
     query += `GROUP BY "market" ORDER BY time DESC LIMIT 1`
 
-    this.influx
-      .query(query)
-      .then((data) => {
-        for (let bar of data) {
-          if (now - bar.time > config.influxResampleInterval) {
-            console.log(`[getLastBars] can't use lastBar because it is too old anyway (closed ${getHms(now - bar.time)}) ago`)
-            continue
-          }
-
-          console.log(`[getLastBars] initial pending bar at time ${bar.time}`)
-          
-          let originalBar
-
-          if (!this.pendingBars[bar.market]) {
-            this.pendingBars[bar.market] = []
-          }
-          
-          if (this.pendingBars[bar.market] && (originalBar = this.pendingBars[bar.market].find(({ time }) => bar.time == time))) {
-            this.sumBar(originalBar, bar)
-          } else {
-            this.pendingBars[bar.market].push(this.sumBar({}, bar))
-          }
+    this.influx.query(query).then((data) => {
+      for (let bar of data) {
+        if (now - bar.time > config.influxResampleInterval) {
+          console.log(`[getLastBars] can't use lastBar because it is too old anyway (closed ${getHms(now - bar.time)}) ago`)
+          continue
         }
-      })
+
+        let originalBar
+
+        if (!this.pendingBars[bar.market]) {
+          this.pendingBars[bar.market] = []
+        }
+
+        if (this.pendingBars[bar.market] && (originalBar = this.pendingBars[bar.market].find(({ time }) => bar.time == time))) {
+          this.sumBar(originalBar, bar)
+        } else {
+          this.pendingBars[bar.market].push(this.sumBar({}, bar))
+        }
+      }
+    })
   }
 
   sumBar(barToMutate, barToAdd) {
@@ -362,7 +361,11 @@ class InfluxStorage {
       if (!trade) {
         // end of loop reached = close all bars
         for (let barIdentifier in activeBars) {
-          this.closeBar(activeBars[barIdentifier])
+          if (!activeBars[barIdentifier]) {
+            console.error('active bar undefined (wont close bar)', barIdentifier)
+          } else {
+            this.closeBar(activeBars[barIdentifier])
+          }
 
           delete activeBars[barIdentifier]
         }
@@ -373,10 +376,18 @@ class InfluxStorage {
 
         tradeFlooredTime = Math.floor(trade.timestamp / config.influxTimeframe) * config.influxTimeframe
 
+        if (connections[market].bar && tradeFlooredTime < connections[market].bar.time) {
+          tradeFlooredTime = connections[market].bar.time
+        }
+
         if (!activeBars[market] || activeBars[market].time < tradeFlooredTime) {
           if (activeBars[market]) {
-            // close bar required
-            this.closeBar(activeBars[market])
+            if (!activeBars[market]) {
+              console.error('active bar undefined (wont close bar)', market)
+            } else {
+              // close bar required
+              this.closeBar(activeBars[market])
+            }
 
             delete activeBars[market]
           } else {
@@ -391,27 +402,19 @@ class InfluxStorage {
 
           if (this.pendingBars[market].length && this.pendingBars[market][this.pendingBars[market].length - 1].time === tradeFlooredTime) {
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
+            // console.log(`use last pending bar (time ${new Date(activeBars[market].time).toISOString().split('T').pop()}`)
           } else if (connections[market].bar && connections[market].bar.time === tradeFlooredTime) {
             // trades passed in save() contains some of the last batch (trade time = last bar time)
             // recover exchange point of lastbar
             this.pendingBars[market].push(connections[market].bar)
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
-            //console.log(`use connection bar (time ${new Date(activeBars[market].time).toISOString().split('T').pop()}`)
+            // console.log(`use connection bar (time ${new Date(activeBars[market].time).toISOString().split('T').pop()}`)
           } else if (
             !this.pendingBars[market].length ||
             !(activeBars[market] = this.pendingBars[market].find((a) => a.time === tradeFlooredTime))
           ) {
+            // onsole.log(`create empty bar (time ${new Date(tradeFlooredTime).toISOString().split('T').pop()}`)
             // create new bar
-
-            if (connections[market].bar && tradeFlooredTime < connections[market].bar.time) {
-              // at this point we could query the last bar from the db (but I won't because of performance issue with influx)
-              console.log(
-                `[influx] prevented creating new bar for ${market} at time ${new Date(tradeFlooredTime).toISOString()}, because last closed bar is more recent (${
-                  connections[market].bar.time
-                })`
-              )
-              continue
-            }
 
             this.pendingBars[market].push({
               time: tradeFlooredTime,
@@ -429,7 +432,9 @@ class InfluxStorage {
             })
 
             activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
-          }
+          } /* else {
+            console.log(`use pending bar at index ${this.pendingBars[market].indexOf(activeBars[market])} (time ${new Date(activeBars[market].time).toISOString().split('T').pop()}`)
+          }*/
         }
       }
 
@@ -759,13 +764,25 @@ class InfluxStorage {
         epoch: 's',
       })
       .then((results) => {
-        if (to > +new Date() - config.influxResampleInterval) {
-          return this.appendPendingBarsToResponse(results.results[0].series ? results.results[0].series[0].values : [], markets, from, to)
-        } else if (results.results[0].series) {
-          return results.results[0].series[0].values
-        } else {
-          return []
+        const output = {
+          format: this.format,
+          columns: {},
+          results: [],
         }
+
+        if (results.results[0].series && results.results[0].series[0].values.length) {
+          output.columns = this.formatColumns(results.results[0].series[0].columns)
+          output.results = results.results[0].series[0].values
+        }
+
+        if (to > +new Date() - config.influxResampleInterval) {
+          return this.appendPendingBarsToResponse(output.results, markets, from, to).then((bars) => {
+            output.results = bars
+            return output
+          })
+        }
+
+        return output
       })
       .catch((err) => {
         console.error(`[storage/influx] failed to retrieves trades between ${from} and ${to} with timeframe ${timeframe}\n\t`, err.message)
@@ -804,7 +821,7 @@ class InfluxStorage {
 
       injectedPendingBars = injectedPendingBars.sort((a, b) => a.time - b.time)
 
-      return bars.concat(injectedPendingBars)
+      return Promise.resolve(bars.concat(injectedPendingBars))
     }
   }
   async importCollectors() {
@@ -923,6 +940,13 @@ class InfluxStorage {
     }
 
     return results
+  }
+
+  formatColumns(columns) {
+    return columns.reduce((acc, name, index) => {
+      acc[name] = index
+      return acc
+    }, {})
   }
 }
 

@@ -1,6 +1,7 @@
 const Exchange = require('../exchange')
 const WebSocket = require('ws')
 const axios = require('axios')
+const { getHms } = require('../helper')
 
 class Okex extends Exchange {
   constructor() {
@@ -175,6 +176,7 @@ class Okex extends Exchange {
 
   formatLiquidation(trade, pair) {
     const size = (trade.sz * this.specs[pair]) / (this.inversed[pair] ? trade.bkPx : 1)
+
     return {
       exchange: this.id,
       pair: pair,
@@ -210,8 +212,44 @@ class Okex extends Exchange {
     delete this._liquidationInterval
   }
 
-  fetchLatestLiquidations() {
-    const productId = this.liquidationProducts[this._liquidationProductIndex++ % this.liquidationProducts.length]
+  async getMissingTrades(range, totalRecovered = 0) {
+    const tradesEndpoint = `https://www.okex.com/api/v5/market/trades?instId=${range.pair}&limit=500`
+
+    return axios
+      .get(tradesEndpoint)
+      .then((response) => {
+        if (response.data && response.data.data.length) {
+          const trades = response.data.data
+            .map((trade) => this.formatTrade(trade, range.pair))
+            .filter((a) => a.timestamp >= range.from + 1 && a.timestamp < range.to)
+
+          if (trades.length) {
+            this.emitTrades(null, trades)
+
+            totalRecovered += trades.length
+            range.to = trades[trades.length - 1].timestamp
+          }
+
+          const remainingMissingTime = range.to - range.from
+
+          if (totalRecovered === 500) {
+            console.error('WARNING 500 TRADES RECEIVED!!')
+            debugger
+          }
+
+          console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+        }
+
+        return totalRecovered
+      })
+      .catch((err) => {
+        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+
+        return totalRecovered
+      })
+  }
+
+  getLiquidationEndpoint(productId) {
     const productType = this.types[productId].toUpperCase()
     let endpoint = `https://www.okex.com/api/v5/public/liquidation-orders?instId=${productId}&instType=${productType}&uly=${productId
       .split('-')
@@ -221,6 +259,13 @@ class Okex extends Exchange {
     if (productType === 'FUTURES') {
       endpoint += `&alias=${this.aliases[productId]}`
     }
+
+    return endpoint
+  }
+
+  fetchLatestLiquidations() {
+    const productId = this.liquidationProducts[this._liquidationProductIndex++ % this.liquidationProducts.length]
+    const endpoint = this.getLiquidationEndpoint(productId)
 
     this._liquidationAxiosHandler && this._liquidationAxiosHandler.cancel()
     this._liquidationAxiosHandler = axios.CancelToken.source()
@@ -249,19 +294,19 @@ class Okex extends Exchange {
 
         this.liquidationProductsReferences[productId] = +liquidations[0].ts
 
-          this.emitLiquidations(
-            null,
-            liquidations.map((liquidation) => this.formatLiquidation(liquidation, productId))
-          )
+        this.emitLiquidations(
+          null,
+          liquidations.map((liquidation) => this.formatLiquidation(liquidation, productId))
+        )
       })
       .catch((err) => {
-        let message = `[okex.fetchLatestLiquidations] ${productType}/${productId} ${err.message} at ${endpoint}`
+        let message = `[okex.fetchLatestLiquidations] ${productId} ${err.message} at ${endpoint}`
 
         if (err.response && err.response.data && err.response.data.msg) {
           message += '\n\t' + err.response.data.msg
         }
 
-        console.error(message, `(instType: ${productType}, instId: ${productId}})`)
+        console.error(message, `(instId: ${productId}})`)
 
         if (axios.isCancel(err)) {
           return

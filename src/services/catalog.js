@@ -2,6 +2,10 @@ const axios = require('axios')
 const fs = require('fs')
 const { ensureDirectoryExists } = require('../helper')
 
+const baseQuoteLookupKnown = new RegExp(`^([A-Z0-9]{3,})[-/:]?(USDT|USDC|TUSD|BUSD)$|^([A-Z0-9]{2,})[-/:]?(UST|EUR|USD)$`)
+const baseQuoteLookupOthers = new RegExp(`^([A-Z0-9]{2,})[-/]?([A-Z0-9]{3,})$`)
+const baseQuoteLookupPoloniex = new RegExp(`^(.*)_(.*)$`)
+
 require('../typedef')
 
 
@@ -115,97 +119,92 @@ module.exports.fetchProducts = async function (exchangeId, endpoints) {
   return null
 }
 
+const formatStablecoin = module.exports.formatStablecoin = function (pair) {
+  return pair.replace(/(\w{3})?b?usd?[a-z]?$/i, '$1USD')
+}
+
 /**
  * 
  * @param {string} market 
  * @returns {Product}
  */
-module.exports.parseMarket = function (market, mergeStable = true) {
-  const [exchangeId, pair] = market.match(/([^:]*):(.*)/).slice(1, 3)
+module.exports.parseMarket = function (market, noStable = true) {
+  const [exchangeId, symbol] = market.match(/([^:]*):(.*)/).slice(1, 3)
+  const id = exchangeId + ':' + symbol
 
-  const baseRegex = '([a-z0-9]{2,})'
-  const quoteRegexKnown = '(eur|usd|usdt|usdc|tusd)'
-  const quoteRegexOthers = '([a-z0-9]{3,})'
-
-  const baseQuoteLookup1 = new RegExp(`^${baseRegex}[^a-z0-9]?${quoteRegexKnown}$`, 'i')
-  const baseQuoteLookup2 = new RegExp(`^${baseRegex}[^a-z0-9]?${quoteRegexOthers}$`, 'i')
-  const baseQuoteLookupPoloniex = new RegExp(`^(.*)_(.*)$`)
-
-  const id = exchangeId + ':' + pair
   let type = 'spot'
 
-  if (/[UZ_-]\d{2}/.test(pair)) {
+  if (/[UZ_-]\d{2}/.test(symbol)) {
     type = 'future'
-  } else if (exchangeId === 'BYBIT' && !/-SPOT$/.test(pair)) {
+  } else if (exchangeId === 'BINANCE_FUTURES' || exchangeId === 'DYDX') {
     type = 'perp'
-  } else if (exchangeId === 'BITMEX' || /(-|_)swap$|(-|_|:)perp/i.test(pair)) {
+  } else if (exchangeId === 'BITFINEX' && /F0$/.test(symbol)) {
     type = 'perp'
-  } else if (exchangeId === 'BINANCE_FUTURES') {
-    type = 'perp'
-  } else if (exchangeId === 'BITFINEX' && /F0$/.test(pair)) {
-    type = 'perp'
-  } else if (exchangeId === 'PHEMEX' && pair[0] !== 's') {
-    type = 'perp'
-  } else if (exchangeId === 'HUOBI' && /_(CW|CQ|NW|NQ)$/.test(pair)) {
+  } else if (exchangeId === 'HUOBI' && /_(CW|CQ|NW|NQ)$/.test(symbol)) {
     type = 'future'
-  } else if (exchangeId === 'HUOBI' && /-/.test(pair)) {
+  } else if (exchangeId === 'HUOBI' && /-/.test(symbol)) {
     type = 'perp'
-  } else if (exchangeId === 'KRAKEN' && /PI_/.test(pair)) {
+  } else if (exchangeId === 'BYBIT' && !/-SPOT$/.test(symbol)) {
+    type = 'perp'
+  } else if (exchangeId === 'BITMEX' || /(-|_)swap$|(-|_|:)perp/i.test(symbol)) {
+    if (/\d{2}/.test(symbol)) {
+      type = 'future'
+    } else {
+      type = 'perp'
+    }
+  } else if (exchangeId === 'PHEMEX' && symbol[0] !== 's') {
+    type = 'perp'
+  } else if (exchangeId === 'KRAKEN' && /_/.test(symbol) && type === 'spot') {
     type = 'perp'
   }
 
-  let localSymbol = pair
+  let localSymbol = symbol
 
   if (exchangeId === 'BYBIT') {
     localSymbol = localSymbol.replace(/-SPOT$/, '')
-  }
-
-  if (exchangeId === 'KRAKEN') {
+  } else if (exchangeId === 'KRAKEN') {
     localSymbol = localSymbol.replace(/PI_/, '').replace(/FI_/, '')
-  }
-
-  if (exchangeId === 'BITFINEX') {
-    localSymbol = localSymbol.replace(/(.*)F0:USTF0/, '$1USDT').replace(/UST$/, 'USDT')
-  }
-
-  if (exchangeId === 'HUOBI') {
+  } else if (exchangeId === 'FTX' && type === 'future') {
+    localSymbol = localSymbol.replace(/(\w+)-\d+$/, '$1-USD')
+  } else if (exchangeId === 'BITFINEX') {
+    localSymbol = localSymbol.replace(/(.*)F0:(\w+)F0/, '$1-$2').replace(/UST($|F0)/, 'USDT$1')
+  } else if (exchangeId === 'HUOBI') {
     localSymbol = localSymbol.replace(/_CW|_CQ|_NW|_NQ/i, 'USD')
-  }
-
-  if (exchangeId === 'DERIBIT') {
+  } else if (exchangeId === 'DERIBIT') {
     localSymbol = localSymbol.replace(/_(\w+)-PERPETUAL/i, '$1')
   }
 
   localSymbol = localSymbol
-    .replace(/-PERP(ETUAL)?/i, 'USD')
+    .replace(/xbt$|^xbt/i, 'BTC')
+    .replace(/-PERP(ETUAL)?/i, '-USD')
     .replace(/[^a-z0-9](perp|swap|perpetual)$/i, '')
     .replace(/[^a-z0-9]\d+$/i, '')
-    .replace(/[-_/:]/, '')
-    .replace(/XBT/i, 'BTC')
     .toUpperCase()
+
+  let localSymbolAlpha = localSymbol.replace(/[-_/:]/, '')
 
   let match
 
   if (exchangeId === 'POLONIEX') {
-    match = pair.match(baseQuoteLookupPoloniex)
+    match = symbol.match(baseQuoteLookupPoloniex)
 
     if (match) {
       match[0] = match[2]
       match[2] = match[1]
       match[1] = match[0]
 
-      localSymbol = match[1] + match[2]
+      localSymbolAlpha = match[1] + match[2]
     }
   } else {
-    match = localSymbol.match(baseQuoteLookup1)
+    match = localSymbol.match(baseQuoteLookupKnown)
 
     if (!match) {
-      match = localSymbol.match(baseQuoteLookup2)
+      match = localSymbolAlpha.match(baseQuoteLookupOthers)
     }
   }
 
   if (!match && (exchangeId === 'DERIBIT' || exchangeId === 'FTX' || exchangeId === 'HUOBI')) {
-    match = localSymbol.match(/(\w+)[^a-z0-9]/i)
+    match = localSymbolAlpha.match(/(\w+)[^a-z0-9]/i)
 
     if (match) {
       match[2] = match[1]
@@ -216,20 +215,27 @@ module.exports.parseMarket = function (market, mergeStable = true) {
   let quote
 
   if (match) {
-    base = match[1]
-    quote = match[2]
+    if (match[1] === undefined && match[2] === undefined) {
+      base = match[3]
+      quote = match[4]
+    } else {
+      base = match[1]
+      quote = match[2]
+    }
 
-    localSymbol = base + (mergeStable ? quote.replace(/usd\w|ust/i, 'USD') : quote)
+    if (noStable) {
+      localSymbolAlpha = base + formatStablecoin(quote)
+    } else {
+      localSymbolAlpha = base + quote
+    }
   }
-
-  // console.log(`[catalog] registered product ${base}/${quote} from ${exchangeId} (${type})`)
 
   return {
     id,
     base,
     quote,
-    pair,
-    local: localSymbol,
+    pair: symbol,
+    local: localSymbolAlpha,
     exchange: exchangeId,
     type
   }
