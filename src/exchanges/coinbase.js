@@ -58,7 +58,7 @@ class Coinbase extends Exchange {
   onMessage(event, api) {
     const json = JSON.parse(event.data)
 
-    if (json && json.size > 0) {
+    if (json && json.type === 'match') {
       return this.emitTrades(api.id, [this.formatTrade(json, json.product_id)])
     }
   }
@@ -105,7 +105,7 @@ class Coinbase extends Exchange {
 
           const remainingMissingTime = range.to - range.from
 
-          if (remainingMissingTime > 1000 && earliestTradeTime >= range.from) {
+          if (trades.length && remainingMissingTime > 1000 && earliestTradeTime >= range.from) {
             console.log(
               `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(
                 remainingMissingTime

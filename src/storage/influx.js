@@ -26,7 +26,7 @@ class InfluxStorage {
     this.recentlyClosedBars = {}
 
     /**
-     * @type {{[identifier: string]: Bar[]}}
+     * @type {{[identifier: string]: {[timestamp: number]: Bar}}}
      */
     this.pendingBars = {}
 
@@ -247,13 +247,13 @@ class InfluxStorage {
         let originalBar
 
         if (!this.pendingBars[bar.market]) {
-          this.pendingBars[bar.market] = []
+          this.pendingBars[bar.market] = {}
         }
 
-        if (this.pendingBars[bar.market] && (originalBar = this.pendingBars[bar.market].find(({ time }) => bar.time == time))) {
+        if (this.pendingBars[bar.market] && (originalBar = this.pendingBars[bar.market][+bar.time])) {
           this.sumBar(originalBar, bar)
         } else {
-          this.pendingBars[bar.market].push(this.sumBar({}, bar))
+          this.pendingBars[bar.market][+bar.time] = this.sumBar({}, bar)
         }
       }
     })
@@ -319,22 +319,6 @@ class InfluxStorage {
   }
 
   /**
-   * close a bar (register close + reference for next bar)
-   * @param {Bar} bar
-   */
-  closeBar(bar) {
-    if (typeof bar.close === 'number') {
-      // reg range for index
-      connections[bar.market].high = Math.max(connections[bar.market].high, bar.high)
-      connections[bar.market].low = Math.min(connections[bar.market].low, bar.low)
-    }
-
-    connections[bar.market].bar = bar
-
-    return connections[bar.market].bar
-  }
-
-  /**
    * Trades into bars (pending bars)
    *
    * @param {Trade[]} trades
@@ -350,110 +334,85 @@ class InfluxStorage {
      * Current bars
      * @type {{[identifier: string]: Bar}}
      */
-    const activeBars = {}
+    const bars = {}
 
-    for (let i = 0; i <= trades.length; i++) {
+    for (let i = 0; i < trades.length; i++) {
       const trade = trades[i]
+      const market = trade.exchange + ':' + trade.pair
+      const tradeFlooredTime = Math.floor(trade.timestamp / config.influxTimeframe) * config.influxTimeframe
 
-      let market
-      let tradeFlooredTime
+      if (!bars[market] || bars[market].time !== tradeFlooredTime) {
+        //bars[market] && console.log(`${market} time is !==, resolve bar or create`)
+        // need to create bar OR recover bar either from pending bar / last saved bar
 
-      if (!trade) {
-        // end of loop reached = close all bars
-        for (let barIdentifier in activeBars) {
-          if (!activeBars[barIdentifier]) {
-            console.error('active bar undefined (wont close bar)', barIdentifier)
-          } else {
-            this.closeBar(activeBars[barIdentifier])
-          }
-
-          delete activeBars[barIdentifier]
+        if (!this.pendingBars[market]) {
+          //console.log(`create container for pending bars of market ${market}`)
+          this.pendingBars[market] = {}
         }
 
-        break
-      } else {
-        market = trade.exchange + ':' + trade.pair
-
-        tradeFlooredTime = Math.floor(trade.timestamp / config.influxTimeframe) * config.influxTimeframe
-
-        if (connections[market].bar && tradeFlooredTime < connections[market].bar.time) {
-          tradeFlooredTime = connections[market].bar.time
-        }
-
-        if (!activeBars[market] || activeBars[market].time < tradeFlooredTime) {
-          if (activeBars[market]) {
-            if (!activeBars[market]) {
-              console.error('active bar undefined (wont close bar)', market)
-            } else {
-              // close bar required
-              this.closeBar(activeBars[market])
-            }
-
-            delete activeBars[market]
-          } else {
-            connections[market].high = -Infinity
-            connections[market].low = Infinity
+        if (this.pendingBars[market] && this.pendingBars[market][tradeFlooredTime]) {
+          bars[market] = this.pendingBars[market][tradeFlooredTime]
+          //console.log(`\tuse pending bar (time ${new Date(bars[market].time).toISOString().split('T').pop().replace(/\..*/, '')})`)
+        } else if (connections[market].bar && connections[market].bar.time === tradeFlooredTime) {
+          // trades passed in save() contains some of the last batch (trade time = last bar time)
+          bars[market] = this.pendingBars[market][tradeFlooredTime] = connections[market].bar
+          //console.log(`\tuse connection bar (time ${new Date(bars[market].time).toISOString().split('T').pop().replace(/\..*/, '')})`)
+        } else {
+          bars[market] = this.pendingBars[market][tradeFlooredTime] = {
+            time: tradeFlooredTime,
+            market: market,
+            cbuy: 0,
+            csell: 0,
+            vbuy: 0,
+            vsell: 0,
+            lbuy: 0,
+            lsell: 0,
+            open: null,
+            high: null,
+            low: null,
+            close: null,
           }
-
-          // create bar required
-          if (!this.pendingBars[market]) {
-            this.pendingBars[market] = []
-          }
-
-          if (this.pendingBars[market].length && this.pendingBars[market][this.pendingBars[market].length - 1].time === tradeFlooredTime) {
-            activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
-            // console.log(`use last pending bar (time ${new Date(activeBars[market].time).toISOString().split('T').pop()}`)
-          } else if (connections[market].bar && connections[market].bar.time === tradeFlooredTime) {
-            // trades passed in save() contains some of the last batch (trade time = last bar time)
-            // recover exchange point of lastbar
-            this.pendingBars[market].push(connections[market].bar)
-            activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
-            // console.log(`use connection bar (time ${new Date(activeBars[market].time).toISOString().split('T').pop()}`)
-          } else if (
-            !this.pendingBars[market].length ||
-            !(activeBars[market] = this.pendingBars[market].find((a) => a.time === tradeFlooredTime))
-          ) {
-            // onsole.log(`create empty bar (time ${new Date(tradeFlooredTime).toISOString().split('T').pop()}`)
-            // create new bar
-
-            this.pendingBars[market].push({
-              time: tradeFlooredTime,
-              market: market,
-              cbuy: 0,
-              csell: 0,
-              vbuy: 0,
-              vsell: 0,
-              lbuy: 0,
-              lsell: 0,
-              open: null,
-              high: null,
-              low: null,
-              close: null,
-            })
-
-            activeBars[market] = this.pendingBars[market][this.pendingBars[market].length - 1]
-          } /* else {
-            console.log(`use pending bar at index ${this.pendingBars[market].indexOf(activeBars[market])} (time ${new Date(activeBars[market].time).toISOString().split('T').pop()}`)
-          }*/
+          //console.log(`\tcreate new bar (time ${new Date(bars[market].time).toISOString().split('T').pop().replace(/\..*/, '')})`)
         }
       }
 
       if (trade.liquidation) {
         // trade is a liquidation
-        activeBars[market]['l' + trade.side] += trade.price * trade.size
+        bars[market]['l' + trade.side] += trade.price * trade.size
       } else {
-        if (activeBars[market].open === null) {
-          // new bar without close in db, should only happen once
-          activeBars[market].open = activeBars[market].high = activeBars[market].low = activeBars[market].close = +trade.price
+        if (bars[market].open === null) {
+          bars[market].open = bars[market].high = bars[market].low = bars[market].close = +trade.price
+        } else {
+          bars[market].high = Math.max(bars[market].high, +trade.price)
+          bars[market].low = Math.min(bars[market].low, +trade.price)
+          bars[market].close = +trade.price
         }
 
-        activeBars[market].high = Math.max(activeBars[market].high, +trade.price)
-        activeBars[market].low = Math.min(activeBars[market].low, +trade.price)
-        activeBars[market].close = +trade.price
-
-        activeBars[market]['c' + trade.side] += trade.count || 1
-        activeBars[market]['v' + trade.side] += trade.price * trade.size
+        bars[market]['c' + trade.side] += trade.count || 1
+        bars[market]['v' + trade.side] += trade.price * trade.size
       }
+    }
+
+    for (const market in this.pendingBars) {
+      if (!connections[market]) {
+        continue
+      }
+
+      connections[market].high = -Infinity
+      connections[market].low = Infinity
+
+      for (const timestamp in this.pendingBars[market]) {
+        connections[market].bar = this.pendingBars[market][timestamp]
+
+        if (this.pendingBars[market][timestamp].open === null) {
+          continue
+        }
+
+        connections[market].high = Math.max(this.pendingBars[market][timestamp].high, connections[market].high)
+        connections[market].low = Math.min(this.pendingBars[market][timestamp].low, connections[market].low)
+      }
+
+      // console.log(market, connections[market].low, connections[market].high)
     }
 
     updateIndexes((index, high, low) => {
@@ -500,25 +459,26 @@ class InfluxStorage {
     }
 
     for (const identifier in this.pendingBars) {
-      for (let i = 0; i < this.pendingBars[identifier].length; i++) {
-        const bar = this.pendingBars[identifier][i]
+      if (importedRange.markets.indexOf(identifier) === -1) {
+        importedRange.markets.push(identifier)
+      }
+
+      for (const timestamp in this.pendingBars[identifier]) {
+        const bar = this.pendingBars[identifier][timestamp]
 
         importedRange.from = Math.min(bar.time, importedRange.from)
         importedRange.to = Math.max(bar.time, importedRange.to)
 
-        if (importedRange.markets.indexOf(identifier) === -1) {
-          importedRange.markets.push(identifier)
-        }
-
-        barsToImport.push(this.pendingBars[identifier].shift())
-        i--
+        barsToImport.push(bar)
       }
     }
 
-    // free up realtime bars
+    // free up pending bars memory
     this.pendingBars = {}
 
     if (barsToImport.length) {
+      // console.debug(`[storage/influx] importing ${barsToImport.length} bars`)
+
       await this.writePoints(
         barsToImport.map((bar) => {
           const fields = {}
@@ -807,19 +767,7 @@ class InfluxStorage {
       })
     } else {
       // use current node pending bars
-      let injectedPendingBars = []
-
-      for (const market of markets) {
-        if (this.pendingBars[market] && this.pendingBars[market].length) {
-          for (const bar of this.pendingBars[market]) {
-            if (bar.time >= from && bar.time < to && bar.close !== null) {
-              injectedPendingBars.push(bar)
-            }
-          }
-        }
-      }
-
-      injectedPendingBars = injectedPendingBars.sort((a, b) => a.time - b.time)
+      const injectedPendingBars = this.getPendingBars(markets, from, to).sort((a, b) => a.time - b.time)
 
       return Promise.resolve(bars.concat(injectedPendingBars))
     }
@@ -930,14 +878,24 @@ class InfluxStorage {
     const results = []
 
     for (const market of markets) {
-      if (this.pendingBars[market] && this.pendingBars[market].length) {
-        for (const bar of this.pendingBars[market]) {
-          if (bar.time >= from && bar.time <= to) {
-            results.push(bar)
+      if (this.pendingBars[market]) {
+        for (const timestamp in this.pendingBars[market]) {
+          if (this.pendingBars[market][timestamp].close === null) {
+            continue
+          }
+
+          if (timestamp >= from && timestamp <= to) {
+            results.push(this.pendingBars[market][timestamp])
           }
         }
       }
     }
+
+    /*console.debug(
+      `[storage/influx] found ${results.length} pending bars for ${markets.join(',')} between ${new Date(
+        +from
+      ).toISOString()} and ${new Date(+to).toISOString()}`
+    )*/
 
     return results
   }

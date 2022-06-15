@@ -42,7 +42,7 @@ async function program() {
 
     resampleRange.markets.push(market.id)
 
-    if ((market.exchange === 'OKEX' || market.exchange === 'HUOBI' || market.exchange === 'BYBIT') && market.type === 'spot') {
+    if ((market.exchange === 'OKEX' || market.exchange === 'HUOBI') && market.type === 'spot') {
       continue
     }
 
@@ -52,6 +52,10 @@ async function program() {
       symbol = market.pair
     } else if (market.type === 'perp') {
       symbol += '_PERP'
+    }
+
+    if (pair.exchange === 'BYBIT' && market.type === 'spot') {
+      symbol = 's' + symbol.replace('-SPOT', '')
     }
 
     const coinalizeMarket = symbol + '.' + COINALIZE_VENUES[exchange.id.replace(/_\w+/, '')]

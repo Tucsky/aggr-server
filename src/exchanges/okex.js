@@ -176,6 +176,7 @@ class Okex extends Exchange {
 
   formatLiquidation(trade, pair) {
     const size = (trade.sz * this.specs[pair]) / (this.inversed[pair] ? trade.bkPx : 1)
+    //console.debug(`[${this.id}] okex liquidation at ${new Date(+trade.ts).toISOString()}`)
 
     return {
       exchange: this.id,
@@ -212,15 +213,26 @@ class Okex extends Exchange {
     delete this._liquidationInterval
   }
 
-  async getMissingTrades(range, totalRecovered = 0) {
-    const tradesEndpoint = `https://www.okex.com/api/v5/market/trades?instId=${range.pair}&limit=500`
+  async getMissingTrades(range, totalRecovered = 0, beforeTradeId) {
+    let endpoint
+    if (beforeTradeId) {
+      endpoint = `https://www.okex.com/api/v5/market/history-trades?instId=${range.pair}&limit=500${
+        beforeTradeId ? '&after=' + beforeTradeId : ''
+      }`
+    } else {
+      endpoint = `https://www.okex.com/api/v5/market/trades?instId=${range.pair}&limit=500`
+    }
 
     return axios
-      .get(tradesEndpoint)
+      .get(endpoint)
       .then((response) => {
-        if (response.data && response.data.data.length) {
+        console.log(response.data.data.length)
+        if (response.data.data.length) {
+          const lastTradeId = response.data.data[response.data.data.length - 1].tradeId
+          const earliestTradeTime = +response.data.data[response.data.data.length - 1].ts
+
           const trades = response.data.data
-            .map((trade) => this.formatTrade(trade, range.pair))
+            .map((trade) => this.formatTrade(trade))
             .filter((a) => a.timestamp >= range.from + 1 && a.timestamp < range.to)
 
           if (trades.length) {
@@ -232,12 +244,16 @@ class Okex extends Exchange {
 
           const remainingMissingTime = range.to - range.from
 
-          if (totalRecovered === 500) {
-            console.error('WARNING 500 TRADES RECEIVED!!')
-            debugger
+          if (trades.length && remainingMissingTime > 500 && earliestTradeTime >= range.from) {
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(
+                remainingMissingTime
+              )} remaining)`
+            )
+            return this.getMissingTrades(range, totalRecovered, lastTradeId)
+          } else {
+            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
-
-          console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
         }
 
         return totalRecovered

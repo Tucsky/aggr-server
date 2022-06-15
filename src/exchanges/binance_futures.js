@@ -9,8 +9,6 @@ class BinanceFutures extends Exchange {
     this.id = 'BINANCE_FUTURES'
     this.lastSubscriptionId = 0
     this.subscriptions = {}
-    this.attempts = 0
-    this.doomeet = false
 
     this.maxConnectionsPerApi = 100
     this.endpoints = {
@@ -113,10 +111,6 @@ class BinanceFutures extends Exchange {
   }
 
   onMessage(event, api) {
-    if (api.down) {
-      return
-    }
-
     const json = JSON.parse(event.data)
 
     if (!json) {
@@ -208,45 +202,6 @@ class BinanceFutures extends Exchange {
         return totalRecovered
       })
   }
-
-  /*onApiCreated(api) {
-    if (!this.doomeet) {
-      setTimeout(() => {
-        this.doomeet++
-        api.close()
-      }, 1000 * 20)
-    } else {
-      this.doomeet++
-
-      if (this.doomeet > 10) {
-        this.doomeet = 0
-      }
-    }
-  }
-
-  onOpen(event, api) {
-    super.onOpen(event, api)
-
-    if (this.doomeet) {
-      setTimeout(() => {
-        api.close()
-      }, Math.random() * 1000)
-    }
-  }*/
-
-  /*onApiCreated(api) {
-    this.attempts++
-    api.downSimTimeout = setTimeout(() => {
-      api.downSimTimeout = null
-      api.down = true
-    }, 1000 * 15 * this.attempts)
-  }
-
-  onApiRemoved(api) {
-    if (api.downSimTimeout) {
-      clearTimeout(api.downSimTimeout)
-    }
-  }*/
 }
 
 module.exports = BinanceFutures

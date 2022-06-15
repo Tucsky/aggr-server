@@ -68,19 +68,19 @@ process.on('SIGINT', async function () {
 })
 
 if (process.env.pmx) {
-  tx2.action('connect', function (market, reply) {
-    server.connect(market).then(() => {
-      reply(`successfully connected ${market}`)
+  tx2.action('connect', function (markets, reply) {
+    server.connect(markets.split(',')).then(result => {
+      reply(result.join(', '))
     }).catch(err => {
-      reply(`FAILED to connect ${market} (${err.message})`)
+      reply(`FAILED to connect ${markets} (${err.message})`)
     })
   })
   
-  tx2.action('disconnect', function (market, reply) {
-    server.disconnect(market).then(() => {
-      reply(`successfully disconnected ${market}`)
+  tx2.action('disconnect', function (markets, reply) {
+    server.disconnect(markets.split(',')).then(result => {
+      reply(result.join(', '))
     }).catch(err => {
-      reply(`FAILED to disconnect ${market} (${err.message})`)
+      reply(`FAILED to disconnect ${markets} (${err.message})`)
     })
   })
 }

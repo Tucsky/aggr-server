@@ -87,17 +87,6 @@ const defaultConfig = {
   // enable api (historical/{from in ms}/{to in ms}/{timesfame in ms}/{markets separated by +})
   api: true,
 
-  // monitor connection health interval
-  // checks average of hit per api
-  // reconnect if hit is too low or ping is too high relative to avg
-  // default 5s
-  monitorInterval: 5000,
-
-  // base reconnection threshold
-  // ex: with a monitorInterval of 5s & reconnectionThreshold of 5m, an api of 1 trade per 5m average will reconnect after idling for 5m
-  // (increase this value if you notice too many reconnections, decrease otherwise)
-  reconnectionThreshold: 300000,
-
   // storage solution, either
   // false | null (no storage, everything is wiped out after broadcast)
   // "files" (periodical text file),

@@ -443,7 +443,7 @@ class AlertService extends EventEmitter {
       return
     }
 
-    const inRangeLength = this.alerts[market][rangePrice].length
+    // const inRangeLength = this.alerts[market][rangePrice].length
 
     /*console.log(
       `[alert] check ${market}'s crossovers in the ${rangePrice} region (${inRangeLength} alert${inRangeLength > 1 ? 's' : ''})`

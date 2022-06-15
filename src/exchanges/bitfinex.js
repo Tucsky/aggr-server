@@ -1,5 +1,6 @@
 const Exchange = require('../exchange')
 const axios = require('axios')
+const fs = require('fs')
 const { getHms } = require('../helper')
 
 class Bitfinex extends Exchange {
@@ -124,15 +125,18 @@ class Bitfinex extends Exchange {
     if (channel.name === 'trades' && json[1] === 'te') {
       this.prices[channel.pair] = +json[2][3]
 
-      return this.emitTrades(api.id, [
-        this.formatTrade(json[2], channel.pair),
-      ])
+      return this.emitTrades(api.id, [this.formatTrade(json[2], channel.pair)])
     } else if (channel.name === 'status' && json[1]) {
       return this.emitLiquidations(
         api.id,
         json[1]
-          .filter((a) => api._connected.indexOf(a[4].substring(1)) !== -1)
-          .map((a) => this.formatLiquidation(a, a[4].substring(1)))
+          .filter((liquidation) => {
+            if (liquidation[4] === 'tBTCF0:USTF0') {
+              console.log(JSON.stringify(liquidation))
+            }
+            return !liquidation[8] && !liquidation[10] && !liquidation[11] && api._connected.indexOf(liquidation[4].substring(1)) !== -1
+          })
+          .map((liquidation) => this.formatLiquidation(liquidation, liquidation[4].substring(1)))
       )
     }
   }
@@ -163,23 +167,29 @@ class Bitfinex extends Exchange {
   getMissingTrades(range, totalRecovered = 0) {
     const startTime = range.from
 
-    const endpoint = `https://api-pub.bitfinex.com/v2/trades/Symbol/hist?symbol=${'t' + range.pair}&start=${startTime + 1}&end=${range.to}&limit=1000&sort=1`
+    const endpoint = `https://api-pub.bitfinex.com/v2/trades/Symbol/hist?symbol=${'t' + range.pair}&start=${startTime + 1}&end=${
+      range.to
+    }&limit=1000&sort=1`
 
     return axios
       .get(endpoint)
       .then((response) => {
         if (response.data.length) {
           const trades = response.data.map((trade) => this.formatTrade(trade, range.pair))
-  
+
           this.emitTrades(null, trades)
 
           totalRecovered += trades.length
           range.from = trades[trades.length - 1].timestamp
 
           const remainingMissingTime = range.to - range.from
-          
+
           if (remainingMissingTime > 1000 && trades.length >= 1000) {
-            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(remainingMissingTime)} remaining)`)
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(
+                remainingMissingTime
+              )} remaining)`
+            )
             return this.getMissingTrades(range, totalRecovered)
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)

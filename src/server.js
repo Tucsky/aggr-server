@@ -60,9 +60,6 @@ class Server extends EventEmitter {
 
       this.handleExchangesEvents()
       this.connectExchanges()
-
-      // profile exchanges connections (keep alive)
-      this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, Date.now()), config.monitorInterval)
     }
 
     this.initStorages().then(() => {
@@ -208,8 +205,6 @@ class Server extends EventEmitter {
         console.log(`[connections] ${id}${lastPing} disconnected from ${apiId} (${apiLength} remaining)`)
 
         connections[id].apiId = null
-
-        this.checkApiStats(true)
       })
 
       exchange.on('connected', (pair, apiId, apiLength) => {
@@ -235,8 +230,6 @@ class Server extends EventEmitter {
         console.log(`[connections] ${id}${lastPing} connected to ${apiId} (${apiLength} total)`)
 
         connections[id].apiId = apiId
-
-        this.checkApiStats(true)
       })
 
       exchange.on('open', (apiId, pairs) => {
@@ -586,10 +579,6 @@ class Server extends EventEmitter {
       })
     )
 
-    exchangesProductsResolver.then(() => {
-      this.checkApiStats(true)
-    })
-
     if (config.broadcast && config.broadcastDebounce && !config.broadcastAggr) {
       this._broadcastDelayedTradesInterval = setInterval(() => {
         if (!this.delayedForBroadcast.length) {
@@ -603,52 +592,107 @@ class Server extends EventEmitter {
     }
   }
 
-  async connect(market) {
-    if (config.pairs.indexOf(market) !== -1) {
-      console.log(`[server.connect] ${market} is already added`)
-      return
+  async connect(markets) {
+    markets = markets.filter((market) => {
+      if (config.pairs.indexOf(market) !== -1) {
+        return false
+      }
+
+      return true
+    })
+
+    if (!markets.length) {
+      throw new Error('nothing to connect')
     }
 
-    const [exchangeId] = market.match(/([^:]*):(.*)/).slice(1, 3)
+    const results = []
 
     for (const exchange of this.exchanges) {
-      if (exchange.id === exchangeId) {
-        await exchange.getProductsAndConnect([market], true)
-        break
+      const exchangeMarkets = markets.filter(market => {
+        const [exchangeId] = (market.match(/([^:]*):(.*)/) || []).slice(1, 3)
+
+        return exchange.id === exchangeId
+      })
+
+      if (exchangeMarkets.length) {
+        try {
+          await exchange.getProducts(true)
+        } catch (error) {
+          console.error(`[server.connect] failed to retrieve ${exchange.id}'s products: ${error.message}`)
+        }
+
+        for (let market of exchangeMarkets) {
+          try {
+            await exchange.link(market)
+            config.pairs.push(market)
+            results.push(`${market} ✅`)
+          } catch (error) {
+            console.error(error.message)
+            results.push(`${market} ❌ (${error.message})`)
+          }
+        }
       }
     }
 
-    config.pairs.push(market)
+    if (!results.length) {
+      throw new Error('nothing was done')
+    } else {
+      registerIndexes()
+      socketService.syncMarkets()
+  
+      await this.savePairs()
+    }
 
-    registerIndexes()
-    socketService.syncMarkets()
-
-    return this.savePairs()
+    return results
   }
 
-  async disconnect(market) {
-    const marketIndex = config.pairs.indexOf(market)
+  async disconnect(markets) {
+    markets = markets.filter((market) => {
+      if (config.pairs.indexOf(market) === -1) {
+        return false
+      }
 
-    if (marketIndex === -1) {
-      console.log(`[server.disconnect] ${market} is not in pairs, aborting`)
-      return
+      return true
+    })
+
+    if (!markets.length) {
+      throw new Error('nothing to disconnect')
     }
 
-    const [exchangeId] = market.match(/([^:]*):(.*)/).slice(1, 3)
+    const results = []
 
-    for (const exchange of this.exchanges) {
-      if (exchange.id === exchangeId) {
-        await exchange.unlink(market)
-        break
+    for (let i = 0; i < markets.length; i++) {
+      const market = markets[i]
+      const marketIndex = config.pairs.indexOf(market)
+
+      const [exchangeId] = market.match(/([^:]*):(.*)/).slice(1, 3)
+
+      for (const exchange of this.exchanges) {
+        if (exchange.id === exchangeId) {
+
+          try {
+            await exchange.unlink(market)
+            config.pairs.splice(marketIndex, 1)
+            results.push(`${market} ✅`)
+          } catch (error) {
+            console.error(error.message)
+            results.push(`${market} ❌ (${error.message})`)
+          }
+          break
+        }
       }
     }
 
-    config.pairs.splice(marketIndex, 1)
+    if (!results.length) {
+      throw new Error('nothing was done')
+    } else {
+      registerIndexes()
+      socketService.syncMarkets()
+  
+      await this.savePairs()
+    }
 
-    registerIndexes()
-    socketService.syncMarkets()
-
-    return this.savePairs()
+    return results
   }
 
   savePairs() {
@@ -708,126 +752,6 @@ class Server extends EventEmitter {
         }
       }
     })
-  }
-
-  /**
-   * Excecuted every options.monitorInterval
-   * Check activity within that time window for every active apis
-   */
-  monitorExchangesActivity() {
-    const now = Date.now()
-    const flooredTime = Math.floor(now / config.monitorInterval) * config.monitorInterval
-    const currentHour = Math.floor(now / 3600000) * 3600000
-    this.checkApiStats(currentHour === flooredTime)
-  }
-
-  /**
-   * Check api hit rate & unusual activity
-   * @param {boolean} print console log API stats even if there is nothing wrong with them
-   * @param {boolean} force check immediately
-   */
-  checkApiStats(print = false, force = false) {
-    if (!force) {
-      if (this._checkApiStatsTimeout) {
-        clearTimeout(this._checkApiStatsTimeout)
-      }
-
-      this._checkApiStatsTimeout = setTimeout(() => {
-        this._checkApiStatsTimeout = null
-        this.checkApiStats(print, true)
-      }, 2500)
-
-      return
-    }
-
-    const now = Date.now()
-
-    const apis = {}
-
-    for (const market in connections) {
-      const connection = connections[market]
-
-      if (!connection.apiId && config.pairs.indexOf(market) === -1) {
-        continue
-      }
-
-      const name = `${connection.exchange}#${connection.apiId || 'OFFLINE'}`
-
-      if (!apis[name]) {
-        apis[name] = {
-          apiId: connection.apiId,
-          total: 0,
-          hits: [],
-          pairs: [],
-          markets: [],
-          ping: now - Math.max(connection.lastConnectedAt, connection.startedAt),
-          exchange: connection.exchange,
-        }
-      }
-
-      apis[name].pairs.push(connection.pair)
-      apis[name].markets.push(market)
-
-      if (!connection.timestamp) {
-        apis[name].hits.push(0)
-      } else {
-        const activeDuration = connection.timestamp - connection.startedAt
-        apis[name].hits.push(connection.hit * (config.monitorInterval / activeDuration))
-        apis[name].ping = Math.min(now - Math.max(connection.lastConnectedAt, connection.timestamp), apis[name].ping)
-
-        if (typeof connection.lastHit !== 'undefined') {
-          apis[name].total += connection.hit - connection.lastHit
-        } else {
-          apis[name].total += connection.hit
-        }
-      }
-
-      connection.lastHit = connection.hit
-    }
-
-    const apisToReconnect = []
-    const apisTable = {}
-
-    for (const name in apis) {
-      const avg = apis[name].hits.reduce((acc, a) => acc + a, 0) / apis[name].hits.length
-      const max = Math.max.apply(null, apis[name].hits)
-      const thrs = Math.max(config.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)
-      const ping = apis[name].ping
-      const hit = apis[name].total
-
-      if (max > 1000 * 60 * 60 || ping > thrs) {
-        apisToReconnect.push(apis[name].apiId)
-        apisTable[name] = {
-          hit: hit,
-          avg: +avg.toFixed(1),
-          ping: getHms(ping) + ' ⚠️',
-          thrs: getHms(thrs),
-        }
-      } else if (thrs < config.reconnectionThreshold / 10 && !hit) {
-        apisToReconnect.push(apis[name].apiId)
-        apisTable[name] = {
-          hit: hit + ' ⚠️',
-          avg: +avg.toFixed(1),
-          ping: getHms(ping),
-          thrs: getHms(thrs),
-        }
-      } else if (print) {
-        apisTable[name] = {
-          hit: hit,
-          avg: +avg.toFixed(1),
-          ping: getHms(ping),
-          thrs: getHms(Math.max(config.reconnectionThreshold / Math.sqrt(avg || 0.5), 1000)),
-        }
-      }
-    }
-
-    if (Object.keys(apisTable).length) {
-      console.table(apisTable)
-    }
-
-    if (apisToReconnect.length) {
-      this.reconnectApis(apisToReconnect, 'reconnection threshold reached')
-    }
   }
 
   reconnectApis(apiIds, reason) {
@@ -903,47 +827,22 @@ class Server extends EventEmitter {
     })
   }
 
-  dispatchRawTrades(exchange, data, apiId) {
-    const now = Date.now()
-    let reconnectApi = 0
-    let lag = 0
-
+  dispatchRawTrades(exchange, data) {
     for (let i = 0; i < data.length; i++) {
       const trade = data[i]
-      const identifier = exchange + ':' + trade.pair
 
-      // check laggy stream
-      if (apiId && now - trade.timestamp > 30000) {
-        lag += now - trade.timestamp
+      if (!trade.liquidation) {
+        const identifier = exchange + ':' + trade.pair
 
-        if (exchange === 'BINANCE' || exchange === 'BINANCE_FUTURES') {
-          if (!reconnectApi) {
-            console.log(
-              exchange +
-                ' trade at ' +
-                new Date(trade.timestamp).toISOString() +
-                ' is lagging behind realtime by ' +
-                (now - trade.timestamp) / 1000 +
-                's'
-            )
-          }
-
-          reconnectApi = now - trade.timestamp
-        }
+        // ping connection
+        connections[identifier].hit++
+        connections[identifier].timestamp = trade.timestamp
       }
-
-      // ping connection
-      connections[identifier].hit++
-      connections[identifier].timestamp = trade.timestamp
 
       // save trade
       if (this.storages) {
         this.chunk.push(trade)
       }
-    }
-
-    if (reconnectApi) {
-      this.reconnectApis([apiId], 'trade lag of ' + lag / data.length / 1000 + 's')
     }
 
     if (config.broadcast) {
@@ -963,9 +862,11 @@ class Server extends EventEmitter {
       const trade = data[i]
       const identifier = exchange + ':' + trade.pair
 
-      // ping connection
-      connections[identifier].hit++
-      connections[identifier].timestamp = trade.timestamp
+      if (!trade.liquidation) {
+        // ping connection
+        connections[identifier].hit++
+        connections[identifier].timestamp = trade.timestamp
+      }
 
       // save trade
       if (this.storages) {

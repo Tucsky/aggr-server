@@ -329,14 +329,25 @@ class Exchange extends EventEmitter {
       this.disconnecting[api.id] = {}
 
       this.disconnecting[api.id].promise = new Promise((resolve, reject) => {
+        this.disconnecting[api.id].resolver = (success) => (success ? resolve() : reject())
+
         if (api.readyState < WebSocket.CLOSING) {
           api.close()
         }
-
-        this.disconnecting[api.id].resolver = (success) => (success ? resolve() : reject())
       })
 
       promiseOfClose = this.disconnecting[api.id].promise
+
+      setTimeout(() => {
+        // do NOT wait for exchange to close it
+        this.onClose(
+          {
+            code: 'none',
+            reason: 'forced close',
+          },
+          api
+        )
+      })
     } else {
       promiseOfClose = Promise.resolve()
     }
@@ -357,6 +368,8 @@ class Exchange extends EventEmitter {
     if (this.promisesOfApiReconnections[api.id]) {
       return this.promisesOfApiReconnections[api.id]
     }
+
+    api.onmessage = null
 
     console.debug(
       `[${this.id}.reconnectApi] reconnect api ${api.id}${reason ? ' reason: ' + reason : ''} (url: ${
@@ -383,10 +396,18 @@ class Exchange extends EventEmitter {
       return
     }
 
+    if (!connection.lastConnectionMissEstimate) {
+      console.error(`\tprevent register range: no miss estimate`)
+      return
+    }
+
     const now = Date.now()
+    const missingDuration = now - connection.timestamp
 
     console.log(
-      `\tregister range to recover of ${getHms(now - connection.timestamp)} for ${connection.pair} (${connection.lastConnectionMissEstimate} missing estimated)`
+      `\tregister range to recover of ${getHms(missingDuration)} (last timestamp ${new Date(connection.timestamp).toISOString()}) for ${
+        connection.pair
+      } (${connection.lastConnectionMissEstimate} missing estimated)`
     )
 
     const range = {
@@ -420,6 +441,8 @@ class Exchange extends EventEmitter {
         .pop()}, ending at ${new Date(range.to).toISOString().split('T').pop()})`
     )
 
+    const connection = connections[this.id + ':' + range.pair]
+
     try {
       const recoveredCount = await this.getMissingTrades(range)
 
@@ -431,24 +454,26 @@ class Exchange extends EventEmitter {
         )} remaining)`
       )
 
-      // save new timestamp to connection
-      const connection = connections[this.id + ':' + range.pair]
-
       if (connection) {
+        // save new timestamp to connection
+        if (connection.timestamp && connection.timestamp > range.to) {
+          ;`[${this.id}.recoverTrades] ${range.pair} trade recovery is late on the schedule (last emitted trade: ${new Date(
+            +connection.timestamp
+          ).toISOString()}, last recovered trade: ${new Date(+range.to).toISOString()})`
+        }
         connection.timestamp = range.to
-        connection.hit += recoveredCount
       }
 
       // in rare case of slow recovery and fast reconnection happening, propagate to pending ranges for that pair
       for (let i = 0; i < this.recoveryRanges.length; i++) {
         const nextRange = this.recoveryRanges[i]
-  
+
         if (nextRange.pair === range.pair) {
           const newFrom = Math.max(nextRange.from, range.from)
 
           if (nextRange.from !== newFrom) {
             nextRange.from = Math.max(nextRange.from, range.from)
-  
+
             if (nextRange.from > nextRange.to) {
               this.recoveryRanges.splice(i--, 1)
               continue
@@ -462,7 +487,20 @@ class Exchange extends EventEmitter {
 
     if (!this.recoveryRanges.length) {
       console.log(`[${this.id}] no more ranges to recover`)
+
       this.busyRecovering = false // release
+
+      if (this.queuedTrades.length) {
+        const sortedQueuedTrades = this.queuedTrades.sort((a, b) => a.timestamp - b.timestamp)
+
+        console.log(
+          `[${this.id}] release trades queue (${sortedQueuedTrades.length} trades, ${new Date(
+            +sortedQueuedTrades[0].timestamp
+          ).toISOString()} to ${new Date(+sortedQueuedTrades[sortedQueuedTrades.length - 1].timestamp).toISOString()})`
+        )
+        this.emit('trades', sortedQueuedTrades)
+        this.queuedTrades = []
+      }
     } else {
       return this.recoverNextRange(true)
     }
@@ -721,7 +759,7 @@ class Exchange extends EventEmitter {
       return
     }
 
-    this.queueControl(source, trades, 'liquidations')
+    this.queueControl(source, trades, 'trades')
 
     return true
   }
@@ -749,11 +787,6 @@ class Exchange extends EventEmitter {
     if (this.shouldQueueTrades || this.busyRecovering) {
       Array.prototype.push.apply(this.queuedTrades, trades)
       return null
-    } else if (this.queuedTrades.length) {
-      console.log(`[${this.id}] release trades queue (${this.queuedTrades.length} trades)`)
-      trades = trades.concat(this.queuedTrades).sort((a, b) => a.timestamp - b.timestamp)
-      this.queuedTrades = []
-      source = null
     }
 
     this.emit(type, trades, source)
