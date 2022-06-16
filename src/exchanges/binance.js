@@ -99,7 +99,7 @@ class Binance extends Exchange {
     const endpoint = `https://api.binance.com/api/v3/aggTrades?symbol=${range.pair.toUpperCase()}&startTime=${
       startTime + 1
     }&endTime=${below1HEndTime}&limit=1000`
-    
+
     return axios
       .get(endpoint)
       .then((response) => {
@@ -116,10 +116,10 @@ class Binance extends Exchange {
           range.from = trades[trades.length - 1].timestamp
 
           const remainingMissingTime = range.to - range.from
-          
+
           if (remainingMissingTime > 1000) {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... (${getHms(remainingMissingTime)} remaining)`)
-            return this.getMissingTrades(range, totalRecovered)
+            return sleep(250).then(() => this.getMissingTrades(range, totalRecovered))
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }

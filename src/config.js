@@ -65,6 +65,9 @@ const defaultConfig = {
   // max n of bars a user can get in 1 call
   maxFetchLength: 100000,
 
+  // persist connections between reload, and use that information to attempt filling the holes on startup
+  persistConnections: true,
+
   // bypass origin restriction for given ips (comma separated)
   whitelist: [],
 
@@ -302,7 +305,7 @@ if (!Array.isArray(config.pairs)) {
 
 if (!config.pairs.length) {
   if (config.collect) {
-    console.warn('[warning!] no pairs selected')
+    console.warn('[warning!] no pairs selected for collection')
   }
 
   config.pairs = []

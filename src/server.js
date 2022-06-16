@@ -11,7 +11,7 @@ const bodyParser = require('body-parser')
 const config = require('./config')
 const alertService = require('./services/alert')
 const socketService = require('./services/socket')
-const { connections, registerConnection, registerIndexes } = require('./services/connections')
+const { connections, registerConnection, registerIndexes, restoreConnections } = require('./services/connections')
 
 class Server extends EventEmitter {
   constructor(exchanges) {
@@ -59,7 +59,10 @@ class Server extends EventEmitter {
       console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
 
       this.handleExchangesEvents()
-      this.connectExchanges()
+
+      restoreConnections().then(() => {
+        this.connectExchanges()
+      })
     }
 
     this.initStorages().then(() => {
@@ -142,13 +145,13 @@ class Server extends EventEmitter {
     return Promise.all(
       this.storages.map((storage) => {
         if (exitBackup) {
-          console.log(`[server/exit] saving ${chunk.length} trades into ${storage.constructor.name}`)
+          console.debug(`[server/exit] saving ${chunk.length} trades into ${storage.constructor.name}`)
         }
         return storage
           .save(chunk, exitBackup)
           .then(() => {
             if (exitBackup) {
-              console.log(`[server/exit] performed backup of ${chunk.length} trades into ${storage.constructor.name}`)
+              console.debug(`[server/exit] performed backup of ${chunk.length} trades into ${storage.constructor.name}`)
             }
           })
           .catch((err) => {
@@ -402,11 +405,13 @@ class Server extends EventEmitter {
     app.all('/*', (req, res, next) => {
       var user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
-      if (!req.headers['origin'] || (!new RegExp(config.origin).test(req.headers['origin']) && config.whitelist.indexOf(user) === -1)) {
-        console.log(`[${user}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
+      const origin = typeof req.headers['origin'] !== 'undefined' ? req.headers['origin'].toString() : 'undefined'
+
+      if (typeof origin === 'undefined' || (!new RegExp(config.origin).test(origin) && config.whitelist.indexOf(user) === -1)) {
+        console.log(`[${user}/BLOCKED] socket origin mismatch "${origin}"`)
         return res.status(500).send('💀')
       } else if (this.BANNED_IPS.indexOf(user) !== -1) {
-        console.debug(`[${user}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
+        console.debug(`[${user}/BANNED] at "${req.url}" (origin was ${origin})`)
 
         return res.status(500).send('💀')
       } else {
@@ -567,17 +572,15 @@ class Server extends EventEmitter {
 
     this.chunk = []
 
-    const exchangesProductsResolver = Promise.all(
-      this.exchanges.map((exchange) => {
-        const exchangePairs = config.pairs.filter((pair) => pair.indexOf(':') === -1 || new RegExp('^' + exchange.id + ':').test(pair))
+    for (const exchange of this.exchanges) {
+      const exchangePairs = config.pairs.filter((pair) => pair.indexOf(':') === -1 || new RegExp('^' + exchange.id + ':').test(pair))
 
-        if (!exchangePairs.length) {
-          return Promise.resolve()
-        }
+      if (!exchangePairs.length) {
+        continue
+      }
 
-        return exchange.getProductsAndConnect(exchangePairs)
-      })
-    )
+      exchange.getProductsAndConnect(exchangePairs)
+    }
 
     if (config.broadcast && config.broadcastDebounce && !config.broadcastAggr) {
       this._broadcastDelayedTradesInterval = setInterval(() => {
@@ -608,7 +611,7 @@ class Server extends EventEmitter {
     const results = []
 
     for (const exchange of this.exchanges) {
-      const exchangeMarkets = markets.filter(market => {
+      const exchangeMarkets = markets.filter((market) => {
         const [exchangeId] = (market.match(/([^:]*):(.*)/) || []).slice(1, 3)
 
         return exchange.id === exchangeId
@@ -623,7 +626,7 @@ class Server extends EventEmitter {
 
         for (let market of exchangeMarkets) {
           try {
-            await exchange.link(market)
+            await exchange.link(market, true)
             config.pairs.push(market)
             results.push(`${market} ✅`)
           } catch (error) {
@@ -639,8 +642,8 @@ class Server extends EventEmitter {
     } else {
       registerIndexes()
       socketService.syncMarkets()
-  
-      await this.savePairs()
+
+      this.savePairs()
     }
 
     return results
@@ -669,7 +672,6 @@ class Server extends EventEmitter {
 
       for (const exchange of this.exchanges) {
         if (exchange.id === exchangeId) {
-
           try {
             await exchange.unlink(market)
             config.pairs.splice(marketIndex, 1)
@@ -688,14 +690,24 @@ class Server extends EventEmitter {
     } else {
       registerIndexes()
       socketService.syncMarkets()
-  
-      await this.savePairs()
+
+      this.savePairs()
     }
 
     return results
   }
 
-  savePairs() {
+  savePairs(isScheduled = false) {
+    if (!isScheduled) {
+      if (this._savePairsTimeout) {
+        clearTimeout(this._savePairsTimeout)
+      }
+
+      this._savePairsTimeout = setTimeout(this.savePairs.bind(this, true), 1000 * 60)
+
+      return
+    }
+
     if (!config.configPath) {
       console.warn(`[server] couldn't save config because configPath isn't known`)
       return Promise.resolve()

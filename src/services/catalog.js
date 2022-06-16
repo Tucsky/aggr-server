@@ -18,7 +18,7 @@ module.exports.saveProducts = async function (exchangeId, data) {
 
   await ensureDirectoryExists(path)
 
-  await new Promise((resolve) => {
+  return new Promise((resolve) => {
     fs.writeFile(path, JSON.stringify(storage), (err) => {
       if (err) {
         console.error(`[${exchangeId}] failed to save products to ${path}`, err)

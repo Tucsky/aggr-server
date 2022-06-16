@@ -240,7 +240,7 @@ class InfluxStorage {
     this.influx.query(query).then((data) => {
       for (let bar of data) {
         if (now - bar.time > config.influxResampleInterval) {
-          console.log(`[getLastBars] can't use lastBar because it is too old anyway (closed ${getHms(now - bar.time)}) ago`)
+          // can't use lastBar because it is too old anyway
           continue
         }
 

@@ -2,6 +2,7 @@ const Exchange = require('../exchange')
 const pako = require('pako')
 const WebSocket = require('ws')
 const axios = require('axios')
+const { getHms, sleep } = require('../helper')
 
 class Huobi extends Exchange {
   constructor() {
@@ -31,16 +32,16 @@ class Huobi extends Exchange {
     }
 
     this.url = (pair) => {
-          if (this.types[pair] === 'futures') {
-            return 'wss://www.hbdm.com/ws'
-          } else if (this.types[pair] === 'swap') {
-            return 'wss://api.hbdm.com/swap-ws'
-          } else if (this.types[pair] === 'linear') {
-            return 'wss://api.hbdm.com/linear-swap-ws'
-          } else {
-            return 'wss://api.huobi.pro/ws'
-          }
-        };
+      if (this.types[pair] === 'futures') {
+        return 'wss://www.hbdm.com/ws'
+      } else if (this.types[pair] === 'swap') {
+        return 'wss://api.hbdm.com/swap-ws'
+      } else if (this.types[pair] === 'linear') {
+        return 'wss://api.hbdm.com/linear-swap-ws'
+      } else {
+        return 'wss://api.huobi.pro/ws'
+      }
+    }
   }
 
   formatProducts(response) {
@@ -159,7 +160,7 @@ class Huobi extends Exchange {
       size = (size * this.specs[pair]) / (this.types[pair] === 'linear' ? 1 : trade.price)
     }
 
-    this.prices[pair] = trade.price
+    this.prices[pair] = trade.price // used for liquidation amount in quote currency
 
     return {
       exchange: this.id,
@@ -183,13 +184,6 @@ class Huobi extends Exchange {
     }
   }
 
-  onApiCreated(api) {
-    this.liquidationOrdersSubscriptions[api.id] = []
-
-    // open api providing liquidations data
-    this.openMarketDataApi(api)
-  }
-
   openMarketDataApi(api) {
     if (api.url === 'wss://api.hbdm.com/swap-ws') {
       api._marketDataApi = new WebSocket('wss://api.hbdm.com/swap-notification') // coin margined
@@ -198,7 +192,7 @@ class Huobi extends Exchange {
     }
 
     if (api._marketDataApi) {
-      // coin/linear swap & futures contracts
+      // coin/linear swap
       console.log(`[${this.id}] opened market data api ${api._marketDataApi.url}`)
       api._marketDataApi.onmessage = (event) => {
         const json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
@@ -240,6 +234,55 @@ class Huobi extends Exchange {
     }
   }
 
+  async getMissingTrades(range, totalRecovered = 0) {
+    let endpoint
+
+    if (this.types[range.pair] === 'futures') {
+      // https://api.hbdm.com/market/history/trade?symbol=BTC_CQ&size=2000
+      endpoint = `https://api.hbdm.com/market/history/trade?symbol=${range.pair}&size=2000`
+    } else if (this.types[range.pair] === 'swap') {
+      // https://api.hbdm.com/swap-ex/market/history/trade?contract_code=BTC-USD&size=2000
+      endpoint = `https://api.hbdm.com/swap-ex/market/history/trade?contract_code=${range.pair}&size=2000`
+    } else if (this.types[range.pair] === 'linear') {
+      // https://api.hbdm.com/linear-swap-ex/market/history/trade?contract_code=BTC-USDT&size=2000
+      endpoint = `https://api.hbdm.com/linear-swap-ex/market/history/trade?contract_code=${range.pair}&size=2000`
+    } else {
+      // https://api.huobi.pro/market/history/trade?symbol=btcusdt&size=2000
+      endpoint = `https://api.huobi.pro/market/history/trade?symbol=${range.pair}&size=2000`
+    }
+
+    return axios
+      .get(endpoint)
+      .then((response) => {
+        if (response.data.data.length) {
+          const trades = response.data.data
+            .reduce((acc, batch) => {
+              return acc.concat(batch.data)
+            }, [])
+            .map((trade) => this.formatTrade(trade, range.pair))
+            .filter((a) => a.timestamp >= range.from + 1 && a.timestamp < range.to)
+
+          if (trades.length) {
+            this.emitTrades(null, trades)
+
+            totalRecovered += trades.length
+            range.from = trades[trades.length - 1].timestamp
+          }
+
+          const remainingMissingTime = range.to - range.from
+
+          console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+        }
+
+        return totalRecovered
+      })
+      .catch((err) => {
+        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+
+        return totalRecovered
+      })
+  }
+
   subscribeLiquidations(api, pair, unsubscribe = false) {
     if (
       api._marketDataApi &&
@@ -255,6 +298,13 @@ class Huobi extends Exchange {
         })
       )
     }
+  }
+
+  onApiCreated(api) {
+    this.liquidationOrdersSubscriptions[api.id] = []
+
+    // open api providing liquidations data
+    this.openMarketDataApi(api)
   }
 
   onApiRemoved(api) {

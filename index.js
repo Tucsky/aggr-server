@@ -6,6 +6,7 @@ console.log('PID: ', process.pid)
 const config = require('./src/config')
 const Server = require('./src/server')
 const alertService = require('./src/services/alert')
+const { saveConnections } = require('./src/services/connections')
 const socketService = require('./src/services/socket')
 
 /* Load available exchanges
@@ -45,6 +46,15 @@ process.on('SIGINT', async function () {
       console.log(`[exit] saved alerts ✓`)
     } catch (error) {
       console.error(`[exit] failed to save alerts`, error.message)
+    }
+    
+    if (config.persistConnections) {
+      try {
+        await saveConnections()
+        console.log(`[exit] saved connections ✓`)
+      } catch (error) {
+        console.error(`[exit] failed to save connections`, error.message)
+      }
     }
   
     try {
