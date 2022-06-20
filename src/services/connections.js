@@ -144,7 +144,12 @@ module.exports.restoreConnections = async function () {
     }
 
     if (!persistance[market].timestamp || now - persistance[market].timestamp > 1000 * 60 * 60 * 4) {
-      // connection is to old (too much data to recoved)
+      console.log(
+        `[connections] couldn't restore ${market}'s connection because ${
+          persistance[market].timestamp ? `last ping is too old (${getHms(now - persistance[market].timestamp, true)} ago)` : `last ping is unknown`
+        }`
+      )
+      // connection is to old (too much data to recover)
       continue
     }
 

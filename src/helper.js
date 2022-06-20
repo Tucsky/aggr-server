@@ -50,16 +50,6 @@ module.exports = {
     return output.trim()
   },
 
-  resolution(time) {
-    if (time >= 10080) {
-      return time / 10080 + 'W'
-    } else if (time >= 1440) {
-      return time / 1440 + 'D'
-    } else {
-      return time
-    }
-  },
-
   ago(timestamp) {
     const seconds = Math.floor((new Date() - timestamp) / 1000)
     let interval, output
@@ -243,10 +233,14 @@ module.exports = {
       throw new Error('invalid from / to')
     }
 
-    config.resolution = module.exports.parseDuration(config.resolution)
+    if (!config.timeframe) {
+      throw new Error('you must choose a timeframe / resolution (ex timeframe=1m)')
+    }
 
-    if (isNaN(config.resolution)) {
-      throw new Error('invalid resolution')
+    config.timeframe = module.exports.parseDuration(config.timeframe)
+
+    if (isNaN(config.timeframe)) {
+      throw new Error('invalid timeframe')
     }
 
     if (onlyNativeRecovery) {

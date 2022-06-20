@@ -1,16 +1,15 @@
 const config = require('../../src/config')
 const { prepareStandalone, getMarkets, getHms, formatAmount, sleep } = require('../../src/helper')
 const { parseMarket } = require('../../src/services/catalog')
-const { COINALIZE_VENUES, COINALIZE_RESOLUTIONS, getReqKey, getAllData } = require('./coinalizeUtils')
+const { getReqKey, getAllData } = require('./coinalizeUtils')
 
 console.log('PID: ', process.pid)
 
 async function program() {
   const { exchanges, storage } = await prepareStandalone(false)
 
-  const influxMeasurement = 'trades_' + getHms(config.resolution)
-  const influxRP = config.influxRetentionPrefix + getHms(config.resolution)
-  const coinalizeResolution = config.resolution / (1000 * 60)
+  const influxMeasurement = 'trades_' + getHms(config.timeframe)
+  const influxRP = config.influxRetentionPrefix + getHms(config.timeframe)
 
   const pairs = getMarkets()
 
@@ -18,10 +17,6 @@ async function program() {
   console.log('from', new Date(config.from).toISOString())
   console.log('to', new Date(config.to).toISOString())
   console.log('on', pairs.map((a) => a.market).join(', '))
-
-  if (COINALIZE_RESOLUTIONS.indexOf(coinalizeResolution) === -1) {
-    throw new Error('unavailable resolution')
-  }
 
   await getReqKey()
 
@@ -45,22 +40,8 @@ async function program() {
     if ((market.exchange === 'OKEX' || market.exchange === 'HUOBI') && market.type === 'spot') {
       continue
     }
-
-    let symbol = market.local
-
-    if ((pair.exchange === 'FTX' && market.type === 'perp') || pair.exchange === 'DERIBIT' || pair.exchange === 'BYBIT') {
-      symbol = market.pair
-    } else if (market.type === 'perp') {
-      symbol += '_PERP'
-    }
-
-    if (pair.exchange === 'BYBIT' && market.type === 'spot') {
-      symbol = 's' + symbol.replace('-SPOT', '')
-    }
-
-    const coinalizeMarket = symbol + '.' + COINALIZE_VENUES[exchange.id.replace(/_\w+/, '')]
-
-    const data = await getAllData(config.from, config.to, coinalizeResolution, coinalizeMarket)
+    
+    const data = await getAllData(market, config.from, config.to, config.timeframe)
 
     const points = []
     let totalVbuy = 0
@@ -174,8 +155,8 @@ async function program() {
     await sleep(Math.random() * 3000 + 3000)
   }
   if (resampleRange.markets.length) {
-    await storage.resample(resampleRange, config.resolution)
-    console.log(`resampled ${resampleRange.markets.length} market(s) from timeframe ${getHms(config.resolution)}`)
+    await storage.resample(resampleRange, config.timeframe)
+    console.log(`resampled ${resampleRange.markets.length} market(s) from timeframe ${getHms(config.timeframe)}`)
   }
 }
 

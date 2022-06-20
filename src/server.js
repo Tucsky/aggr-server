@@ -1,7 +1,7 @@
 const EventEmitter = require('events')
 const WebSocket = require('ws')
 const fs = require('fs')
-const { getIp, getHms, parsePairsFromWsRequest, groupTrades } = require('./helper')
+const { getIp, getHms, parsePairsFromWsRequest, groupTrades, formatAmount } = require('./helper')
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
@@ -63,6 +63,9 @@ class Server extends EventEmitter {
       restoreConnections().then(() => {
         this.connectExchanges()
       })
+
+      // profile exchanges connections (keep alive)
+      this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, Date.now()), 1000 * 60)
     }
 
     this.initStorages().then(() => {
@@ -208,6 +211,8 @@ class Server extends EventEmitter {
         console.log(`[connections] ${id}${lastPing} disconnected from ${apiId} (${apiLength} remaining)`)
 
         connections[id].apiId = null
+
+        this.dumpConnections()
       })
 
       exchange.on('connected', (pair, apiId, apiLength) => {
@@ -233,6 +238,8 @@ class Server extends EventEmitter {
         console.log(`[connections] ${id}${lastPing} connected to ${apiId} (${apiLength} total)`)
 
         connections[id].apiId = apiId
+
+        this.dumpConnections()
       })
 
       exchange.on('open', (apiId, pairs) => {
@@ -924,6 +931,92 @@ class Server extends EventEmitter {
 
       this.aggregated.splice(0, this.aggregated.length)
     }
+  }
+
+  monitorExchangesActivity() {
+    const now = Date.now()
+
+    const apisToReconnect = []
+
+    for (const id in connections) {
+      if (!connections[id].apiId) {
+        continue
+      }
+
+      let ping
+
+      if (connections[id].timestamp) {
+        ping = connections[id].timestamp
+      } else {
+        ping = connections[id].startedAt
+      }
+
+      if (now - ping < config.reconnectionThreshold) {
+        // connection is fine
+        continue
+      }
+      
+      if (apisToReconnect.indexOf(connections[id].apiId) === -1) {
+        apisToReconnect.push(connections[id].apiId)
+      }
+    }
+
+    const flooredTime = Math.floor(now / config.monitorInterval) * config.monitorInterval
+    const currentHour = Math.floor(now / 3600000) * 3600000
+
+    if (apisToReconnect.length || flooredTime === currentHour) {
+      this.dumpConnections(true)
+    }
+
+    if (apisToReconnect.length) {
+      this.reconnectApis(apisToReconnect, `reconnection threshold reached`)
+    }
+  }
+
+  dumpConnections(scheduled) {
+    if (this._dumpConnectionsTimeout) {
+      clearTimeout(this._dumpConnectionsTimeout)
+    }
+
+    if (!scheduled) {
+      this._dumpConnectionsTimeout = setTimeout(() => {
+        this._dumpConnectionsTimeout = null
+
+        this.dumpConnections(true)
+      }, 5000)
+
+      return
+    }
+
+    const now = Date.now()
+    const table = {}
+
+    for (const id in connections) {
+      if (!connections[id].apiId) {
+        continue
+      }
+
+      const { hit, timestamp, startedAt } = connections[id]
+      
+      let ping
+      let avg
+
+      if (timestamp) {
+        ping = getHms(now - timestamp) + (now - timestamp > config.reconnectionThreshold ? `⚠ RECONNECT` : '')
+        avg = formatAmount(Math.floor(hit * (60000 / (timestamp - startedAt)))) + '/min'
+      } else {
+        ping = 'never'
+        avg = '0/min'
+      }
+
+      table[id] = {
+        hit: formatAmount(hit),
+        avg,
+        ping
+      }
+    }
+
+    console.table(table)
   }
 }
 

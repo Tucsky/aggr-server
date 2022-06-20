@@ -1,12 +1,12 @@
-const fetch = require('node-fetch')
+const axios = require('axios')
 const fs = require('fs')
 
 const config = require('../../src/config')
-const { sleep, resolution } = require('../../src/helper')
+const { sleep } = require('../../src/helper')
 
-module.exports.COINALIZE_RESOLUTIONS = [1, 5, 15, 30, 60, 60 * 2, 60 * 4, 60 * 6, 60 * 12, 60 * 24]
+const COINALIZE_RESOLUTIONS = [1, 5, 15, 30, 60, 60 * 2, 60 * 4, 60 * 6, 60 * 12, 60 * 24]
 
-module.exports.COINALIZE_VENUES = {
+const COINALIZE_VENUES = {
   BINANCE: 'A',
   BITMEX: '0',
   BITFINEX: 'F',
@@ -25,9 +25,9 @@ module.exports.COINALIZE_VENUES = {
   POLONIEX: 'P',
 }
 
-const COINALIZE_REQ_KEY_PATH = module.exports.COINALIZE_REQ_KEY_PATH = 'coinalize.key'
+const COINALIZE_REQ_KEY_PATH = 'products/coinalize.key'
 
-const BARS_PER_REQUEST = module.exports.BARS_PER_REQUEST = 300
+const BARS_PER_REQUEST = 300
 
 const baseHeaders = {
   accept: '*/*',
@@ -51,7 +51,41 @@ const baseJSONHeaders = {
   'x-requested-with': 'XMLHttpRequest',
 }
 
-let REQ_KEY = module.exports.REQ_KEY
+let REQ_KEY
+
+function getCoinalizeMarket(product) {
+  let symbol = product.local
+
+  if ((product.exchange === 'FTX' && product.type === 'perp') || product.exchange === 'DERIBIT' || product.exchange === 'BYBIT') {
+    symbol = product.pair
+  } else if (product.type === 'perp') {
+    symbol += '_PERP'
+  }
+
+  if (product.exchange === 'BYBIT' && product.type === 'spot') {
+    symbol = 's' + symbol.replace('-SPOT', '')
+  }
+
+  return symbol + '.' + COINALIZE_VENUES[product.exchange.replace(/_\w+/, '')]
+}
+
+function getCoinalizeResolution(time) {
+  let resolution
+
+  if (time >= 604800000) {
+    resolution = time / 604800000 + 'W'
+  } else if (time >= 86400000) {
+    resolution = time / 86400000 + 'D'
+  } else {
+    resolution = time / 60000 // minutes
+  }
+
+  if (COINALIZE_RESOLUTIONS.indexOf(resolution) === -1) {
+    throw new Error('unavailable resolution')
+  }
+
+  return resolution
+}
 
 function readReqKey() {
   return new Promise((resolve) => {
@@ -82,7 +116,7 @@ function saveReqKey(key) {
   })
 }
 
-module.exports.getReqKey = async function() {
+async function getReqKey() {
   let [key, timestamp] = await readReqKey()
 
   let renew = config.renew || !key
@@ -103,10 +137,11 @@ module.exports.getReqKey = async function() {
 }
 
 function fetchReqKey() {
-  return fetch('https://coinalyze.net/bitcoin/usd/binance/btcusd_perp/price-chart-live/', {
-    headers: baseHeaders,
-  })
-    .then((response) => response.text())
+  return axios
+    .get('https://coinalyze.net/bitcoin/usd/binance/btcusd_perp/price-chart-live/', {
+      headers: baseHeaders,
+    })
+    .then((response) => response.data)
     .then((body) => {
       const match = body.match(/window.REQ_KEY\s*=\s*'([a-z0-9-]+)';/)
 
@@ -118,67 +153,64 @@ function fetchReqKey() {
     })
 }
 
-module.exports.getAllData = async function(from, to, timeframe, symbol) {
+module.exports.getAllData = async function (product, from, to, timeframe) {
   const timePerBar = timeframe * 1000 * 60
   const timePerRequest = timePerBar * BARS_PER_REQUEST
 
   const data = []
 
-  let first = true
-
-  console.log('get all data for', symbol)
+  let isFirst = true
 
   for (let time = to; time >= from; time -= timePerRequest) {
-
     await sleep(Math.random() * 1500 + 1500)
     const reqFrom = Math.max(from, time - timePerRequest)
     const reqTo = Math.min(to, time)
     console.log('- from', new Date(reqFrom).toISOString(), 'to', new Date(reqTo).toISOString())
-    const chunk = await getData(reqFrom, reqTo, timeframe, symbol, first)
+    const chunk = await getData(product, reqFrom, reqTo, timeframe, isFirst)
 
     if (chunk.length) {
       Array.prototype.push.apply(data, chunk)
     } else {
-      break;
+      break
     }
 
-    first = false
+    isFirst = false
   }
 
   return data
 }
 
-function getBars(from, to, timeframe, symbol, first, dataset) {
-  let source = [symbol]
+function getBars(product, from, to, timeframe, isFirst, dataset) {
+  const coinalizeMarket = getCoinalizeMarket(product)
+  const coinalizeResolution = getCoinalizeResolution(timeframe)
+
+  let source = [coinalizeMarket]
 
   if (dataset === 'liquidations') {
-    const [pair, exchangeId] = symbol.split('.')
+    const [pair, exchangeId] = coinalizeMarket.split('.')
     source.push(pair + '_LQB.' + exchangeId)
     source.push(pair + '_LQS.' + exchangeId)
   }
 
   source = source.join(',') + (dataset ? '#' + dataset : '')
 
-  const msResolution = timeframe * 1000 * 60
-
-  const flooredFrom = Math.floor(from / msResolution) * msResolution
-  const flooredTo = Math.floor(to / msResolution) * msResolution
+  const flooredFrom = Math.floor(from / timeframe) * timeframe
+  const flooredTo = Math.floor(to / timeframe) * timeframe
 
   // console.log('[FETCH]', `${source} (${new Date(flooredFrom).toISOString()} -> ${new Date(flooredTo).toISOString()})`)
 
-  const body = `{"from":${flooredFrom / 1000},"to":${
+  const data = `{"from":${flooredFrom / 1000},"to":${
     flooredTo / 1000
-  },"resolution":"${resolution(timeframe)}","symbol":"${source}","firstDataRequest":${
-    first ? 'true' : 'false'
+  },"resolution":"${coinalizeResolution}","symbol":"${source}","firstDataRequest":${
+    isFirst ? 'true' : 'false'
   },"symbolsForUsdConversion":[],"rk":"${REQ_KEY}"}`
 
-  return fetch('https://coinalyze.net/chart/getBars/', {
-    headers: baseJSONHeaders,
-    body,
-    method: 'POST',
-  })
+  return axios
+    .post('https://coinalyze.net/chart/getBars/', data, {
+      headers: baseJSONHeaders,
+    })
     .then((response) => {
-      return response.json()
+      return response.data
     })
     .catch((err) => {
       debugger
@@ -186,8 +218,8 @@ function getBars(from, to, timeframe, symbol, first, dataset) {
     })
 }
 
-function getOHLC(from, to, timeframe, symbol, first) {
-  return getBars(from, to, timeframe, symbol, first).then(({ barData }) => {
+function getOHLC(product, from, to, timeframe, isFirst) {
+  return getBars(product, from, to, timeframe, isFirst).then(({ barData }) => {
     return barData.reduce((output, dataPoint) => {
       output[dataPoint[0] * 1000] = {
         open: dataPoint[1],
@@ -201,8 +233,8 @@ function getOHLC(from, to, timeframe, symbol, first) {
   })
 }
 
-function getBuySellVolume(from, to, timeframe, symbol, first) {
-  return getBars(from, to, timeframe, symbol, first, 'buy_sell_volume').then(({ barData }) => {
+function getBuySellVolume(product, from, to, timeframe, isFirst) {
+  return getBars(product, from, to, timeframe, isFirst, 'buy_sell_volume').then(({ barData }) => {
     return barData.reduce((output, dataPoint) => {
       output[dataPoint[0] * 1000] = {
         vbuy: dataPoint[1],
@@ -214,8 +246,8 @@ function getBuySellVolume(from, to, timeframe, symbol, first) {
   })
 }
 
-function getBuySellCount(from, to, resolution, symbol, first) {
-  return getBars(from, to, resolution, symbol, first, 'buy_sell_count').then(({ barData }) => {
+function getBuySellCount(product, from, to, timeframe, isFirst) {
+  return getBars(product, from, to, timeframe, isFirst, 'buy_sell_count').then(({ barData }) => {
     return barData.reduce((output, dataPoint) => {
       output[dataPoint[0] * 1000] = {
         cbuy: dataPoint[1],
@@ -227,8 +259,8 @@ function getBuySellCount(from, to, resolution, symbol, first) {
   })
 }
 
-function getBuySellLiquidations(from, to, resolution, symbol, first) {
-  return getBars(from, to, resolution, symbol, first, 'liquidations').then(({ barData }) => {
+function getBuySellLiquidations(product, from, to, timeframe, isFirst) {
+  return getBars(product, from, to, timeframe, isFirst, 'liquidations').then(({ barData }) => {
     return Object.keys(barData).reduce((output, timestamp) => {
       output[timestamp * 1000] = barData[timestamp].reduce(
         (dataPoint, keyValue) => {
@@ -251,29 +283,26 @@ function getBuySellLiquidations(from, to, resolution, symbol, first) {
   })
 }
 
-async function getData(from, to, resolution, symbol, first) {
+async function getData(product, from, to, timeframe, isFirst) {
   if (!REQ_KEY) {
-    throw new Error('get rek key first')
+    await getReqKey()
   }
 
   const bars = []
 
-  const ohlcData = await getOHLC(from, to, resolution, symbol, first)
+  const ohlcData = await getOHLC(product, from, to, timeframe, isFirst)
   await sleep(Math.random() * 100 + 100)
-  const buySellVolumeData = await getBuySellVolume(from, to, resolution, symbol, first)
+  const buySellVolumeData = await getBuySellVolume(product, from, to, timeframe, isFirst)
   await sleep(Math.random() * 100 + 100)
-  const buySellCountData = await getBuySellCount(from, to, resolution, symbol, first)
+  const buySellCountData = await getBuySellCount(product, from, to, timeframe, isFirst)
   await sleep(Math.random() * 100 + 100)
-  const buySellLiquidationsData = await getBuySellLiquidations(from, to, resolution, symbol, first)
+  const buySellLiquidationsData = await getBuySellLiquidations(product, from, to, timeframe, isFirst)
   await sleep(Math.random() * 100 + 100)
 
-  const timePerBar = resolution * 1000 * 60
+  const flooredFrom = Math.floor(from / timeframe) * timeframe
+  const flooredTo = Math.floor(to / timeframe) * timeframe
 
-  const msResolution = resolution * 1000 * 60
-  const flooredFrom = Math.floor(from / msResolution) * msResolution
-  const flooredTo = Math.floor(to / msResolution) * msResolution
-
-  for (let time = flooredTo; time >= flooredFrom; time -= timePerBar) {
+  for (let time = flooredTo; time >= flooredFrom; time -= timeframe) {
     bars.push({
       time,
       ...ohlcData[time],
