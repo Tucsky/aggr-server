@@ -116,7 +116,7 @@ class InfluxStorage {
         if (this.promisesOfPendingBars[data.pendingBarsRequestId]) {
           this.promisesOfPendingBars[data.pendingBarsRequestId](data.results)
         } else {
-          console.error('[influx/cluster] there was no promisesOfPendingBars with given pendingBarsRequestId', data.pendingBarsRequestId)
+          // console.error('[influx/cluster] there was no promisesOfPendingBars with given pendingBarsRequestId', data.pendingBarsRequestId)
         }
       })
   }

@@ -198,7 +198,7 @@ class BinanceFutures extends Exchange {
               )} remaining)`
             )
 
-            return sleep(250).then(() => this.getMissingTrades(range, totalRecovered))
+            return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered))
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }

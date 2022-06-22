@@ -1,7 +1,7 @@
 const config = require('../config')
 const fs = require('fs')
 const { parseMarket } = require('./catalog')
-const { getHms, ensureDirectoryExists } = require('../helper')
+const { getHms, ensureDirectoryExists, formatAmount } = require('../helper')
 
 require('../typedef')
 
@@ -47,72 +47,10 @@ const indexes = (module.exports.indexes = [])
   }
 })()
 
-module.exports.registerConnection = function (id, exchange, pair) {
-  const now = Date.now()
-
-  const exists = connections[id]
-
-  if (!exists) {
-    connections[id] = {
-      exchange,
-      pair,
-      hit: 0,
-      startedAt: now,
-      timestamp: null,
-    }
-
-    if (config.pairs.indexOf(id) === -1) {
-      // force fetch last 4h of data through recent trades
-      connections[id].forceRecovery = true
-      connections[id].timestamp = now - 1000 * 60 * 60 * 4
-    }
-  } else {
-    if (connections[id].timestamp) {
-      // calculate estimated missing trade since last trade processed on that connection
-      const activeDuration = connections[id].timestamp - connections[id].startedAt
-      const missDuration = now - connections[id].timestamp
-      connections[id].lastConnectionMissEstimate = Math.floor(connections[id].hit * (missDuration / activeDuration))
-    }
-
-    connections[id].lastReconnection = now
-  }
-
-  return connections[id]
-}
-
-module.exports.updateIndexes = function (callback) {
-  for (const index of indexes) {
-    let high = 0
-    let low = 0
-    let nbSources = 0
-
-    for (const market of index.markets) {
-      if (!connections[market] || !connections[market].apiId || !isFinite(connections[market].high)) {
-        continue
-      }
-
-      high += connections[market].high
-      low += connections[market].low
-
-      nbSources++
-    }
-
-    if (!nbSources) {
-      continue
-    }
-
-    callback(index.id, high / nbSources, low / nbSources)
-  }
-}
-
-module.exports.getIndex = function (market) {
-  for (const index of indexes) {
-    if (index.id === market || index.markets.indexOf(market) !== -1) {
-      return index
-    }
-  }
-}
-
+/**
+ * Read the connections file and return the content
+ * @returns {Promise<{[id: string]: Connection}>}
+ */
 function getConnectionsPersistance() {
   const path = 'products/connections.json'
 
@@ -129,6 +67,115 @@ function getConnectionsPersistance() {
       }
     })
   })
+}
+
+/**
+ * Remove unessential properties from connection
+ * Ensure essensital ones are valid
+ *
+ * @param {Connection} connection
+ * @returns {Connection} clean connection
+ */
+function cleanConnection(connection) {
+  let { exchange, pair, hit, startedAt, timestamp } = connection
+
+  if (!exchange) {
+    throw new Error(`unknown connection's exchange`)
+  }
+
+  if (!pair) {
+    throw new Error(`unknown connection's pair`)
+  }
+
+  if (typeof hit === 'undefined') {
+    hit = 0
+  }
+
+  if (typeof timestamp === 'undefined') {
+    timestamp = null
+  }
+
+  if (!startedAt) {
+    startedAt = Date.now()
+  }
+
+  return {
+    exchange,
+    pair,
+    hit,
+    startedAt,
+    timestamp,
+  }
+}
+
+/**
+ * Get dynamic threshold for that connection
+ *
+ * config.reconnectionThreshold now accepts simple formula
+ * ex: `7200000 / Math.log(Math.exp(1) + connection.avg)`
+ * for 0 hit/min = 2h
+ * for 0.1 hit/min = 1h, 55m, 48s
+ * for 1 hit/min = 1h, 31m, 22s
+ * for 10 hit/min = 47m, 11s
+ * for 100 hit/min = 25m, 54s
+ * for 1000 hit/min = 17m, 21s
+ *
+ * Or just use fixed threshold (in ms) in config.reconnectionThreshold
+ * ex: 7200000
+ *
+ * @param {Connection} connection
+ * @returns {number} average hits per 1min
+ */
+function getConnectionThreshold(connection) {
+  let threshold = config.reconnectionThreshold
+
+  if (config.reconnectionThreshold && typeof config.reconnectionThreshold === 'string' && isNaN(config.reconnectionThreshold)) {
+    threshold = new Function('connection', `'use strict'; return ${config.reconnectionThreshold}`)(connection)
+  }
+
+  if (!threshold || threshold < 0 || !isFinite(threshold)) {
+    // invalid threshold : fallback to 1h
+    return 3600000
+  }
+
+  return threshold
+}
+
+/**
+ * Return the total hit count scaled to 1min
+ * @param {Connection} connection
+ * @returns {number} average hits per 1min
+ */
+function getConnectionHitAverage(connection) {
+  return connection.hit * (60000 / (connection.timestamp - connection.startedAt))
+}
+
+/**
+ * Return the total hit count scaled to 1min
+ * @param {Connection} connection
+ * @returns {number} average hits per 1min
+ */
+function getConnectionPing(connection) {
+  return Math.max(connection.startedAt, connection.timestamp, connection.lastReconnection || connection.startedAt)
+}
+
+/**
+ * Set the threshold, maximum ping and avg hit for the connection
+ * @param {Connection} connection
+ */
+module.exports.updateConnectionStats = function (connection) {
+  connection.avg = getConnectionHitAverage(connection)
+  connection.thrs = getConnectionThreshold(connection)
+  connection.ping = getConnectionPing(connection)
+
+  /*  
+  const now = Date.now()
+  console.log(
+    `[${connection.exchange}:${connection.pair}] ping: ${getHms(now - connection.ping)}, thrs: ${getHms(
+      connection.thrs
+    )}, avg: ${formatAmount(Math.floor(connection.avg))}`
+  )
+  */
 }
 
 /**
@@ -163,6 +210,15 @@ module.exports.restoreConnections = async function () {
         }`
       )
       // connection is to old (too much data to recover)
+      continue
+    }
+
+    try {
+      persistance[market] = cleanConnection(persistance[market])
+    } catch (error) {
+      console.error(
+        `[connections] couldn't restore connection ${market} because persistance is missing some informations\n\t${error.message}`
+      )
       continue
     }
 
@@ -208,23 +264,10 @@ module.exports.saveConnections = async function () {
 
   const persistance = await getConnectionsPersistance()
 
-  // only update connections in persistance that are used in this instance (config.pair)
+  // only update connections in persistance which have been used in that instance
   for (const market in connections) {
     if (connections[market].timestamp) {
-      persistance[market] = connections[market]
-    }
-  }
-
-  // cleanup - only keep whats matter
-  for (const market in persistance) {
-    const { exchange, pair, hit, startedAt, timestamp } = persistance[market]
-
-    persistance[market] = {
-      exchange,
-      pair,
-      hit,
-      startedAt,
-      timestamp,
+      persistance[market] = cleanConnection(connections[market])
     }
   }
 
@@ -236,8 +279,6 @@ module.exports.saveConnections = async function () {
     fs.writeFile(path, JSON.stringify(persistance), (err) => {
       if (err) {
         console.error(`[connections] failed to persist connections to ${path}`, err)
-      } else {
-        console.log(`[connections] saved ${Object.keys(persistance).length} connections in persistance`)
       }
 
       resolve()
@@ -245,11 +286,135 @@ module.exports.saveConnections = async function () {
   })
 }
 
-module.exports.getReconnectionThreshold = function (connection) {
-  if (config.reconnectionThreshold && typeof config.reconnectionThreshold === 'string' && isNaN(config.reconnectionThreshold)) {
-    const instruction = new Function('connection', `'use strict'; return ${config.reconnectionThreshold}`)(connection)
-    return instruction
+/**
+ * Register active connection (new or existing)
+ *
+ * @param {String} id
+ * @param {String} exchange
+ * @param {String} pair
+ * @returns {Connection}
+ */
+module.exports.registerConnection = function (id, exchange, pair) {
+  const now = Date.now()
+
+  const exists = connections[id]
+
+  if (!exists) {
+    connections[id] = {
+      exchange,
+      pair,
+      hit: 0,
+      startedAt: now,
+      timestamp: null,
+    }
+
+    if (config.pairs.indexOf(id) === -1) {
+      // force fetch last 4h of data through recent trades
+      connections[id].forceRecovery = true
+      connections[id].timestamp = now - 1000 * 60 * 60 * 4
+    }
+  } else {
+    if (connections[id].timestamp) {
+      // calculate estimated missing trade since last trade processed on that connection
+      const activeDuration = connections[id].timestamp - connections[id].startedAt
+      const missDuration = now - connections[id].timestamp
+      connections[id].lastConnectionMissEstimate = Math.floor(connections[id].hit * (missDuration / activeDuration))
+    }
+
+    connections[id].lastReconnection = now
   }
 
-  return config.reconnectionThreshold
+  module.exports.updateConnectionStats(connections[id])
+
+  return connections[id]
+}
+
+/**
+ * Update high and low of range for an index based on their connections
+ * @param {Function} callback function called for every index updated
+ */
+module.exports.updateIndexes = function (callback) {
+  for (const index of indexes) {
+    let high = 0
+    let low = 0
+    let nbSources = 0
+
+    for (const market of index.markets) {
+      if (!connections[market] || !connections[market].apiId || !isFinite(connections[market].high)) {
+        continue
+      }
+
+      high += connections[market].high
+      low += connections[market].low
+
+      nbSources++
+    }
+
+    if (!nbSources) {
+      continue
+    }
+
+    callback(index.id, high / nbSources, low / nbSources)
+  }
+}
+
+/**
+ * Get index matching a given market
+ * ex: BINANCE:btcusdt -> BTCUSD
+ *
+ * @param {String} market
+ * @returns {ProductIndex}
+ */
+module.exports.getIndex = function (market) {
+  for (const index of indexes) {
+    if (index.id === market || index.markets.indexOf(market) !== -1) {
+      return index
+    }
+  }
+}
+
+let dumpConnectionsTimeout
+
+module.exports.dumpConnections = function (scheduled) {
+  if (dumpConnectionsTimeout) {
+    clearTimeout(dumpConnectionsTimeout)
+  }
+
+  if (!scheduled) {
+    dumpConnectionsTimeout = setTimeout(() => {
+      dumpConnectionsTimeout = null
+
+      module.exports.dumpConnections(true)
+    }, 5000)
+
+    return
+  }
+
+  const now = Date.now()
+  const table = {}
+
+  for (const id in connections) {
+    if (!connections[id].apiId) {
+      continue
+    }
+
+    module.exports.updateConnectionStats(connections[id])
+
+    const columns = {
+      hit: formatAmount(connections[id].hit),
+      avg: `${formatAmount(Math.floor(connections[id].avg))}/min`,
+      ping: getHms(now - connections[id].ping),
+      thrs: getHms(connections[id].thrs),
+    }
+
+    if (!module.exports.recovering[connections[id].exchange] && now - connections[id].ping > connections[id].thrs) {
+      columns.thrs + ' ⚠️ (RECONNECT)'
+    } else if (module.exports.recovering[connections[id].exchange]) {
+      columns.ping + ' ⏬ (RECOVERING)'
+    }
+
+    table[id] = columns
+  }
+
+  console.table(table)
 }

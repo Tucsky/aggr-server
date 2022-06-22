@@ -1,7 +1,7 @@
 const EventEmitter = require('events')
 const WebSocket = require('ws')
 const fs = require('fs')
-const { getIp, getHms, parsePairsFromWsRequest, groupTrades, formatAmount } = require('./helper')
+const { getIp, getHms, parsePairsFromWsRequest, groupTrades } = require('./helper')
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
@@ -16,7 +16,8 @@ const {
   registerIndexes,
   restoreConnections,
   recovering,
-  getReconnectionThreshold,
+  updateConnectionStats,
+  dumpConnections,
 } = require('./services/connections')
 
 class Server extends EventEmitter {
@@ -71,7 +72,7 @@ class Server extends EventEmitter {
       })
 
       // profile exchanges connections (keep alive)
-      this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, Date.now()), 1000 * 60 * 5)
+      this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, Date.now()), 1000 * 60)
     }
 
     this.initStorages().then(() => {
@@ -218,7 +219,7 @@ class Server extends EventEmitter {
 
         connections[id].apiId = null
 
-        this.dumpConnections()
+        dumpConnections()
       })
 
       exchange.on('connected', (pair, apiId, apiLength) => {
@@ -245,7 +246,7 @@ class Server extends EventEmitter {
 
         connections[id].apiId = apiId
 
-        this.dumpConnections()
+        dumpConnections()
       })
 
       exchange.on('open', (apiId, pairs) => {
@@ -943,7 +944,7 @@ class Server extends EventEmitter {
 
     const flooredTime = Math.floor(now / config.monitorInterval) * config.monitorInterval
     const currentHour = Math.floor(now / 3600000) * 3600000
-    let dumpConnections = flooredTime === currentHour
+    let shouldDumpConnections = flooredTime === currentHour
 
     const apisToReconnect = []
 
@@ -952,82 +953,28 @@ class Server extends EventEmitter {
         continue
       }
 
-      const { timestamp, startedAt, lastReconnection } = connections[id]
-
-      const ping = Math.max(timestamp, lastReconnection, startedAt)
+      updateConnectionStats(connections[id])
 
       if (recovering[connections[id].exchange]) {
         // exchange is busy recovering
-        dumpConnections = true
+        shouldDumpConnections = true
         continue
       }
 
-      const thrs = getReconnectionThreshold(connections[id])
-
-      if (thrs > 0 && now - ping > thrs && apisToReconnect.indexOf(connections[id].apiId) === -1) {
+      if (now - connections[id].ping > connections[id].thrs && apisToReconnect.indexOf(connections[id].apiId) === -1) {
         // connection ping threshold reached
         apisToReconnect.push(connections[id].apiId)
         continue
       }
     }
 
-    if (apisToReconnect.length || dumpConnections) {
-      this.dumpConnections(true)
+    if (apisToReconnect.length || shouldDumpConnections) {
+      dumpConnections(true)
     }
 
     if (apisToReconnect.length) {
       this.reconnectApis(apisToReconnect, `reconnection threshold reached`)
     }
-  }
-
-  dumpConnections(scheduled) {
-    if (this._dumpConnectionsTimeout) {
-      clearTimeout(this._dumpConnectionsTimeout)
-    }
-
-    if (!scheduled) {
-      this._dumpConnectionsTimeout = setTimeout(() => {
-        this._dumpConnectionsTimeout = null
-
-        this.dumpConnections(true)
-      }, 5000)
-
-      return
-    }
-
-    const now = Date.now()
-    const table = {}
-
-    for (const id in connections) {
-      if (!connections[id].apiId) {
-        continue
-      }
-
-      const { hit, timestamp, startedAt } = connections[id]
-
-      const columns = {
-        hit: formatAmount(hit)
-      }
-
-      if (timestamp) {
-        connections[id].avg = hit * (60000 / (timestamp - startedAt))
-        const thrs = getReconnectionThreshold(connections[id])
-
-        const shouldReconnect = thrs > 0 && !recovering[connections[id].exchange] && now - timestamp > thrs
-        columns.ping =
-          getHms(now - timestamp) + (shouldReconnect ? `⚠ RECONNECT` : '') + (recovering[connections[id].exchange] ? `⏬ RECOVERING` : '')
-
-        columns.avg = formatAmount(Math.floor(connections[id].avg)) + '/min'
-        columns.thrs = getHms(thrs)
-      } else {
-        columns.ping = 'never'
-        columns.avg = '0/min'
-      }
-
-      table[id] = columns
-    }
-
-    console.table(table)
   }
 
   canExit() {

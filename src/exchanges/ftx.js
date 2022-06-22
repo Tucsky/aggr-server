@@ -116,7 +116,7 @@ class Ftx extends Exchange {
               console.log(
                 `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ...  (${getHms(remainingMissingTime)} remaining)`
               )
-              return sleep(250, this.getMissingTrades(range, totalRecovered))
+              return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered))
             } else {
               console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
             }

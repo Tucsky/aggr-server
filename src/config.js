@@ -72,7 +72,18 @@ const defaultConfig = {
   staleConnectionThreshold: 1000 * 60 * 60 * 4,
 
   // reconnection threshold (default 1h without incoming trade, reconnect the whole api)
+  // config.reconnectionThreshold now accepts simple formula which can use the `connection` variable
+  // ex: `7200000 / Math.log(Math.exp(1) + connection.avg)`
+  // for 0 hit/min = 2h
+  // for 0.1 hit/min = 1h, 55m, 48s
+  // for 1 hit/min = 1h, 31m, 22s
+  // for 10 hit/min = 47m, 11s
+  // for 100 hit/min = 25m, 54s
+  // for 1000 hit/min = 17m, 21s
   reconnectionThreshold: 3600000,
+
+  // delay between each recovery requests of a same pair (default 250ms)
+  recoveryRequestDelay: 250,
 
   // bypass origin restriction for given ips (comma separated)
   whitelist: [],

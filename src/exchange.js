@@ -1,9 +1,10 @@
 const EventEmitter = require('events')
 const WebSocket = require('ws')
+const config = require('./config')
 
 const { ID, getHms, sleep } = require('./helper')
 const { readProducts, fetchProducts, saveProducts } = require('./services/catalog')
-const { connections, recovering } = require('./services/connections')
+const { connections, recovering, dumpConnections } = require('./services/connections')
 
 require('./typedef')
 
@@ -550,9 +551,11 @@ class Exchange extends EventEmitter {
         )
         this.emit('trades', sortedQueuedTrades)
         this.queuedTrades = []
+
+        dumpConnections()
       }
     } else {
-      return this.recoverNextRange(true)
+      return this.waitBeforeContinueRecovery().then(() => this.recoverNextRange(true))
     }
   }
 
@@ -966,6 +969,18 @@ class Exchange extends EventEmitter {
 
       this.shouldQueueTrades = false
     }, duration)
+  }
+
+  /**
+   * Wait between requests to prevent 429 HTTP errors
+   * @returns {Promise<void>}
+   */
+  waitBeforeContinueRecovery() {
+    if (!config.recoveryRequestDelay) {
+      return Promise.resolve()
+    }
+
+    return sleep(config.recoveryRequestDelay)
   }
 }
 

@@ -249,7 +249,7 @@ class Okex extends Exchange {
                 remainingMissingTime
               )} remaining)`
             )
-            return this.getMissingTrades(range, totalRecovered, lastTradeId)
+            return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered, lastTradeId))
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
