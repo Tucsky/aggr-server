@@ -111,7 +111,7 @@ class Coinbase extends Exchange {
                 remainingMissingTime
               )} remaining)`
             )
-            return this.getMissingTrades(range, totalRecovered, earliestTradeId)
+            return sleep(250).then(() => this.getMissingTrades(range, totalRecovered, earliestTradeId))
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }

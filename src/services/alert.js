@@ -10,6 +10,7 @@ class AlertService extends EventEmitter {
   constructor() {
     super()
 
+    this.enabled = false
     this.alerts = {}
     this.alertEndpoints = {}
 
@@ -20,6 +21,11 @@ class AlertService extends EventEmitter {
 
     if (config.collect) {
       this.getAlerts()
+    }
+
+    if (config.publicVapidKey && config.privateVapidKey) {
+      this.enabled = true
+      webPush.setVapidDetails('mailto:test@example.com', config.publicVapidKey, config.privateVapidKey)
     }
   }
 

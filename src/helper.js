@@ -40,7 +40,7 @@ module.exports = {
     var output = ''
 
     output += (!round || !output.length) && d > 0 ? d + 'd' + (!round && h ? ', ' : '') : ''
-    output += (!round || !output.length) && h > 0 ? h + 'h' + (!round && m ? ', ' : '') : ''
+    output += (!round || !output.length) && h > 0 ? h + 'h' + (!round && (m || s) ? ', ' : '') : ''
     output += (!round || !output.length) && m > 0 ? m + 'm' + (!round && s ? ', ' : '') : ''
     output += (!round || !output.length) && s > 0 ? s + 's' : ''
 
@@ -48,16 +48,6 @@ module.exports = {
       output += (output.length ? ' ' : '') + Math.round(timestamp - s * 1000) + 'ms'
 
     return output.trim()
-  },
-
-  resolution(time) {
-    if (time >= 10080) {
-      return time / 10080 + 'W'
-    } else if (time >= 1440) {
-      return time / 1440 + 'D'
-    } else {
-      return time
-    }
   },
 
   ago(timestamp) {
@@ -243,10 +233,14 @@ module.exports = {
       throw new Error('invalid from / to')
     }
 
-    config.resolution = module.exports.parseDuration(config.resolution)
+    if (!config.timeframe) {
+      throw new Error('you must choose a timeframe / resolution (ex timeframe=1m)')
+    }
 
-    if (isNaN(config.resolution)) {
-      throw new Error('invalid resolution')
+    config.timeframe = module.exports.parseDuration(config.timeframe)
+
+    if (isNaN(config.timeframe)) {
+      throw new Error('invalid timeframe')
     }
 
     if (onlyNativeRecovery) {
@@ -254,6 +248,8 @@ module.exports = {
         await exchange.getProducts()
       }
     }
+
+    let storage
 
     for (let name of config.storage) {
       if (name !== 'influx') {

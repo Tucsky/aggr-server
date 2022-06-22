@@ -2,7 +2,7 @@ const Exchange = require('../exchange')
 const pako = require('pako')
 const WebSocket = require('ws')
 const axios = require('axios')
-const { getHms, sleep } = require('../helper')
+const { getHms } = require('../helper')
 
 class Huobi extends Exchange {
   constructor() {

@@ -1,17 +1,23 @@
 const EventEmitter = require('events')
 const WebSocket = require('ws')
 const fs = require('fs')
-const { getIp, getHms, parsePairsFromWsRequest, groupTrades } = require('./helper')
+const { getIp, getHms, parsePairsFromWsRequest, groupTrades, formatAmount } = require('./helper')
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
 const rateLimit = require('express-rate-limit')
-const webPush = require('web-push')
 const bodyParser = require('body-parser')
 const config = require('./config')
 const alertService = require('./services/alert')
 const socketService = require('./services/socket')
-const { connections, registerConnection, registerIndexes, restoreConnections } = require('./services/connections')
+const {
+  connections,
+  registerConnection,
+  registerIndexes,
+  restoreConnections,
+  recovering,
+  getReconnectionThreshold,
+} = require('./services/connections')
 
 class Server extends EventEmitter {
   constructor(exchanges) {
@@ -63,6 +69,9 @@ class Server extends EventEmitter {
       restoreConnections().then(() => {
         this.connectExchanges()
       })
+
+      // profile exchanges connections (keep alive)
+      this._activityMonitoringInterval = setInterval(this.monitorExchangesActivity.bind(this, Date.now()), 1000 * 60 * 5)
     }
 
     this.initStorages().then(() => {
@@ -208,6 +217,8 @@ class Server extends EventEmitter {
         console.log(`[connections] ${id}${lastPing} disconnected from ${apiId} (${apiLength} remaining)`)
 
         connections[id].apiId = null
+
+        this.dumpConnections()
       })
 
       exchange.on('connected', (pair, apiId, apiLength) => {
@@ -233,6 +244,8 @@ class Server extends EventEmitter {
         console.log(`[connections] ${id}${lastPing} connected to ${apiId} (${apiLength} total)`)
 
         connections[id].apiId = apiId
+
+        this.dumpConnections()
       })
 
       exchange.on('open', (apiId, pairs) => {
@@ -425,9 +438,8 @@ class Server extends EventEmitter {
       })
     })
 
-    if (alertService) {
+    if (alertService.enabled) {
       app.use(bodyParser.json())
-      webPush.setVapidDetails('mailto:test@example.com', config.publicVapidKey, config.privateVapidKey)
 
       app.post('/alert', (req, res) => {
         const user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
@@ -924,6 +936,124 @@ class Server extends EventEmitter {
 
       this.aggregated.splice(0, this.aggregated.length)
     }
+  }
+
+  monitorExchangesActivity() {
+    const now = Date.now()
+
+    const flooredTime = Math.floor(now / config.monitorInterval) * config.monitorInterval
+    const currentHour = Math.floor(now / 3600000) * 3600000
+    let dumpConnections = flooredTime === currentHour
+
+    const apisToReconnect = []
+
+    for (const id in connections) {
+      if (!connections[id].apiId) {
+        continue
+      }
+
+      const { timestamp, startedAt, lastReconnection } = connections[id]
+
+      const ping = Math.max(timestamp, lastReconnection, startedAt)
+
+      if (recovering[connections[id].exchange]) {
+        // exchange is busy recovering
+        dumpConnections = true
+        continue
+      }
+
+      const thrs = getReconnectionThreshold(connections[id])
+
+      if (thrs > 0 && now - ping > thrs && apisToReconnect.indexOf(connections[id].apiId) === -1) {
+        // connection ping threshold reached
+        apisToReconnect.push(connections[id].apiId)
+        continue
+      }
+    }
+
+    if (apisToReconnect.length || dumpConnections) {
+      this.dumpConnections(true)
+    }
+
+    if (apisToReconnect.length) {
+      this.reconnectApis(apisToReconnect, `reconnection threshold reached`)
+    }
+  }
+
+  dumpConnections(scheduled) {
+    if (this._dumpConnectionsTimeout) {
+      clearTimeout(this._dumpConnectionsTimeout)
+    }
+
+    if (!scheduled) {
+      this._dumpConnectionsTimeout = setTimeout(() => {
+        this._dumpConnectionsTimeout = null
+
+        this.dumpConnections(true)
+      }, 5000)
+
+      return
+    }
+
+    const now = Date.now()
+    const table = {}
+
+    for (const id in connections) {
+      if (!connections[id].apiId) {
+        continue
+      }
+
+      const { hit, timestamp, startedAt } = connections[id]
+
+      const columns = {
+        hit: formatAmount(hit)
+      }
+
+      if (timestamp) {
+        connections[id].avg = hit * (60000 / (timestamp - startedAt))
+        const thrs = getReconnectionThreshold(connections[id])
+
+        const shouldReconnect = thrs > 0 && !recovering[connections[id].exchange] && now - timestamp > thrs
+        columns.ping =
+          getHms(now - timestamp) + (shouldReconnect ? `⚠ RECONNECT` : '') + (recovering[connections[id].exchange] ? `⏬ RECOVERING` : '')
+
+        columns.avg = formatAmount(Math.floor(connections[id].avg)) + '/min'
+        columns.thrs = getHms(thrs)
+      } else {
+        columns.ping = 'never'
+        columns.avg = '0/min'
+      }
+
+      table[id] = columns
+    }
+
+    console.table(table)
+  }
+
+  canExit() {
+    let output = true
+
+    for (const exchange of this.exchanges) {
+      if (recovering[exchange.id]) {
+        console.error(`Exchange is recovering trades, don't quit while it's doing its thing because all will be lost`)
+        output = false
+        break
+      }
+    }
+
+    if (!output) {
+      if (!this.exitAttempts) {
+        this.exitAttempts = 0
+      }
+      this.exitAttempts++
+      if (this.exitAttempts === 3) {
+        console.error(`[${exchange.id}] last warning.`)
+      } else if (this.exitAttempts === 4) {
+        output = true
+      }
+    }
+
+    return output
   }
 }
 

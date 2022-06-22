@@ -1,7 +1,7 @@
 const Exchange = require('../exchange')
 const WebSocket = require('ws')
 const axios = require('axios')
-const { getHms } = require('../helper')
+const { getHms, sleep } = require('../helper')
 
 class Ftx extends Exchange {
   constructor() {
@@ -116,12 +116,10 @@ class Ftx extends Exchange {
               console.log(
                 `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ...  (${getHms(remainingMissingTime)} remaining)`
               )
-              return this.getMissingTrades(range, totalRecovered)
+              return sleep(250, this.getMissingTrades(range, totalRecovered))
             } else {
               console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
             }
-          } else {
-            console.log(endpoint) // debug
           }
         }
 

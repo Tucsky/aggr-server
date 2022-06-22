@@ -226,7 +226,6 @@ class Okex extends Exchange {
     return axios
       .get(endpoint)
       .then((response) => {
-        console.log(response.data.data.length)
         if (response.data.data.length) {
           const lastTradeId = response.data.data[response.data.data.length - 1].tradeId
           const earliestTradeTime = +response.data.data[response.data.data.length - 1].ts

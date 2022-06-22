@@ -131,9 +131,6 @@ class Bitfinex extends Exchange {
         api.id,
         json[1]
           .filter((liquidation) => {
-            if (liquidation[4] === 'tBTCF0:USTF0') {
-              console.log(JSON.stringify(liquidation))
-            }
             return !liquidation[8] && !liquidation[10] && !liquidation[11] && api._connected.indexOf(liquidation[4].substring(1)) !== -1
           })
           .map((liquidation) => this.formatLiquidation(liquidation, liquidation[4].substring(1)))

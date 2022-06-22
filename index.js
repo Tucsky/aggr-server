@@ -40,6 +40,10 @@ const server = new Server(exchanges)
 process.on('SIGINT', async function () {
   console.log('\nSIGINT')
 
+  if (!server.canExit()) {
+    return
+  }
+
   if (config.collect) {
     try {
       await alertService.persistAlerts()
@@ -59,7 +63,7 @@ process.on('SIGINT', async function () {
   
     try {
       await server.backupTrades(true)
-      console.log(`[exit] saved last trades ✓`)
+      console.log(`[exit] saved trades ✓`)
     } catch (error) {
       console.error(`[exit] failed to save trades`, error.message)
     }

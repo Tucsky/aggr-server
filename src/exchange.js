@@ -3,7 +3,7 @@ const WebSocket = require('ws')
 
 const { ID, getHms, sleep } = require('./helper')
 const { readProducts, fetchProducts, saveProducts } = require('./services/catalog')
-const { connections } = require('./services/connections')
+const { connections, recovering } = require('./services/connections')
 
 require('./typedef')
 
@@ -158,7 +158,7 @@ class Exchange extends EventEmitter {
           }
 
           this.on('connected', connectedEventHandler)
-          
+
           timeout = setTimeout(() => {
             console.error(`[${this.id}/link] ${pair} connected event never fired, resolving returnConnectedEvent immediately`)
             connectedEventHandler(pair)
@@ -430,8 +430,10 @@ class Exchange extends EventEmitter {
       return
     }
 
-    if (connection.lastConnectionMissEstimate < 2) {
+    if (!connection.forceRecovery && connection.lastConnectionMissEstimate < 10) {
       return
+    } else if (connection.forceRecovery) {
+      delete connection.forceRecovery
     }
 
     const now = Date.now()
@@ -445,17 +447,15 @@ class Exchange extends EventEmitter {
 
     this.recoveryRanges.push(range)
 
-    if (!this.busyRecovering) {
+    if (!recovering[this.id]) {
       this.recoverNextRange()
     }
   }
 
   async recoverNextRange(sequencial) {
-    if (!this.recoveryRanges.length || (this.busyRecovering && !sequencial)) {
+    if (!this.recoveryRanges.length || (recovering[this.id] && !sequencial)) {
       return
     }
-
-    this.busyRecovering = true
 
     const range = this.recoveryRanges.shift()
 
@@ -471,6 +471,8 @@ class Exchange extends EventEmitter {
     )
 
     const connection = connections[this.id + ':' + range.pair]
+
+    recovering[this.id] = true
 
     try {
       const recoveredCount = await this.getMissingTrades(range)
@@ -525,7 +527,7 @@ class Exchange extends EventEmitter {
     if (!this.recoveryRanges.length) {
       console.log(`[${this.id}] no more ranges to recover`)
 
-      this.busyRecovering = false // release
+      delete recovering[this.id]
 
       if (this.queuedTrades.length) {
         const sortedQueuedTrades = this.queuedTrades.sort((a, b) => a.timestamp - b.timestamp)
@@ -838,7 +840,7 @@ class Exchange extends EventEmitter {
       return null
     }
 
-    if (this.shouldQueueTrades || this.busyRecovering) {
+    if (this.shouldQueueTrades || recovering[this.id]) {
       Array.prototype.push.apply(this.queuedTrades, trades)
       return null
     }

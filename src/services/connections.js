@@ -11,6 +11,11 @@ require('../typedef')
 const connections = (module.exports.connections = {})
 
 /**
+ * @type {{[id: string]: Boolean}}
+ */
+module.exports.recovering = {}
+
+/**
  * @type {ProductIndex[]}
  */
 const indexes = (module.exports.indexes = [])
@@ -57,9 +62,9 @@ module.exports.registerConnection = function (id, exchange, pair) {
     }
 
     if (config.pairs.indexOf(id) === -1) {
-      // new connection manually added through pm2 actions (not in config.pairs yet)
+      // force fetch last 4h of data through recent trades
+      connections[id].forceRecovery = true
       connections[id].timestamp = now - 1000 * 60 * 60 * 4
-      connections[id].lastConnectionMissEstimate = 100
     }
   } else {
     if (connections[id].timestamp) {
@@ -68,6 +73,8 @@ module.exports.registerConnection = function (id, exchange, pair) {
       const missDuration = now - connections[id].timestamp
       connections[id].lastConnectionMissEstimate = Math.floor(connections[id].hit * (missDuration / activeDuration))
     }
+
+    connections[id].lastReconnection = now
   }
 
   return connections[id]
@@ -143,8 +150,32 @@ module.exports.restoreConnections = async function () {
       continue
     }
 
-    if (!persistance[market].timestamp || now - persistance[market].timestamp > 1000 * 60 * 60 * 4) {
-      // connection is to old (too much data to recoved)
+    if (
+      !persistance[market].forceRecovery &&
+      (!persistance[market].timestamp ||
+        (config.staleConnectionThreshold > 0 && now - persistance[market].timestamp > config.staleConnectionThreshold))
+    ) {
+      console.log(
+        `[connections] couldn't restore ${market}'s connection because ${
+          persistance[market].timestamp
+            ? `last ping is too old (${getHms(now - persistance[market].timestamp, true)} ago)`
+            : `last ping is unknown`
+        }`
+      )
+      // connection is to old (too much data to recover)
+      continue
+    }
+
+    if (
+      typeof persistance[market].startedAt !== 'number' ||
+      typeof persistance[market].hit !== 'number' ||
+      !persistance[market].exchange ||
+      !persistance[market].pair
+    ) {
+      console.error(
+        `[connections] couldn't restore connection ${market} because persistance is missing some informations\n\tmake sure the following properties are set for each connections : exchange, pair, startedAt and hit`
+      )
+      // connection is invalid
       continue
     }
 
@@ -212,4 +243,13 @@ module.exports.saveConnections = async function () {
       resolve()
     })
   })
+}
+
+module.exports.getReconnectionThreshold = function (connection) {
+  if (config.reconnectionThreshold && typeof config.reconnectionThreshold === 'string' && isNaN(config.reconnectionThreshold)) {
+    const instruction = new Function('connection', `'use strict'; return ${config.reconnectionThreshold}`)(connection)
+    return instruction
+  }
+
+  return config.reconnectionThreshold
 }

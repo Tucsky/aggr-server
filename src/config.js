@@ -68,6 +68,12 @@ const defaultConfig = {
   // persist connections between reload, and use that information to attempt filling the holes on startup
   persistConnections: true,
 
+  // won't persist connection older than this (default 4h)
+  staleConnectionThreshold: 1000 * 60 * 60 * 4,
+
+  // reconnection threshold (default 1h without incoming trade, reconnect the whole api)
+  reconnectionThreshold: 3600000,
+
   // bypass origin restriction for given ips (comma separated)
   whitelist: [],
 
