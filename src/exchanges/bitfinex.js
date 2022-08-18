@@ -101,7 +101,7 @@ class Bitfinex extends Exchange {
     const json = JSON.parse(event.data)
 
     if (json.event === 'subscribed' && json.chanId) {
-      console.debug(`[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
+      // console.debug(`[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
       this.channels[json.chanId] = {
         name: json.channel,
         pair: json.pair,
@@ -117,7 +117,7 @@ class Bitfinex extends Exchange {
     const channel = this.channels[json[0]]
 
     if (!channel.hasSentInitialMessage) {
-      console.debug(`[${this.id}] skip first payload ${channel.name}:${channel.pair}`)
+      // console.debug(`[${this.id}] skip first payload ${channel.name}:${channel.pair}`)
       channel.hasSentInitialMessage = true
       return
     }
@@ -203,6 +203,8 @@ class Bitfinex extends Exchange {
   }
 
   onApiRemoved(api) {
+    console.log(`[${this.id}] has ${Object.keys(this.channels).length} channels`)
+
     const apiChannels = Object.keys(this.channels).filter((id) => this.channels[id].apiId === api.id)
 
     for (const id of apiChannels) {

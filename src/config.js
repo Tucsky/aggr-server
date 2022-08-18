@@ -167,6 +167,10 @@ const defaultConfig = {
   // automatic compression of file once done working with it
   filesGzipAfterUse: true,
 
+  // close file stream after it's expired, allow for a delay before closing the file stream 
+  // which can be useful when exchanges trades are lagging (default 5m)
+  filesCloseAfter: 300000,
+
   // choose whether or not enable rate limiting on the provided api
   enableRateLimit: false,
 

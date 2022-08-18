@@ -77,7 +77,7 @@ function getConnectionsPersistance() {
  * @returns {Connection} clean connection
  */
 function cleanConnection(connection) {
-  let { exchange, pair, hit, startedAt, timestamp } = connection
+  let { exchange, pair, hit, startedAt, timestamp, restarts } = connection
 
   if (!exchange) {
     throw new Error(`unknown connection's exchange`)
@@ -95,6 +95,10 @@ function cleanConnection(connection) {
     timestamp = null
   }
 
+  if (typeof restarts === 'undefined') {
+    restarts = 0
+  }
+
   if (!startedAt) {
     startedAt = Date.now()
   }
@@ -105,6 +109,7 @@ function cleanConnection(connection) {
     hit,
     startedAt,
     timestamp,
+    restarts,
   }
 }
 
@@ -304,6 +309,7 @@ module.exports.registerConnection = function (id, exchange, pair) {
       exchange,
       pair,
       hit: 0,
+      restarts: 0,
       startedAt: now,
       timestamp: null,
     }
@@ -314,6 +320,8 @@ module.exports.registerConnection = function (id, exchange, pair) {
       connections[id].timestamp = now - 1000 * 60 * 60 * 4
     }
   } else {
+    connections[id].restarts++
+    
     if (connections[id].timestamp) {
       // calculate estimated missing trade since last trade processed on that connection
       const activeDuration = connections[id].timestamp - connections[id].startedAt
@@ -402,9 +410,10 @@ module.exports.dumpConnections = function (scheduled) {
 
     const columns = {
       hit: formatAmount(connections[id].hit),
-      avg: `${formatAmount(Math.floor(connections[id].avg))}/min`,
-      ping: getHms(now - connections[id].ping),
+      'avg hit': `${formatAmount(Math.floor(connections[id].avg))}/min`,
+      'last hit': getHms(now - connections[id].ping),
       thrs: getHms(connections[id].thrs),
+      reco: connections[id].restarts,
     }
 
     if (!module.exports.recovering[connections[id].exchange] && now - connections[id].ping > connections[id].thrs) {

@@ -289,7 +289,7 @@ async function getData(product, from, to, timeframe, isFirst) {
 
   const bars = []
 
-  const ohlcData = await getOHLC(product, from, to, timeframe, isFirst)
+  const ohlcData = await getOOHLC(product, from, to, timeframe, isFirst)
   await sleep(Math.random() * 100 + 100)
   const buySellVolumeData = await getBuySellVolume(product, from, to, timeframe, isFirst)
   await sleep(Math.random() * 100 + 100)

@@ -84,18 +84,26 @@ class FilesStorage {
     const now = +new Date()
 
     for (let id in this.writableStreams) {
-      // close 1 min after file expiration (timestamp + fileInterval)
-      if (now > this.writableStreams[id].timestamp + config.filesInterval + 1000 * 60) {
+      // close 5 min (config.filesCloseAfter) after file expiration
+      if (now > this.writableStreams[id].timestamp + config.filesInterval + config.filesCloseAfter) {
         const path = this.writableStreams[id].stream.path
 
         console.debug(`[storage/${this.name}] close writable stream ${id}`)
 
-        this.writableStreams[id].stream.end()
+        try {
+          this.writableStreams[id].stream.end()
+        } catch (error) {
+          console.error(`[storage/${this.name}] failed to 'end' writable stream ${id}`, error)
+        }
 
         delete this.writableStreams[id]
 
         if (config.filesGzipAfterUse) {
-          this.gzipFileAndRemoveRaw(path)
+          try {
+            this.gzipFileAndRemoveRaw(path)
+          } catch (error) {
+            console.error(`[storage/${this.name}] failed to gzip & remove original file "${path}"`, error)
+          }
         }
       }
     }

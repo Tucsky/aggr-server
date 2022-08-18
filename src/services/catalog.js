@@ -2,9 +2,8 @@ const axios = require('axios')
 const fs = require('fs')
 const { ensureDirectoryExists } = require('../helper')
 
-const baseQuoteLookupKnown = new RegExp(`^([A-Z0-9]{3,})[-/:]?(USDT|USDC|TUSD|BUSD)$|^([A-Z0-9]{2,})[-/:]?(UST|EUR|USD)$`)
+const baseQuoteLookupKnown = new RegExp(`^([A-Z0-9]{3,})[-/:_]?(USDT|USDC|TUSD|BUSD)$|^([A-Z0-9]{2,})[-/:]?(UST|EUR|USD)$`)
 const baseQuoteLookupOthers = new RegExp(`^([A-Z0-9]{2,})[-/]?([A-Z0-9]{3,})$`)
-const baseQuoteLookupPoloniex = new RegExp(`^(.*)_(.*)$`)
 
 require('../typedef')
 
@@ -185,22 +184,10 @@ module.exports.parseMarket = function (market, noStable = true) {
 
   let match
 
-  if (exchangeId === 'POLONIEX') {
-    match = symbol.match(baseQuoteLookupPoloniex)
+  match = localSymbol.match(baseQuoteLookupKnown)
 
-    if (match) {
-      match[0] = match[2]
-      match[2] = match[1]
-      match[1] = match[0]
-
-      localSymbolAlpha = match[1] + match[2]
-    }
-  } else {
-    match = localSymbol.match(baseQuoteLookupKnown)
-
-    if (!match) {
-      match = localSymbolAlpha.match(baseQuoteLookupOthers)
-    }
+  if (!match) {
+    match = localSymbolAlpha.match(baseQuoteLookupOthers)
   }
 
   if (!match && (exchangeId === 'DERIBIT' || exchangeId === 'FTX' || exchangeId === 'HUOBI')) {

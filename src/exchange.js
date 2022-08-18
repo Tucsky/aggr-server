@@ -2,7 +2,7 @@ const EventEmitter = require('events')
 const WebSocket = require('ws')
 const config = require('./config')
 
-const { ID, getHms, sleep } = require('./helper')
+const { ID, getHms, sleep, humanReadyState } = require('./helper')
 const { readProducts, fetchProducts, saveProducts } = require('./services/catalog')
 const { connections, recovering, dumpConnections } = require('./services/connections')
 
@@ -174,6 +174,8 @@ class Exchange extends EventEmitter {
 
     if (!api) {
       api = this.createWs(pair)
+    } else {
+      console.debug(`[${this.id}.resolveApi] use existing api (api is ${humanReadyState(api.readyState)})`)
     }
 
     if (api._pending.indexOf(pair) !== -1) {
@@ -338,6 +340,7 @@ class Exchange extends EventEmitter {
   getActiveApiByUrl(url) {
     for (let i = 0; i < this.apis.length; i++) {
       if (
+        this.apis[i].readyState < 2 &&
         this.apis[i].url === url &&
         (!this.maxConnectionsPerApi || this.apis[i]._connected.length + this.apis[i]._pending.length < this.maxConnectionsPerApi)
       ) {
@@ -409,7 +412,7 @@ class Exchange extends EventEmitter {
     console.debug(
       `[${this.id}.reconnectApi] reconnect api ${api.id}${reason ? ' reason: ' + reason : ''} (url: ${
         api.url
-      }, _connected: ${api._connected.join(', ')}, _pending: ${api._connected.join(', ')})`
+      }, _connected: ${api._connected.join(', ')}, _pending: ${api._pending.join(', ')})`
     )
 
     const pairsToReconnect = [...api._pending, ...api._connected]
@@ -569,15 +572,21 @@ class Exchange extends EventEmitter {
 
     console.info(`[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(',')}`)
 
+    console.debug(`[${this.id}.reconnectPairs] unlinking ${pairsToReconnect.length} pairs`)
+
     for (let pair of pairsToReconnect) {
       await this.unlink(this.id + ':' + pair, true)
     }
 
     const promisesOfSubscriptions = []
 
+    console.debug(`[${this.id}.reconnectPairs] linking ${pairsToReconnect.length} pairs`)
+
     for (let pair of pairsToReconnect) {
       promisesOfSubscriptions.push(this.link(this.id + ':' + pair))
     }
+
+    console.info(`[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(',')}`)
 
     return Promise.all(promisesOfSubscriptions)
   }
@@ -887,10 +896,10 @@ class Exchange extends EventEmitter {
 
     currentDelay = Math.max(minDelay, currentDelay || 0)
 
-    console.debug(`[${this.id}] schedule ${operationId} in ${getHms(currentDelay)}`)
+    // console.debug(`[${this.id}] schedule ${operationId} in ${getHms(currentDelay)}`)
 
     this.scheduledOperations[operationId] = setTimeout(() => {
-      console.debug(`[${this.id}] schedule timer fired`)
+      // console.debug(`[${this.id}] schedule timer fired`)
 
       delete this.scheduledOperations[operationId]
 

@@ -277,4 +277,15 @@ module.exports = {
     var i = Math.floor(Math.log(size) / Math.log(1024))
     return (size / Math.pow(1024, i)).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
   },
+  humanReadyState(state) {
+    if (state === 1) {
+      return 'open'
+    } else if (state === 2) {
+      return 'closing'
+    } else if (state === 3) {
+      return 'closed'
+    }
+
+    return 'connecting'
+  }
 }
