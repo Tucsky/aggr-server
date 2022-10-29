@@ -52,6 +52,9 @@ const defaultConfig = {
     'HUOBI:ETH-USD',
     'BINANCE_FUTURES:ethusd_perp',
   ],
+  
+  // non standard products
+  extraProducts: [],
 
   // will connect to exchanges and subscribe to pairs on startup
   collect: true,

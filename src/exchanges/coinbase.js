@@ -16,7 +16,7 @@ class Coinbase extends Exchange {
   }
 
   formatProducts(data) {
-    return data.map((product) => product.id)
+    return data.filter((product) => product.status === 'online').map((product) => product.id)
   }
 
   /**

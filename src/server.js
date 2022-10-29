@@ -463,16 +463,16 @@ class Server extends EventEmitter {
     }
 
     app.get('/products', (req, res) => {
-      let products = []
+      let products = config.extraProducts
 
       if (socketService.clusteredCollectors.length) {
         // node is a cluster
 
-        products = socketService.clusteredCollectors
+        products = products.concat(socketService.clusteredCollectors
           .reduce((acc, collectorSocket) => acc.concat(collectorSocket.markets), [])
-          .filter((x, i, a) => a.indexOf(x) == i)
+          .filter((x, i, a) => a.indexOf(x) == i))
       } else {
-        products = config.pairs
+        products = products.concat(config.pairs)
       }
 
       res.json(products)
