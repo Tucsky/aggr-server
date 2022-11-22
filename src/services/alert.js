@@ -340,7 +340,6 @@ class AlertService extends EventEmitter {
     console.log(`[alert/persist] save ${Object.keys(this.alertEndpoints).length} alert user(s)`)
 
     try {
-      console.log('')
       await persistenceService.set('alerts-endpoints', this.alertEndpoints)
     } catch (error) {
       console.error('[alert/persist] persistence error (saving endpoints)', error.message)

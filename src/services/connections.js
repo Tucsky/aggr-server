@@ -197,7 +197,7 @@ module.exports.restoreConnections = async function () {
   const now = Date.now()
 
   for (const market in persistance) {
-    if (config.pairs.indexOf(market) === -1) {
+    if (config.pairs.indexOf(market) === -1 || config.exchanges.indexOf(persistance[market].exchange) === -1) {
       // filter out connection that doesn't concern this instance
       continue
     }

@@ -15,7 +15,7 @@ const defaultConfig = {
     'OKEX:BTC-USDT',
     'KRAKEN:XBT/USD',
     'COINBASE:BTC-USD',
-    'POLONIEX:USDT_BTC',
+    'POLONIEX:BTC_USDT',
     'HUOBI:btcusdt',
     'BITSTAMP:btcusd',
     'BITMEX:XBTUSD',

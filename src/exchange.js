@@ -745,6 +745,8 @@ class Exchange extends EventEmitter {
       return
     }
 
+    api._closeWasHandled = true
+
     if (this.connecting[api.id]) {
       this.failedConnections++
       const delay = 1000 * this.failedConnections
@@ -764,8 +766,6 @@ class Exchange extends EventEmitter {
     console.debug(`[${this.id}] ${pairs.join(',')}'s api closed`)
 
     this.emit('close', api.id, pairs, event)
-
-    api._closeWasHandled = true
   }
 
   /**
