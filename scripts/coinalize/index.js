@@ -32,8 +32,8 @@ async function program() {
       continue
     }
 
-    const market = parseMarket(pair.market, pair.exchange === 'POLONIEX' || pair.exchange === 'BINANCE')
-
+    const market = parseMarket(pair.market, pair.exchange === 'POLONIEX')
+    
     resampleRange.markets.push(market.id)
 
     if ((market.exchange === 'OKEX' || market.exchange === 'HUOBI') && market.type === 'spot') {

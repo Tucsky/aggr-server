@@ -4,7 +4,7 @@ const fs = require('fs')
 const config = require('../../src/config')
 const { sleep } = require('../../src/helper')
 
-const COINALIZE_RESOLUTIONS = [1, 5, 15, 30, 60, 60 * 2, 60 * 4, 60 * 6, 60 * 12, 60 * 24]
+const COINALIZE_RESOLUTIONS = [1, 5, 15, 30, 60, 60 * 2, 60 * 4, 60 * 6, 60 * 12, 60 * 24, '1D']
 
 const COINALIZE_VENUES = {
   BINANCE: 'A',
@@ -62,11 +62,23 @@ function getCoinalizeMarket(product) {
     symbol += '_PERP'
   }
 
+  if (product.exchange === 'BINANCE' && product.type === 'spot' && product.quote === 'USDT') {
+    symbol = product.base + 'USD'
+  }
+
   if (product.exchange === 'BYBIT' && product.type === 'spot') {
     symbol = 's' + symbol.replace('-SPOT', '')
   }
 
-  return symbol + '.' + COINALIZE_VENUES[product.exchange.replace(/_\w+/, '')]
+  if (product.exchange === 'BITFINEX') {
+    if (product.local === 'LUNA2USD') {
+      symbol = symbol.replace('LUNA2', 'LUNA')
+    } else if (product.local === 'LUNAUSD') {
+      symbol = symbol.replace('LUNA', 'LUNC')
+    }
+  }
+
+  return symbol.replace('LUNA', 'LUNC') + '.' + COINALIZE_VENUES[product.exchange.replace(/_\w+/, '')]
 }
 
 function getCoinalizeResolution(time) {
@@ -154,6 +166,10 @@ function fetchReqKey() {
 }
 
 module.exports.getAllData = async function (product, from, to, timeframe) {
+  const coinalizeMarket = getCoinalizeMarket(product)
+  
+  const coinalizeResolution = getCoinalizeResolution(timeframe)
+  console.log('[getAllData]', product.id, coinalizeMarket, coinalizeResolution, 'from', new Date(from).toISOString(), 'to', new Date(to).toISOString())
   const timePerRequest = timeframe * BARS_PER_REQUEST
 
   const data = []
@@ -164,7 +180,7 @@ module.exports.getAllData = async function (product, from, to, timeframe) {
     await sleep(Math.random() * 1500 + 1500)
     const reqFrom = Math.max(from, time - timePerRequest)
     const reqTo = Math.min(to, time)
-    console.log('- from', new Date(reqFrom).toISOString(), 'to', new Date(reqTo).toISOString())
+    console.log('- from', new Date(reqFrom).toISOString(), 'to', new Date(reqTo).toISOString(), coinalizeMarket, coinalizeResolution)
     const chunk = await getData(product, reqFrom, reqTo, timeframe, isFirst)
 
     if (chunk.length) {
@@ -203,7 +219,7 @@ function getBars(product, from, to, timeframe, isFirst, dataset) {
   },"resolution":"${coinalizeResolution}","symbol":"${source}","firstDataRequest":${
     isFirst ? 'true' : 'false'
   },"symbolsForUsdConversion":[],"rk":"${REQ_KEY}"}`
-
+  
   return axios
     .post('https://coinalyze.net/chart/getBars/', data, {
       headers: baseJSONHeaders,
@@ -289,7 +305,7 @@ async function getData(product, from, to, timeframe, isFirst) {
 
   const bars = []
 
-  const ohlcData = await getOOHLC(product, from, to, timeframe, isFirst)
+  const ohlcData = await getOHLC(product, from, to, timeframe, isFirst)
   await sleep(Math.random() * 100 + 100)
   const buySellVolumeData = await getBuySellVolume(product, from, to, timeframe, isFirst)
   await sleep(Math.random() * 100 + 100)

@@ -114,8 +114,12 @@ class Exchange extends EventEmitter {
   /**
    * Get exchange ws url
    */
-  getUrl() {
-    return typeof this.url === 'function' ? this.url.apply(this, arguments) : this.url
+  getUrl(pair) {
+    if (typeof this.url === 'function') {
+      return this.url(pair)
+    }
+
+    return Promise.resolve(this.url)
   }
 
   /**
@@ -132,7 +136,7 @@ class Exchange extends EventEmitter {
 
     console.debug(`[${this.id}.link] connecting ${pair}`)
 
-    const api = this.resolveApi(pair)
+    const api = await this.resolveApi(pair)
 
     if (returnConnectedEvent) {
       let promiseOfApiOpen
@@ -169,11 +173,12 @@ class Exchange extends EventEmitter {
     }
   }
 
-  resolveApi(pair) {
-    let api = this.getActiveApiByUrl(this.getUrl(pair))
+  async resolveApi(pair) {
+    const url = await this.getUrl(pair)
+    let api = this.getActiveApiByUrl(url)
 
     if (!api) {
-      api = this.createWs(pair)
+      api = this.createWs(url, pair)
     } else {
       console.debug(`[${this.id}.resolveApi] use existing api (api is ${humanReadyState(api.readyState)})`)
     }
@@ -203,9 +208,7 @@ class Exchange extends EventEmitter {
     return api
   }
 
-  createWs(pair) {
-    const url = this.getUrl(pair)
-
+  createWs(url, pair) {
     const api = new WebSocket(url)
     api.id = ID()
 

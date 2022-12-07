@@ -219,7 +219,7 @@ class Server extends EventEmitter {
 
         connections[id].apiId = null
 
-        dumpConnections()
+        // dumpConnections()
       })
 
       exchange.on('connected', (pair, apiId, apiLength) => {
@@ -246,7 +246,7 @@ class Server extends EventEmitter {
 
         connections[id].apiId = apiId
 
-        dumpConnections()
+        // dumpConnections()
       })
 
       exchange.on('open', (apiId, pairs) => {

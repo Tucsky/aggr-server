@@ -203,7 +203,7 @@ const defaultConfig = {
   privateVapidKey: null,
   alertExpiresAfter: 1000 * 60 * 60 * 24 * 7,
   alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 30,
-  priceIndexesBlacklist: ['HITBTC', 'BITSTAMP', 'KRAKEN', 'POLONIEX'],
+  priceIndexesBlacklist: [],
 
   // verbose
   debug: false,
