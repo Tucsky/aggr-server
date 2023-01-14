@@ -29,16 +29,6 @@ class InfluxStorage {
      * @type {{[identifier: string]: {[timestamp: number]: Bar}}}
      */
     this.pendingBars = {}
-
-    /**
-     * @type {{[identifier: string]: any[]}}
-     */
-    this.alerts = {}
-
-    /**
-     * @type {{[endpoint: string]: any}}
-     */
-    this.alertEndpoints = {}
   }
 
   async connect() {
@@ -110,7 +100,7 @@ class InfluxStorage {
           this.promiseOfImport() // trigger next import (if any)
         }
       })
-      .on('requestPendingBars', (data) => {
+      .on('requestPendingBars', ({data}) => {
         // response from pending bars request
 
         if (this.promisesOfPendingBars[data.pendingBarsRequestId]) {
@@ -126,16 +116,15 @@ class InfluxStorage {
    */
   bindClusterEvents() {
     socketService
-      .on('requestPendingBars', (data) => {
+      .on('requestPendingBars', ({data}) => {
         // this is a request for pending bars from cluster
         const payload = {
           pendingBarsRequestId: data.pendingBarsRequestId,
           results: this.getPendingBars(data.markets, data.from, data.to),
         }
-
         socketService.clusterSocket.write(
           JSON.stringify({
-            op: 'requestPendingBars',
+            opId: 'requestPendingBars',
             data: payload,
           }) + '#'
         )
@@ -147,7 +136,7 @@ class InfluxStorage {
           if (socketService.clusterSocket) {
             socketService.clusterSocket.write(
               JSON.stringify({
-                op: 'import',
+                opId: 'import',
               }) + '#'
             )
           }
@@ -277,6 +266,10 @@ class InfluxStorage {
       if (typeof barToMutate[prop] === 'number') {
         barToMutate[props] += value
       }
+    }
+
+    if (!barToMutate.open && !barToMutate.high && !barToMutate.low && !barToMutate.close) {
+      barToMutate.open = barToMutate.high = barToMutate.low = barToMutate.close = null
     }
 
     return barToMutate
@@ -410,13 +403,14 @@ class InfluxStorage {
 
         connections[market].high = Math.max(this.pendingBars[market][timestamp].high, connections[market].high)
         connections[market].low = Math.min(this.pendingBars[market][timestamp].low, connections[market].low)
+        connections[market].close = this.pendingBars[market][timestamp].close
       }
 
       // console.log(market, connections[market].low, connections[market].high)
     }
 
-    updateIndexes((index, high, low) => {
-      alertService.checkPriceCrossover(index, high, low)
+    updateIndexes((index, high, low, direction) => {
+      alertService.checkPriceCrossover(index, high, low, direction)
     })
   }
 
@@ -477,7 +471,7 @@ class InfluxStorage {
     this.pendingBars = {}
 
     if (barsToImport.length) {
-      // console.debug(`[storage/influx] importing ${barsToImport.length} bars`)
+      // console.log(`[storage/influx] importing ${barsToImport.length} bars`)
 
       await this.writePoints(
         barsToImport.map((bar) => {
@@ -541,7 +535,7 @@ class InfluxStorage {
       await this.influx.writePoints(points, options)
 
       if (attempt > 0) {
-        console.debug(`[storage/influx] successfully wrote points after ${attempt} attempt(s)`)
+        console.log(`[storage/influx] successfully wrote points after ${attempt} attempt(s)`)
       }
     } catch (error) {
       attempt++
@@ -581,7 +575,7 @@ class InfluxStorage {
     let now = Date.now()
     let before = now
 
-    console.debug(`[storage/influx/resample] resampling ${range.markets.length} markets`)
+    console.log(`[storage/influx/resample] resampling ${range.markets.length} markets`)
 
     let minimumTimeframe
     let timeframes
@@ -661,11 +655,17 @@ class InfluxStorage {
 
     now = Date.now()
 
-    console.debug(
+    const elapsedOp = now - before
+
+    console.log(
       `[storage/influx/resample] done resampling ${parseInt((now - before) / bars)}ms per bar (${parseInt(
-        now - before
+        elapsedOp
       )}ms for ${bars} bars)`
     )
+
+    if (elapsedOp > 10000) {
+      console.log(`[storage/influx/resample] resample range ${new Date(range.from).toISOString()} to ${new Date(range.to).toISOString()} (${range.markets.length} markets)`)
+    }
   }
 
   /**
@@ -682,7 +682,7 @@ class InfluxStorage {
       await this.influx.query(query)
 
       if (attempt > 0) {
-        console.debug(`[storage/influx] successfully executed query ${attempt} attempt(s)`)
+        console.log(`[storage/influx] successfully executed query ${attempt} attempt(s)`)
       }
     } catch (error) {
       attempt++
@@ -788,7 +788,7 @@ class InfluxStorage {
           }
         }
 
-        collector.write(JSON.stringify({ op: 'import' }) + '#')
+        collector.write(JSON.stringify({ opId: 'import' }) + '#')
       })
     }
 
@@ -862,7 +862,7 @@ class InfluxStorage {
 
       collector.write(
         JSON.stringify({
-          op: 'requestPendingBars',
+          opId: 'requestPendingBars',
           data: {
             pendingBarsRequestId,
             markets,
@@ -891,7 +891,7 @@ class InfluxStorage {
       }
     }
 
-    /*console.debug(
+    /*console.log(
       `[storage/influx] found ${results.length} pending bars for ${markets.join(',')} between ${new Date(
         +from
       ).toISOString()} and ${new Date(+to).toISOString()}`

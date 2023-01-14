@@ -421,7 +421,7 @@ class Exchange extends EventEmitter {
     const pairsToReconnect = [...api._pending, ...api._connected]
 
     this.promisesOfApiReconnections[api.id] = this.reconnectPairs(pairsToReconnect).then(() => {
-      console.debug(`[${this.id}.reconnectApi] done reconnecting api (was ${api.id}${reason ? ' because of ' + reason : ''})`)
+      console.log(`[${this.id}.reconnectApi] done reconnecting api (was ${api.id}${reason ? ' because of ' + reason : ''})`)
       delete this.promisesOfApiReconnections[api.id]
     })
 
@@ -539,26 +539,13 @@ class Exchange extends EventEmitter {
       if (this.queuedTrades.length) {
         const sortedQueuedTrades = this.queuedTrades.sort((a, b) => a.timestamp - b.timestamp)
 
-        /*console.log('emit trades (recovered + received while recevering)')
-        sortedQueuedTrades.forEach((trade, index, array) => {
-          if (trade.timestamp >= fromTime && (!index || array[index - 1].timestamp < fromTime)) {
-            console.log('-- start of recovered trades')
-          }
-          console.log(new Date(trade.timestamp).toISOString(), +trade.size)
-          if (trade.timestamp < toTime && (index === array.length - 1 || array[index + 1].timestamp >= toTime)) {
-            console.log('-- end of recovered trades')
-          }
-        })*/
-
         console.log(
           `[${this.id}] release trades queue (${sortedQueuedTrades.length} trades, ${new Date(
             +sortedQueuedTrades[0].timestamp
-          ).toISOString()} to ${new Date(+sortedQueuedTrades[sortedQueuedTrades.length - 1].timestamp).toISOString()})`
+          ).toISOString().split('T').pop()} to ${new Date(+sortedQueuedTrades[sortedQueuedTrades.length - 1].timestamp).toISOString().split('T').pop()})`
         )
         this.emit('trades', sortedQueuedTrades)
         this.queuedTrades = []
-
-        dumpConnections()
       }
     } else {
       return this.waitBeforeContinueRecovery().then(() => this.recoverNextRange(true))
@@ -766,7 +753,7 @@ class Exchange extends EventEmitter {
 
     const pairs = [...api._pending, ...api._connected]
 
-    console.debug(`[${this.id}] ${pairs.join(',')}'s api closed`)
+    console.log(`[${this.id}] ${pairs.join(',')}'s api closed`)
 
     this.emit('close', api.id, pairs, event)
   }

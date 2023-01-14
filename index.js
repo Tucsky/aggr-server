@@ -56,7 +56,7 @@ process.on('SIGINT', async function () {
     
     if (config.persistConnections) {
       try {
-        await saveConnections()
+        await saveConnections(true)
         console.log(`[exit] saved connections ✓`)
       } catch (error) {
         console.error(`[exit] failed to save connections`, error.message)

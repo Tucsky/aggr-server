@@ -5,6 +5,8 @@ const { getHms, ensureDirectoryExists, formatAmount } = require('../helper')
 
 require('../typedef')
 
+let saveConnectionsTimeout = null
+
 /**
  * @type {{[id: string]: Connection}}
  */
@@ -59,12 +61,19 @@ function getConnectionsPersistance() {
       if (err && err.code !== 'ENOENT') {
         console.error(`[connections] failed to persist connections timestamps to ${path}`, err)
       }
-
+      
+      let json = {}
+      
       if (data) {
-        resolve(JSON.parse(data))
-      } else {
-        resolve({})
+        try {
+          json = JSON.parse(data)
+        } catch (parseError) {
+          console.error(`[connections] connection.json is corrupted`, parseError.message)
+          json = {}
+        }
       }
+
+      resolve(json)
     })
   })
 }
@@ -172,15 +181,6 @@ module.exports.updateConnectionStats = function (connection) {
   connection.avg = getConnectionHitAverage(connection)
   connection.thrs = getConnectionThreshold(connection)
   connection.ping = getConnectionPing(connection)
-
-  /*  
-  const now = Date.now()
-  console.log(
-    `[${connection.exchange}:${connection.pair}] ping: ${getHms(now - connection.ping)}, thrs: ${getHms(
-      connection.thrs
-    )}, avg: ${formatAmount(Math.floor(connection.avg))}`
-  )
-  */
 }
 
 /**
@@ -262,7 +262,24 @@ module.exports.restoreConnections = async function () {
 /**
  * Save used connections into shared persistance
  */
-module.exports.saveConnections = async function () {
+module.exports.saveConnections = async function (immediate = false) {
+  if (!immediate) {
+    if (saveConnectionsTimeout) {
+      clearTimeout(saveConnectionsTimeout)
+    }
+
+    saveConnectionsTimeout = setTimeout(async () => {
+      saveConnectionsTimeout = null
+      if (await module.exports.saveConnections(true)) {
+        console.log(`[connections] saved connections`)
+      }
+    }, 10000)
+
+    return
+  }
+
+  module.exports.dumpConnections(connections)
+
   if (!config.persistConnections) {
     return
   }
@@ -284,9 +301,10 @@ module.exports.saveConnections = async function () {
     fs.writeFile(path, JSON.stringify(persistance), (err) => {
       if (err) {
         console.error(`[connections] failed to persist connections to ${path}`, err)
+        resolve(false)
       }
 
-      resolve()
+      resolve(true)
     })
   })
 }
@@ -333,6 +351,7 @@ module.exports.registerConnection = function (id, exchange, pair) {
   }
 
   module.exports.updateConnectionStats(connections[id])
+  module.exports.saveConnections()
 
   return connections[id]
 }
@@ -343,8 +362,11 @@ module.exports.registerConnection = function (id, exchange, pair) {
  */
 module.exports.updateIndexes = function (callback) {
   for (const index of indexes) {
+    const open = index.price
+
     let high = 0
     let low = 0
+    let close = 0
     let nbSources = 0
 
     for (const market of index.markets) {
@@ -354,6 +376,7 @@ module.exports.updateIndexes = function (callback) {
 
       high += connections[market].high
       low += connections[market].low
+      close += connections[market].close
 
       nbSources++
     }
@@ -362,7 +385,9 @@ module.exports.updateIndexes = function (callback) {
       continue
     }
 
-    callback(index.id, high / nbSources, low / nbSources)
+    index.price = close / nbSources
+
+    callback(index.id, high / nbSources, low / nbSources, index.price > open ? 1 : -1)
   }
 }
 
@@ -381,31 +406,11 @@ module.exports.getIndex = function (market) {
   }
 }
 
-let dumpConnectionsTimeout
-
-module.exports.dumpConnections = function (scheduled) {
-  if (dumpConnectionsTimeout) {
-    clearTimeout(dumpConnectionsTimeout)
-  }
-
-  if (!scheduled) {
-    dumpConnectionsTimeout = setTimeout(() => {
-      dumpConnectionsTimeout = null
-
-      module.exports.dumpConnections(true)
-    }, 5000)
-
-    return
-  }
-
+module.exports.dumpConnections = function (connections) {
   const now = Date.now()
   const table = {}
 
   for (const id in connections) {
-    if (!connections[id].apiId) {
-      continue
-    }
-
     module.exports.updateConnectionStats(connections[id])
 
     const columns = {
@@ -425,5 +430,7 @@ module.exports.dumpConnections = function (scheduled) {
     table[id] = columns
   }
 
-  console.table(table)
+  if (Object.keys(table).length) {
+    console.table(table)
+  }
 }

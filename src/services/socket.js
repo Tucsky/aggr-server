@@ -3,6 +3,7 @@ const net = require('net')
 const EventEmitter = require('events')
 const config = require('../config')
 const { indexes } = require('./connections')
+const { v4: uuidv4 } = require('uuid');
 
 require('../typedef')
 
@@ -49,7 +50,7 @@ class SocketService extends EventEmitter {
       return
     }
 
-    console.debug('[socket/collector] connecting to cluster..')
+    // console.debug('[socket/collector] connecting to cluster..')
 
     this.clusterSocket = net.createConnection(config.influxCollectorsClusterSocketPath)
 
@@ -66,12 +67,17 @@ class SocketService extends EventEmitter {
       .on(
         'data',
         this.parseSocketData.bind(this, (data) => {
-          this.emit(data.op, data.data)
+          if (data.answerId) {
+            this.emit(data.answerId, data)
+            return
+          }
+
+          this.emit(data.opId, data)
         })
       )
       .on('close', hadError => {
         // collector never close connection with cluster by itself
-        console[hadError ? 'error' : 'log'](`[socket/collector] cluster closed`)
+        // console[hadError ? 'error' : 'log'](`[socket/collector] cluster closed`)
 
         // schedule reconnection
         this.reconnectCluster()
@@ -90,7 +96,7 @@ class SocketService extends EventEmitter {
     
     this.clusterSocket.write(
       JSON.stringify({
-        op: 'markets',
+        opId: 'markets',
         data: {
           markets: config.pairs,
           indexes: indexes.map(a => a.id),
@@ -113,7 +119,7 @@ class SocketService extends EventEmitter {
     if (this._clusterConnectionTimeout) {
       clearTimeout(this._clusterConnectionTimeout)
     } else {
-      console.log(`[socket/collector] schedule reconnect to cluster (${config.influxCollectorsReconnectionDelay / 1000}s)`)
+      // console.log(`[socket/collector] schedule reconnect to cluster (${config.influxCollectorsReconnectionDelay / 1000}s)`)
     }
 
     this._clusterConnectionTimeout = setTimeout(() => {
@@ -158,7 +164,7 @@ class SocketService extends EventEmitter {
       socket.on(
         'data',
         this.parseSocketData.bind(this, (data) => {
-          if (data.op === 'markets') {
+          if (data.opId === 'markets') {
             // this is our welcome message
             const { markets, indexes } = data.data
             socket.markets = markets
@@ -177,7 +183,12 @@ class SocketService extends EventEmitter {
             return
           }
 
-          this.emit(data.op, data.data)
+          if (data.answerId) {
+            this.emit(data.answerId, data)
+            return
+          }
+
+          this.emit(data.opId, data)
         })
       )
     })
@@ -273,6 +284,50 @@ class SocketService extends EventEmitter {
         })
       })
     }
+  }
+
+  /**
+   * 
+   * @param {net.Socket} socket 
+   * @param {any} data 
+   * @returns {Promise<any>}
+   */
+  ask(socket, opId, data) {
+    const questionId = uuidv4()
+    
+    return new Promise(resolve => {
+      const handler = ({ data }) => {
+        if (timeout) {
+          clearTimeout(timeout)
+        }
+        resolve(data)
+      }
+
+      let timeout = setTimeout(() => {
+        timeout = null
+        this.off(questionId, handler)
+        resolve()
+      }, 5000)
+
+      this.once(questionId, handler)
+    
+      socket.write(JSON.stringify({
+        opId,
+        questionId,
+        data
+      }) + '#')
+    })
+  }
+
+  answer(socket, answerId, data) {
+    if (!socket) {
+      return
+    }
+
+    socket.write(JSON.stringify({
+      answerId,
+      data
+    }) + '#')
   }
 }
 

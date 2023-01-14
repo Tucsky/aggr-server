@@ -1,7 +1,7 @@
 const EventEmitter = require('events')
 const WebSocket = require('ws')
 const fs = require('fs')
-const { getIp, getHms, parsePairsFromWsRequest, groupTrades } = require('./helper')
+const { getIp, getHms, parsePairsFromWsRequest, groupTrades, formatAmount } = require('./helper')
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
@@ -26,6 +26,11 @@ class Server extends EventEmitter {
 
     this.exchanges = exchanges || []
     this.storages = null
+    this.globalUsage = {
+      tick: 0,
+      sum: 0,
+      points: [],
+    }
 
     /**
      * raw trades ready to be persisted into storage next save
@@ -95,6 +100,9 @@ class Server extends EventEmitter {
         }
 
         this.createHTTPServer()
+
+        // monitor data requests
+        this._usageMonitorInterval = setInterval(this.monitorUsage.bind(this), 10000)
       }
 
       if (config.broadcast) {
@@ -150,7 +158,9 @@ class Server extends EventEmitter {
       return Promise.resolve()
     }
 
+
     const chunk = this.chunk.splice(0, this.chunk.length).sort((a, b) => a.timestamp - b.timestamp)
+    console.log(`[server] saving ${chunk.length} trades to storages`)
 
     return Promise.all(
       this.storages.map((storage) => {
@@ -218,8 +228,6 @@ class Server extends EventEmitter {
         console.log(`[connections] ${id}${lastPing} disconnected from ${apiId} (${apiLength} remaining)`)
 
         connections[id].apiId = null
-
-        // dumpConnections()
       })
 
       exchange.on('connected', (pair, apiId, apiLength) => {
@@ -245,8 +253,6 @@ class Server extends EventEmitter {
         console.log(`[connections] ${id}${lastPing} connected to ${apiId} (${apiLength} total)`)
 
         connections[id].apiId = apiId
-
-        // dumpConnections()
       })
 
       exchange.on('open', (apiId, pairs) => {
@@ -442,7 +448,7 @@ class Server extends EventEmitter {
     if (alertService.enabled) {
       app.use(bodyParser.json())
 
-      app.post('/alert', (req, res) => {
+      app.post('/alert', async (req, res) => {
         const user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
         const alert = req.body
 
@@ -453,8 +459,8 @@ class Server extends EventEmitter {
         alert.user = user
 
         try {
-          alertService.toggleAlert(alert)
-          res.status(201).json({ ok: true })
+          const data = await alertService.toggleAlert(alert)
+          res.status(201).json(data || {})
         } catch (error) {
           console.error(`[alert] couldn't toggle user alert because ${error.message}`)
           res.status(400).json({ error: error.message })
@@ -526,6 +532,7 @@ class Server extends EventEmitter {
         })
       }
 
+      this.globalUsage.tick += length * markets.length
       const fetchStartAt = Date.now()
 
       ;(storage
@@ -576,6 +583,23 @@ class Server extends EventEmitter {
     })
 
     this.app = app
+  }
+
+  monitorUsage() {
+    const tick = this.globalUsage.tick
+    this.globalUsage.points.push(tick)
+    this.globalUsage.sum += tick
+    this.globalUsage.tick = 0
+    
+    if (this.globalUsage.length > 90) {
+      this.globalUsage.sum -= this.globalUsage.shift()
+    }
+
+    const avg = this.globalUsage.sum / this.globalUsage.points.length
+
+    if (tick) {
+      console.log(`[usage] ${formatAmount(tick)} points requested (${formatAmount(avg)} avg)`)
+    }
   }
 
   connectExchanges() {
@@ -942,10 +966,7 @@ class Server extends EventEmitter {
   monitorExchangesActivity() {
     const now = Date.now()
 
-    const flooredTime = Math.floor(now / config.monitorInterval) * config.monitorInterval
-    const currentHour = Math.floor(now / 3600000) * 3600000
-    let shouldDumpConnections = flooredTime === currentHour
-
+    const staleConnections = []
     const apisToReconnect = []
 
     for (const id in connections) {
@@ -955,24 +976,16 @@ class Server extends EventEmitter {
 
       updateConnectionStats(connections[id])
 
-      if (recovering[connections[id].exchange]) {
-        // exchange is busy recovering
-        shouldDumpConnections = true
-        continue
-      }
-
       if (now - connections[id].ping > connections[id].thrs && apisToReconnect.indexOf(connections[id].apiId) === -1) {
         // connection ping threshold reached
+        staleConnections.push(connections[id])
         apisToReconnect.push(connections[id].apiId)
         continue
       }
     }
 
-    if (apisToReconnect.length || shouldDumpConnections) {
-      dumpConnections(true)
-    }
-
     if (apisToReconnect.length) {
+      dumpConnections(staleConnections)
       this.reconnectApis(apisToReconnect, `reconnection threshold reached`)
     }
   }
@@ -994,7 +1007,7 @@ class Server extends EventEmitter {
       }
       this.exitAttempts++
       if (this.exitAttempts === 3) {
-        console.error(`[${exchange.id}] last warning.`)
+        console.error(`[server] last warning.`)
       } else if (this.exitAttempts === 4) {
         output = true
       }
