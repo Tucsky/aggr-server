@@ -1,5 +1,5 @@
 const Exchange = require('../exchange')
-const WebSocket = require('ws')
+const WebSocket = require('websocket').w3cwebsocket
 
 class Bybit extends Exchange {
   constructor() {
@@ -12,12 +12,12 @@ class Bybit extends Exchange {
     }
 
     this.url = (pair) => {
-          if (/-SPOT$/.test(pair)) {
-            return 'wss://stream.bybit.com/spot/quote/ws/v2'
-          }
+      if (/-SPOT$/.test(pair)) {
+        return 'wss://stream.bybit.com/spot/quote/ws/v2'
+      }
 
-          return pair.indexOf('USDT') !== -1 ? 'wss://stream.bybit.com/realtime_public' : 'wss://stream.bybit.com/realtime'
-        };
+      return pair.indexOf('USDT') !== -1 ? 'wss://stream.bybit.com/realtime_public' : 'wss://stream.bybit.com/realtime'
+    };
   }
 
   formatProducts(response) {

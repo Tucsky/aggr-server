@@ -1,7 +1,7 @@
 const Exchange = require('../exchange')
 const { sleep, getHms } = require('../helper')
 const axios = require('axios')
-const WebSocket = require('ws')
+const WebSocket = require('websocket').w3cwebsocket
 
 class BinanceFutures extends Exchange {
   constructor() {
@@ -81,7 +81,7 @@ class BinanceFutures extends Exchange {
       })
     )
 
-    // websocket connections have a limit of 10 incoming messages per second.
+    // this websocket api have a limit of about 5 messages per second.
     await sleep(250)
 
     // get liquidations from a separate stream
@@ -113,7 +113,7 @@ class BinanceFutures extends Exchange {
 
     delete this.subscriptions[pair]
 
-    // websocket connections have a limit of 10 incoming messages per second.
+    // this websocket api have a limit of about 5 messages per second.
     await sleep(250)
 
     this.subscribeLiquidations(api, pair, true)

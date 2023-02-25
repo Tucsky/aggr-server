@@ -1,5 +1,5 @@
 const EventEmitter = require('events')
-const WebSocket = require('ws')
+const WebSocket = require('websocket').w3cwebsocket
 const fs = require('fs')
 const { getIp, getHms, parsePairsFromWsRequest, groupTrades, formatAmount } = require('./helper')
 const express = require('express')

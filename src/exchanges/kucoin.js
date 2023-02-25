@@ -1,5 +1,5 @@
 const Exchange = require('../exchange')
-const WebSocket = require('ws')
+const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 
 const KUCOIN_TOKEN_EXPIRATION = 1000 * 60 * 5

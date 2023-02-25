@@ -1,6 +1,6 @@
 const Exchange = require('../exchange')
 const pako = require('pako')
-const WebSocket = require('ws')
+const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { getHms } = require('../helper')
 

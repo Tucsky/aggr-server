@@ -42,7 +42,7 @@ class BinanceUs extends Exchange {
       })
     )
 
-    // websocket connections have a limit of 5 incoming messages per second.
+    // this websocket api have a limit of about 5 messages per second.
     await sleep(250)
   }
 
@@ -68,7 +68,7 @@ class BinanceUs extends Exchange {
 
     delete this.subscriptions[pair]
 
-    // websocket connections have a limit of 5 incoming messages per second.
+    // this websocket api have a limit of about 5 messages per second.
     return new Promise((resolve) => setTimeout(resolve, 250))
   }
 

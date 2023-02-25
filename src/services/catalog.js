@@ -155,6 +155,8 @@ module.exports.parseMarket = function (market, noStable = true) {
     type = 'perp'
   } else if (exchangeId === 'KRAKEN' && /_/.test(symbol) && type === 'spot') {
     type = 'perp'
+  } else if (exchangeId === 'BITGET' && symbol.indexOf('_') !== -1) {
+    type = 'perp'
   }
 
   let localSymbol = symbol
@@ -171,6 +173,11 @@ module.exports.parseMarket = function (market, noStable = true) {
     localSymbol = localSymbol.replace(/_CW|_CQ|_NW|_NQ/i, 'USD')
   } else if (exchangeId === 'DERIBIT') {
     localSymbol = localSymbol.replace(/_(\w+)-PERPETUAL/i, '$1')
+  } else if (exchangeId === 'BITGET') {
+    localSymbol = localSymbol
+      .replace('USD_DMCBL', 'USD')
+      .replace('PERP_CMCBL', 'USDC')
+      .replace(/_.*/, '')
   }
 
   localSymbol = localSymbol

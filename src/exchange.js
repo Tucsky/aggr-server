@@ -1,10 +1,10 @@
 const EventEmitter = require('events')
-const WebSocket = require('ws')
+const WebSocket = require('websocket').w3cwebsocket
 const config = require('./config')
 
 const { ID, getHms, sleep, humanReadyState } = require('./helper')
 const { readProducts, fetchProducts, saveProducts } = require('./services/catalog')
-const { connections, recovering, dumpConnections } = require('./services/connections')
+const { connections, recovering } = require('./services/connections')
 
 require('./typedef')
 
@@ -859,7 +859,7 @@ class Exchange extends EventEmitter {
 
     this.keepAliveIntervals[api.id] = setInterval(() => {
       if (api.readyState === WebSocket.OPEN) {
-        api.send(JSON.stringify(payload))
+        api.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
       }
     }, every)
   }

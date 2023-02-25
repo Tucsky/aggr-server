@@ -1,5 +1,5 @@
 const Exchange = require('../exchange')
-const WebSocket = require('ws')
+const WebSocket = require('websocket').w3cwebsocket
 
 class Huobi extends Exchange {
   constructor() {

@@ -68,31 +68,35 @@ class AlertService extends EventEmitter {
 
         return
       }
-      
-      const priceOffset = index.price && alert.currentPrice ? alert.currentPrice - index.price : 0
-
-      if (messageId) {
-        socketService.answer(socketService.clusterSocket, messageId, {
-          markets: index.markets,
-          priceOffset
-        })
-      }
 
       const activeAlert = this.getActiveAlert(alert, index.id)
+      const priceOffset = index.price && alert.currentPrice ? alert.currentPrice - index.price : 0
 
-      if (activeAlert) {
-        activeAlert.user = alert.user
-
-        if (typeof alert.newPrice === 'number') {
-          this.moveAlert(activeAlert, index.id, alert.newPrice, priceOffset)
-        } else if (alert.unsubscribe) {
-          this.unregisterAlert(activeAlert, index.id)
+      if (!alert.status) {
+        if (activeAlert) {
+          activeAlert.user = alert.user
+  
+          if (typeof alert.newPrice === 'number') {
+            this.moveAlert(activeAlert, index.id, alert.newPrice, priceOffset)
+          } else if (alert.unsubscribe) {
+            this.unregisterAlert(activeAlert, index.id)
+          }
+        } else if (!alert.unsubscribe) {
+          this.registerAlert(alert, index.id, priceOffset)
         }
-
-        return
-      } else if (!alert.unsubscribe) {
-        this.registerAlert(alert, index.id, priceOffset)
       }
+
+      const status = {
+        markets: index.markets,
+        alert: activeAlert,
+        priceOffset
+      }
+
+      if (messageId) {
+        socketService.answer(socketService.clusterSocket, messageId, status)
+      }
+
+      return status
     }
   }
 
