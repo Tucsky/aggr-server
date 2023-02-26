@@ -158,7 +158,7 @@ class Bitmex extends Exchange {
 
           if (remainingMissingTime > 1000 && response.data.length >= 1000) {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(remainingMissingTime)} remaining)`)
-            return this.waitBeforeContinueRecovery().this.getMissingTrades(range, totalRecovered)
+            return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered))
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }
