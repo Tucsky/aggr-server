@@ -736,7 +736,7 @@ class InfluxStorage {
         }
 
         if (to > +new Date() - config.influxResampleInterval) {
-          return this.appendPendingBarsToResponse(output.results, markets, from, to).then((bars) => {
+          return this.appendPendingBarsToResponse(output.results, markets, from, to, timeframe).then((bars) => {
             output.results = bars
             return output
           })
@@ -759,10 +759,10 @@ class InfluxStorage {
    * @param {number} to
    * @returns
    */
-  appendPendingBarsToResponse(bars, markets, from, to) {
+  appendPendingBarsToResponse(bars, markets, from, to, timeframe) {
     if (config.influxCollectors && socketService.clusteredCollectors.length) {
       // use collectors nodes pending bars
-      return this.requestPendingBars(markets, from, to).then((pendingBars) => {
+      return this.requestPendingBars(markets, from, to, timeframe).then((pendingBars) => {
         return bars.concat(pendingBars)
       })
     } else {
@@ -803,8 +803,9 @@ class InfluxStorage {
    * @param {number} from
    * @param {number} to
    */
-  async requestPendingBars(markets, from, to) {
+  async requestPendingBars(markets, from, to, timeframe) {
     const collectors = []
+
 
     for (let i = 0; i < markets.length; i++) {
       for (let j = 0; j < socketService.clusteredCollectors.length; j++) {
@@ -820,6 +821,9 @@ class InfluxStorage {
     const promisesOfBars = []
 
     for (const collector of collectors) {
+      if (collector.timeframes && collector.timeframes.indexOf(timeframe) === -1 && collectors.length === 1) {
+        throw new Error('unknown timeframe')
+      }
       promisesOfBars.push(this.requestCollectorPendingBars(collector, markets, from, to))
     }
 

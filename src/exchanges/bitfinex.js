@@ -123,6 +123,13 @@ class Bitfinex extends Exchange {
     }
 
     if (channel.name === 'trades' && json[1] === 'te') {
+      if (this.prices[channel.pair]) {
+        const percentChange = ((1 - +json[2][3] / this.prices[channel.pair]) * -1) * 100
+
+        if (Math.abs(percentChange) > 1) {
+          console.log(`[${this.id}] unusual price difference (${percentChange.toFixed(2)}%) for ${channel.pair} : ${this.prices[channel.pair]} -> ${json[2][3]}`)
+        }
+      }
       this.prices[channel.pair] = +json[2][3]
 
       return this.emitTrades(api.id, [this.formatTrade(json[2], channel.pair)])
@@ -187,7 +194,7 @@ class Bitfinex extends Exchange {
                 remainingMissingTime
               )} remaining)`
             )
-            return this.waitBeforeContinueRecovery().this.getMissingTrades(range, totalRecovered)
+            return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered))
           } else {
             console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
           }

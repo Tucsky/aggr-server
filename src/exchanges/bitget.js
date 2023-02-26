@@ -66,8 +66,6 @@ class Bitget extends Exchange {
       return
     }
 
-    console.log('subscribe to ', pair)
-
     api.send(
       JSON.stringify({
         op: 'subscribe',
@@ -82,7 +80,7 @@ class Bitget extends Exchange {
     )
 
     // this websocket api have a limit of about 10 messages per second.
-    await sleep(150)
+    await sleep(150 * this.apis.length)
   }
 
   /**
@@ -109,7 +107,7 @@ class Bitget extends Exchange {
     )
 
     // this websocket api have a limit of about 10 messages per second.
-    await sleep(150)
+    await sleep(150 * this.apis.length)
   }
 
   formatTrade(trade, pair) {

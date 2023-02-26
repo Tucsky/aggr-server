@@ -133,7 +133,7 @@ module.exports.parseMarket = function (market, noStable = true) {
 
   let type = 'spot'
 
-  if (/[UZ_-]\d{2}/.test(symbol)) {
+  if (/[HUZ_-]\d{2}/.test(symbol)) {
     type = 'future'
   } else if (exchangeId === 'BINANCE_FUTURES' || exchangeId === 'DYDX') {
     type = 'perp'
@@ -157,6 +157,8 @@ module.exports.parseMarket = function (market, noStable = true) {
     type = 'perp'
   } else if (exchangeId === 'BITGET' && symbol.indexOf('_') !== -1) {
     type = 'perp'
+  } else if (exchangeId === 'KUCOIN' && symbol.indexOf('-') === -1) {
+    type = 'perp'
   }
 
   let localSymbol = symbol
@@ -178,6 +180,8 @@ module.exports.parseMarket = function (market, noStable = true) {
       .replace('USD_DMCBL', 'USD')
       .replace('PERP_CMCBL', 'USDC')
       .replace(/_.*/, '')
+  } else if (exchangeId === 'KUCOIN') {
+    localSymbol = localSymbol.replace(/M$/, '')
   }
 
   localSymbol = localSymbol

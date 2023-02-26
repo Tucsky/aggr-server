@@ -160,7 +160,7 @@ class Server extends EventEmitter {
 
 
     const chunk = this.chunk.splice(0, this.chunk.length).sort((a, b) => a.timestamp - b.timestamp)
-    console.log(`[server] saving ${chunk.length} trades to storages`)
+    // console.log(`[server] saving ${chunk.length} trades to storages`)
 
     return Promise.all(
       this.storages.map((storage) => {
@@ -517,6 +517,12 @@ class Server extends EventEmitter {
       if (storage.format === 'point') {
         timeframe = parseInt(timeframe) || 1000 * 60 // default to 1m
 
+        if (config.influxResampleTo.indexOf(timeframe) === -1) {
+          return res.status(400).json({
+            error: 'unknown timeframe',
+          })
+        }
+
         length = (to - from) / timeframe
 
         if (length > config.maxFetchLength) {
@@ -563,7 +569,7 @@ class Server extends EventEmitter {
         })
         .catch((err) => {
           return res.status(500).json({
-            err: err.message,
+            error: err.message,
           })
         })
     })

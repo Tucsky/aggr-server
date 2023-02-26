@@ -82,12 +82,13 @@ class BinanceFutures extends Exchange {
     )
 
     // this websocket api have a limit of about 5 messages per second.
-    await sleep(250)
+    await sleep(500 * this.apis.length)
 
     // get liquidations from a separate stream
     // trade stream might lag because of the amount of trades or even disconnect depending on network
     // trades can be recovered through REST api, liquidations doesn't
     // this is a test to see if liquidation stream remain stable as trades stream lag behind
+    console.log(`[${this.id}]`, 'call subscribeLiquidations ' + pair, '(after subscribe on main)', api.id)
     this.subscribeLiquidations(api, pair)
   }
 
@@ -114,8 +115,9 @@ class BinanceFutures extends Exchange {
     delete this.subscriptions[pair]
 
     // this websocket api have a limit of about 5 messages per second.
-    await sleep(250)
+    await sleep(500 * this.apis.length)
 
+    console.log(`[${this.id}]`, 'call UNsubscribeLiquidations ' + pair, '(after UNsubscribe on main)', api.id)
     this.subscribeLiquidations(api, pair, true)
   }
 
@@ -214,29 +216,35 @@ class BinanceFutures extends Exchange {
   }
 
   openLiquidationApi(api) {
-    console.debug(`[${this.id}] opening liquidation api`)
+    console.log(`[${this.id}] openLiquidationApi`, api.id)
     api._liquidationApi = new WebSocket(api.url)
 
     api._liquidationApi.onopen = () => {
-      console.debug(`[${this.id}] liquidation api opened`)
+      console.log(`[${this.id}] liquidation api opened`, api.id)
 
       for (const pair of api._connected) {
+        console.log(`[${this.id}]`, 'call subscribeLiquidations ' + pair, api.id)
         this.subscribeLiquidations(api, pair)
       }
     }
     api._liquidationApi.onmessage = (event) => this.onMessage(event, api)
     api._liquidationApi.onclose = () => {
+      console.log(`[${this.id}]`, 'liquidation stream closed', api.id, api.readyState, WebSocket.OPEN)
       if (api.readyState === WebSocket.OPEN) {
-        console.debug(`[${this.id}] liquidation api closed unexpectedly`)
+        console.log(`[${this.id}] liquidation api closed unexpectedly, reopen now`)
 
         // liquidation api closed unexpectedly
-        this.openLiquidationApi(api)
+        // this.openLiquidationApi(api)
       }
+    }
+    api._liquidationApi.onerror = () => {
+      console.log(`[${this.id}]`, 'liquidation stream errored')
     }
   }
 
   subscribeLiquidations(api, pair, unsubscribe = false) {
     if (!api._liquidationApi || api._liquidationApi.readyState !== WebSocket.OPEN) {
+      console.log(`[${this.id}]`, api._liquidationApi ? 'no sub liq => do nothing' : 'sub clic !== OPEN => do nothing', pair)
       return
     }
 
@@ -246,7 +254,7 @@ class BinanceFutures extends Exchange {
       this.subscriptions[param] = ++this.lastSubscriptionId
     }
 
-    console.debug(`[${this.id}.liquidationApi] ${unsubscribe ? 'un' : ''}subscribing ${unsubscribe ? 'from' : 'to'} ${pair}`)
+    console.log(`[${this.id}.liquidationApi] ${unsubscribe ? 'un' : ''}subscribing ${unsubscribe ? 'from' : 'to'} ${pair}`)
 
     api._liquidationApi.send(
       JSON.stringify({
@@ -258,12 +266,14 @@ class BinanceFutures extends Exchange {
   }
 
   onApiCreated(api) {
+    console.log('binance futures api created', api.id)
     this.openLiquidationApi(api)
   }
 
   onApiRemoved(api) {
     if (api._liquidationApi) {
       if (api._liquidationApi.readyState === WebSocket.OPEN) {
+        console.log(`[${this.id}.liquidationApi] close lost api`)
         api._liquidationApi.close()
       }
     }

@@ -44,7 +44,7 @@ class Binance extends Exchange {
     )
 
     // this websocket api have a limit of about 5 messages per second.
-    await sleep(250)
+    await sleep(250 * this.apis.length)
   }
 
   /**
@@ -70,7 +70,7 @@ class Binance extends Exchange {
     delete this.subscriptions[pair]
 
     // this websocket api have a limit of about 5 messages per second.
-    return new Promise((resolve) => setTimeout(resolve, 250))
+    await sleep(250 * this.apis.length)
   }
 
   onMessage(event, api) {

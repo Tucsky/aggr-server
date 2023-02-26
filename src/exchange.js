@@ -4,7 +4,7 @@ const config = require('./config')
 
 const { ID, getHms, sleep, humanReadyState } = require('./helper')
 const { readProducts, fetchProducts, saveProducts } = require('./services/catalog')
-const { connections, recovering } = require('./services/connections')
+const { connections, recovering, dumpConnections } = require('./services/connections')
 
 require('./typedef')
 
@@ -419,6 +419,19 @@ class Exchange extends EventEmitter {
     )
 
     const pairsToReconnect = [...api._pending, ...api._connected]
+
+    const affectedConnections = {}
+
+    for (const pair of pairsToReconnect) {
+      const key = this.id + ':' + pair
+      const connection = connections[key]
+
+      if (connection) {
+        affectedConnections[key] = connection
+      }
+    }
+
+    dumpConnections(affectedConnections)
 
     this.promisesOfApiReconnections[api.id] = this.reconnectPairs(pairsToReconnect).then(() => {
       console.log(`[${this.id}.reconnectApi] done reconnecting api (was ${api.id}${reason ? ' because of ' + reason : ''})`)

@@ -278,8 +278,6 @@ module.exports.saveConnections = async function (immediate = false) {
     return
   }
 
-  module.exports.dumpConnections(connections)
-
   if (!config.persistConnections) {
     return
   }

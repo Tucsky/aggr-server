@@ -99,6 +99,7 @@ class SocketService extends EventEmitter {
         opId: 'markets',
         data: {
           markets: config.pairs,
+          timeframes: config.influxResampleTo,
           indexes: indexes.map(a => a.id),
         },
       }) + '#'
@@ -166,9 +167,10 @@ class SocketService extends EventEmitter {
         this.parseSocketData.bind(this, (data) => {
           if (data.opId === 'markets') {
             // this is our welcome message
-            const { markets, indexes } = data.data
+            const { markets, indexes, timeframes } = data.data
             socket.markets = markets
             socket.indexes = indexes
+            socket.timeframes = timeframes
             
             const collectorIndex = this.clusteredCollectors.indexOf(socket)
 
