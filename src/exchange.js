@@ -287,7 +287,11 @@ class Exchange extends EventEmitter {
     const pairsToConnect = api._pending.slice()
 
     for (const pair of pairsToConnect) {
-      await this.subscribe(api, pair)
+        try {
+            await this.subscribe(api, pair)
+        } catch( error ) {
+            console.error( `[${this.id}] failed to subscribe pair ${pair}\n`, error )
+        }
     }
   }
 
