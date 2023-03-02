@@ -82,17 +82,53 @@ node index config=collector.config.json pairs="COINBASE:BTC-USD,BITSTAMP:btcusdt
 
 ## How to install: Docker
 
+### Setup
+Here are the preliminary steps to follow before building and starting your containers.
+
+Create a config file based on the existing template living in the project's root folder:
+`cp config.json.example config.json`
+
+Make sure to modify the `Dockerfile` accordingly, by replacing:
+`COPY  config.json.example ${WORKDIR}`
+by 
+`COPY  config.json ${WORKDIR}`
+
+## Running Docker
 ```
 ➜ docker-compose build
 ➜ docker-compose up -d
 ```
-This will give you a running server on <http://127.0.0.1:3000> with mounted `./data` volume.
+This will give you a running server on <http://127.0.0.1:3000> with mounted `./data` volume for persistence.
 
 See `./env` file for some basic configuration.
 
-Watch logs using `docker logs -f st-server`.
+## InfluxDB
 
-Uncomment `influx` part in `docker-compose.yml` and set `STORAGE=influx` in `.env` to start using influxdb as a storage.
+To start using InfluxDB, set `storage=[ influx ]` in `config.json`.
+
+Please note: InfluxDB auth is disabled on Docker. User is root and there is no password.
+
+### Running server locally and InfluxDB on Docker
+
+In `config.json`:
+- Set `InfluxHost` to 'localhost'
+  
+In `.env` file:
+- Set `INFLUX_PORT` to config.json `influxPORT` value
+- Set `FILES_LOCATION` to config.json `filesLocation` value
+
+### Running both server and InfluxDB on Docker
+
+In `config.json`:
+- Set `InfluxHost` to influx `container_name` (docker-compose.yml), default value is *aggr-influx*
+
+In `.env` file:
+- Uncomment the whole `influx` section
+
+In `docker-compose`:
+- Uncomment the whole `influx` section
+
+Watch logs using `docker logs -f st-server`.
 
 ## If you like what is being done here, consider supporting this project !
 ETH [0xe3c893cdA4bB41fCF402726154FB4478Be2732CE](https://etherscan.io/address/0xe3c893cdA4bB41fCF402726154FB4478Be2732CE)<br>
