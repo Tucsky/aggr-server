@@ -1,5 +1,5 @@
 const EventEmitter = require('events')
-const WebSocket = require('websocket').w3cwebsocket
+const WebSocket = require('ws')
 const fs = require('fs')
 const { getIp, getHms, parsePairsFromWsRequest, groupTrades, formatAmount } = require('./helper')
 const express = require('express')
@@ -62,10 +62,10 @@ class Server extends EventEmitter {
       console.log(
         `\n[server] collect is enabled`,
         config.broadcast && config.broadcastAggr ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)' : '',
-        config.broadcast && config.broadcastDebounce
+        config.broadcast && config.broadcastDebounce && !config.broadcastAggr
           ? `\n\twill broadcast trades every ${config.broadcastDebounce}ms`
           : config.broadcast
-          ? `will broadcast trades instantly`
+          ? `\n\twill broadcast ${config.broadcastAggr ? 'aggregated ' : ''}trades instantly`
           : ''
       )
       console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
@@ -517,12 +517,6 @@ class Server extends EventEmitter {
       if (storage.format === 'point') {
         timeframe = parseInt(timeframe) || 1000 * 60 // default to 1m
 
-        if (config.influxResampleTo.indexOf(timeframe) === -1) {
-          return res.status(400).json({
-            error: 'unknown timeframe',
-          })
-        }
-
         length = (to - from) / timeframe
 
         if (length > config.maxFetchLength) {
@@ -901,7 +895,7 @@ class Server extends EventEmitter {
     }
 
     if (config.broadcast) {
-      if (config.broadcastAggr && !config.broadcastDebounce) {
+      if (!config.broadcastAggr && !config.broadcastDebounce) {
         this.broadcastTrades(data)
       } else {
         Array.prototype.push.apply(this.delayedForBroadcast, data)

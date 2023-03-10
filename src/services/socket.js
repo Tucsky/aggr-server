@@ -99,7 +99,7 @@ class SocketService extends EventEmitter {
         opId: 'markets',
         data: {
           markets: config.pairs,
-          timeframes: config.influxResampleTo,
+          timeframes: [config.influxTimeframe, ...config.influxResampleTo],
           indexes: indexes.map(a => a.id),
         },
       }) + '#'

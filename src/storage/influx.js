@@ -1,5 +1,5 @@
 const Influx = require('influx')
-const { getHms, sleep, ID } = require('../helper')
+const { getHms, sleep, ID, ago } = require('../helper')
 const net = require('net')
 const config = require('../config')
 const socketService = require('../services/socket')
@@ -746,6 +746,8 @@ class InfluxStorage {
       })
       .catch((err) => {
         console.error(`[storage/influx] failed to retrieves trades between ${from} and ${to} with timeframe ${timeframe}\n\t`, err.message)
+
+        throw err
       })
   }
 
@@ -822,7 +824,7 @@ class InfluxStorage {
 
     for (const collector of collectors) {
       if (collector.timeframes && collector.timeframes.indexOf(timeframe) === -1 && collectors.length === 1) {
-        throw new Error('unknown timeframe')
+        throw new Error(`timeframe ${getHms(timeframe)} isn't supported`)
       }
       promisesOfBars.push(this.requestCollectorPendingBars(collector, markets, from, to))
     }
