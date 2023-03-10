@@ -17,6 +17,7 @@ services:
       - ${SERVER_PORT}:${SERVER_PORT}
     env_file:
       - .env
+    restart: always
 
 #   influx:
 #     container_name: aggr-influx
@@ -28,6 +29,7 @@ services:
 #     configs:
 #       - source: influxdb_config
 #         target: /etc/influxdb/influxdb.conf
+#     restart: always
 
 # configs:
 #   influxdb_config:
