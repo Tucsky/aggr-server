@@ -228,7 +228,6 @@ function getBars(product, from, to, timeframe, isFirst, dataset) {
       return response.data
     })
     .catch((err) => {
-      debugger
       throw err
     })
 }

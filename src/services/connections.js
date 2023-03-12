@@ -61,9 +61,9 @@ function getConnectionsPersistance() {
       if (err && err.code !== 'ENOENT') {
         console.error(`[connections] failed to persist connections timestamps to ${path}`, err)
       }
-      
+
       let json = {}
-      
+
       if (data) {
         try {
           json = JSON.parse(data)
@@ -86,7 +86,7 @@ function getConnectionsPersistance() {
  * @returns {Connection} clean connection
  */
 function cleanConnection(connection) {
-  let { exchange, pair, hit, startedAt, timestamp, restarts } = connection
+  let { exchange, pair, hit, startedAt, timestamp, restarts, close } = connection
 
   if (!exchange) {
     throw new Error(`unknown connection's exchange`)
@@ -119,6 +119,7 @@ function cleanConnection(connection) {
     startedAt,
     timestamp,
     restarts,
+    close
   }
 }
 
@@ -337,7 +338,7 @@ module.exports.registerConnection = function (id, exchange, pair) {
     }
   } else {
     connections[id].restarts++
-    
+
     if (connections[id].timestamp) {
       // calculate estimated missing trade since last trade processed on that connection
       const activeDuration = connections[id].timestamp - connections[id].startedAt
@@ -356,9 +357,10 @@ module.exports.registerConnection = function (id, exchange, pair) {
 
 /**
  * Update high and low of range for an index based on their connections
+ * @param {{[market: string]: {min: number, high: number}}} ranges function called for every index updated
  * @param {Function} callback function called for every index updated
  */
-module.exports.updateIndexes = function (callback) {
+module.exports.updateIndexes = async function (ranges, callback) {
   for (const index of indexes) {
     const open = index.price
 
@@ -368,12 +370,21 @@ module.exports.updateIndexes = function (callback) {
     let nbSources = 0
 
     for (const market of index.markets) {
-      if (!connections[market] || !connections[market].apiId || !isFinite(connections[market].high)) {
+      if (!connections[market] || !connections[market].apiId || !connections[market].close) {
         continue
       }
 
-      high += connections[market].high
-      low += connections[market].low
+      if (ranges[market]) {
+        high += ranges[market].high
+        low += ranges[market].low
+        connections[market].low = ranges[market].low
+        connections[market].high = ranges[market].high
+      } else {
+        high += connections[market].close
+        low += connections[market].close
+        connections[market].low = connections[market].close
+        connections[market].high = connections[market].close
+      }
       close += connections[market].close
 
       nbSources++
@@ -385,7 +396,7 @@ module.exports.updateIndexes = function (callback) {
 
     index.price = close / nbSources
 
-    callback(index.id, high / nbSources, low / nbSources, index.price > open ? 1 : -1)
+    await callback(index.id, high / nbSources, low / nbSources, index.price > open ? 1 : -1)
   }
 }
 

@@ -2,8 +2,8 @@ const axios = require('axios')
 const fs = require('fs')
 const { ensureDirectoryExists } = require('../helper')
 
-const baseQuoteLookupKnown = new RegExp(`^([A-Z0-9]{3,})[-/:_]?(USDT|USDC|TUSD|BUSD)$|^([A-Z0-9]{2,})[-/:]?(UST|EUR|USD)$`)
-const baseQuoteLookupOthers = new RegExp(`^([A-Z0-9]{2,})[-/]?([A-Z0-9]{3,})$`)
+const baseQuoteLookupKnown = new RegExp(`^([A-Z0-9]{3,})[-/:_]?(USDT|USDC|TUSD|BUSD|USDD|USDK|USDP)$|^([A-Z0-9]{2,})[-/:]?(UST|EUR|USD)$`)
+const baseQuoteLookupOthers = new RegExp(`^([A-Z0-9]{2,})[-/_]?([A-Z0-9]{3,})$`)
 
 require('../typedef')
 
@@ -71,10 +71,6 @@ module.exports.readProducts = async function (exchangeId) {
  */
 module.exports.fetchProducts = async function (exchangeId, endpoints) {
   if (!endpoints || !endpoints.PRODUCTS) {
-    /*if (!this.products) {
-      this.products = []
-    }*/
-
     return Promise.resolve()
   }
 

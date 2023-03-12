@@ -329,10 +329,29 @@ class InfluxStorage {
      */
     const bars = {}
 
+    /**
+     * Processed ranges by market
+     * @type {{[identifier: string]: {
+     *  high: number,
+     *  low: number
+     * }}}
+     */
+    const ranges = {}
+
     for (let i = 0; i < trades.length; i++) {
       const trade = trades[i]
       const market = trade.exchange + ':' + trade.pair
       const tradeFlooredTime = Math.floor(trade.timestamp / config.influxTimeframe) * config.influxTimeframe
+
+      if (!ranges[market]) {
+        ranges[market] = {
+          low: trade.price,
+          high: trade.price,
+        }
+      } else {
+        ranges[market].low = Math.min(ranges[market].low, trade.price)
+        ranges[market].high = Math.max(ranges[market].high, trade.price)
+      }
 
       if (!bars[market] || bars[market].time !== tradeFlooredTime) {
         //bars[market] && console.log(`${market} time is !==, resolve bar or create`)
@@ -391,9 +410,6 @@ class InfluxStorage {
         continue
       }
 
-      connections[market].high = -Infinity
-      connections[market].low = Infinity
-
       for (const timestamp in this.pendingBars[market]) {
         connections[market].bar = this.pendingBars[market][timestamp]
 
@@ -401,16 +417,12 @@ class InfluxStorage {
           continue
         }
 
-        connections[market].high = Math.max(this.pendingBars[market][timestamp].high, connections[market].high)
-        connections[market].low = Math.min(this.pendingBars[market][timestamp].low, connections[market].low)
         connections[market].close = this.pendingBars[market][timestamp].close
       }
-
-      // console.log(market, connections[market].low, connections[market].high)
     }
-
-    updateIndexes((index, high, low, direction) => {
-      alertService.checkPriceCrossover(index, high, low, direction)
+    
+    await updateIndexes(ranges, async (index, high, low, direction) => {
+      await alertService.checkPriceCrossover(index, high, low, direction)
     })
   }
 
@@ -824,7 +836,7 @@ class InfluxStorage {
 
     for (const collector of collectors) {
       if (collector.timeframes && collector.timeframes.indexOf(timeframe) === -1 && collectors.length === 1) {
-        throw new Error(`timeframe ${getHms(timeframe)} isn't supported`)
+        throw new Error(`${getHms(timeframe)} timeframe isn't supported`)
       }
       promisesOfBars.push(this.requestCollectorPendingBars(collector, markets, from, to))
     }
@@ -890,7 +902,7 @@ class InfluxStorage {
             continue
           }
 
-          if (timestamp >= from && timestamp <= to) {
+          if (timestamp >= from && timestamp < to) {
             results.push(this.pendingBars[market][timestamp])
           }
         }
