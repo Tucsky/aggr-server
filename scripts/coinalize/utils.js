@@ -12,7 +12,6 @@ const COINALIZE_VENUES = {
   BITFINEX: 'F',
   BYBIT: '6',
   DERIBIT: '2',
-  FTX: '5',
   HUOBI: '4',
   KRAKEN: 'K',
   OKEX: '3',
