@@ -1,7 +1,5 @@
 version: '3.7'
 
-name: aggr-backend
-
 services:
   server:
     container_name: aggr-server
@@ -19,23 +17,23 @@ services:
       - .env
     restart: always
 
-  influx:
-    container_name: aggr-influx
-    image: influxdb:1.8.10
-    ports:
-      - ${INFLUX_PORT}:${INFLUX_PORT}
-    volumes:
-      - ./${FILES_LOCATION}/influxdb:/var/lib/influxdb/
-    restart: always
+  # influx:
+  #   container_name: aggr-influx
+  #   image: influxdb:1.8.10
+  #   ports:
+  #     - ${INFLUX_PORT}:${INFLUX_PORT}
+  #   volumes:
+  #     - ./${FILES_LOCATION}/influxdb:/var/lib/influxdb/
+  #   restart: always
   
-  chronograf:
-    container_name: aggr-chronograf
-    image: chronograf:latest
-    volumes:
-      - ${FILES_LOCATION}/chronograf:/var/lib/chronograf
-    ports:
-      - "8888:8888"
-    links:
-      - influx
-    environment:
-      - "INFLUXDB_URL=http://${INFLUX_HOST}:${INFLUX_PORT}"
+  # chronograf:
+  #   container_name: aggr-chronograf
+  #   image: chronograf:latest
+  #   volumes:
+  #     - ${FILES_LOCATION}/chronograf:/var/lib/chronograf
+  #   ports:
+  #     - "8888:8888"
+  #   links:
+  #     - influx
+  #   environment:
+  #     - "INFLUXDB_URL=http://${INFLUX_HOST}:${INFLUX_PORT}"
