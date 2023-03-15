@@ -93,9 +93,9 @@ class Server extends EventEmitter {
       }
 
       if (config.api || config.broadcast) {
-        if (!config.serverPort) {
+        if (!config.port) {
           console.error(
-            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${config.serverPort})\n\n`
+            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${config.port})\n\n`
           )
           process.exit()
         }
@@ -302,7 +302,7 @@ class Server extends EventEmitter {
     })
 
     this.wss.on('listening', () => {
-      console.log(`[server] websocket server listening at localhost:${config.serverPort}`)
+      console.log(`[server] websocket server listening at localhost:${config.port}`)
     })
 
     this.wss.on('connection', (ws, req) => {
@@ -579,8 +579,8 @@ class Server extends EventEmitter {
       }
     })
 
-    this.server = app.listen(config.serverPort, () => {
-      console.log(`[server] http server listening at localhost:${config.serverPort}`, !config.api ? '(historical api is disabled)' : '')
+    this.server = app.listen(config.port, () => {
+      console.log(`[server] http server listening at localhost:${config.port}`, !config.api ? '(historical api is disabled)' : '')
     })
 
     this.app = app

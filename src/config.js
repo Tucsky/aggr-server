@@ -54,7 +54,7 @@ const defaultConfig = {
   collect: true,
 
   // default server port
-  serverPort: 3000,
+  port: 3000,
 
   // restrict origin (now using regex)
   origin: '.*',

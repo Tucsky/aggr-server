@@ -14,7 +14,7 @@ services:
     volumes:
       - ./${FILES_LOCATION}:${WORKDIR}/${FILES_LOCATION}
     ports:
-      - ${SERVER_PORT}:${SERVER_PORT}
+      - ${PORT}:${PORT}
     env_file:
       - .env
     restart: always
