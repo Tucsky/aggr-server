@@ -27,3 +27,15 @@ services:
     volumes:
       - ./${FILES_LOCATION}/influxdb:/var/lib/influxdb/
     restart: always
+  
+  chronograf:
+    container_name: aggr-chronograf
+    image: chronograf:latest
+    volumes:
+      - ${FILES_LOCATION}/chronograf:/var/lib/chronograf
+    ports:
+      - "8888:8888"
+    links:
+      - influx
+    environment:
+      - "INFLUXDB_URL=http://${INFLUX_HOST}:${INFLUX_PORT}"
