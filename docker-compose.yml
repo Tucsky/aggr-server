@@ -1,6 +1,6 @@
 version: '3.7'
 
-name: aggr-server
+name: aggr-backend
 
 services:
   server:
@@ -19,18 +19,11 @@ services:
       - .env
     restart: always
 
-#   influx:
-#     container_name: aggr-influx
-#     image: influxdb:1.8.10
-#     ports:
-#       - ${INFLUX_PORT}:${INFLUX_PORT}
-#     volumes:
-#       - ./${FILES_LOCATION}/influxdb:/var/lib/influxdb/
-#     configs:
-#       - source: influxdb_config
-#         target: /etc/influxdb/influxdb.conf
-#     restart: always
-
-# configs:
-#   influxdb_config:
-#     file: ./config/influxdb.conf
+  influx:
+    container_name: aggr-influx
+    image: influxdb:1.8.10
+    ports:
+      - ${INFLUX_PORT}:${INFLUX_PORT}
+    volumes:
+      - ./${FILES_LOCATION}/influxdb:/var/lib/influxdb/
+    restart: always

@@ -1,6 +1,6 @@
 {
   "debug": false,
-  "port": 3000,
+  "serverPort": 3000,
   "pairs": [
     "BITFINEX:BTCUSD",
     "BINANCE:btcusdt",
@@ -41,11 +41,8 @@
   "backupInterval": 5000,
   "collect": true,
   "storage": [
-    "influx",
     "files"
   ],
   "origin": ".*",
-  "filesLocation": "./data",
-  "influxHost": "localhost",
-  "influxPort": 8086
+  "filesLocation": "./data"
 }

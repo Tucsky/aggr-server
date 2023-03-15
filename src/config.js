@@ -54,7 +54,7 @@ const defaultConfig = {
   collect: true,
 
   // default server port
-  port: 3000,
+  serverPort: 3000,
 
   // restrict origin (now using regex)
   origin: '.*',
@@ -111,7 +111,7 @@ const defaultConfig = {
 
   // NB: use array or comma separated storage names for multiple storage solution
   // default = "files" just store in text files, no further installation required.
-  storage: 'files',
+  storage: ['files'],
 
   // store interval (in ms)
   backupInterval: 10000,

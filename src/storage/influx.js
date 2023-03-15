@@ -68,7 +68,12 @@ class InfluxStorage {
         await this.getPreviousBars()
       }
     } catch (error) {
-      console.error(`[storage/influx] ${error.message}... retrying in 1s`)
+      console.error([
+      	`[storage/influx] Error: ${error.message}... retrying in 1s`,
+      	`Please ensure that the environment variable INFLUX_HOST is correctly set or that InfluxDB is running.`,
+		`Refer to the README.md file for more instructions.`,
+      ].join('\n'))
+    
 
       await sleep()
 
