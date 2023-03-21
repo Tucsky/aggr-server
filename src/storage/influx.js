@@ -29,6 +29,11 @@ class InfluxStorage {
      * @type {{[identifier: string]: {[timestamp: number]: Bar}}}
      */
     this.pendingBars = {}
+
+    /**
+     * @type {number}
+     */
+    this.influxTimeframeRetentionDuration = null
   }
 
   async connect() {
@@ -187,6 +192,7 @@ class InfluxStorage {
     }, {})
 
     const timeframes = [config.influxTimeframe].concat(config.influxResampleTo)
+    this.influxTimeframeRetentionDuration = config.influxTimeframe * config.influxRetentionPerTimeframe
 
     for (let timeframe of timeframes) {
       const rpDuration = timeframe * config.influxRetentionPerTimeframe
@@ -448,6 +454,8 @@ class InfluxStorage {
    * @memberof InfluxStorage
    */
   async importPendingBars() {
+    const now = Date.now()
+
     /**
      * closed bars
      * @type {Bar[]}
@@ -470,6 +478,11 @@ class InfluxStorage {
       }
 
       for (const timestamp in this.pendingBars[identifier]) {
+        if (timestamp < now - this.influxTimeframeRetentionDuration) {
+          console.log(`[storage/influx] ${new Date(+timestamp).toISOString()} < ${new Date(now - this.influxTimeframeRetentionDuration).toISOString()}`)
+          continue
+        }
+
         const bar = this.pendingBars[identifier][timestamp]
 
         importedRange.from = Math.min(bar.time, importedRange.from)

@@ -7,6 +7,7 @@ class Bitget extends Exchange {
     super()
 
     this.id = 'BITGET'
+    this.maxConnectionsPerApi = 50
 
     this.endpoints = {
       PRODUCTS: [
