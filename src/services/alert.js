@@ -69,6 +69,12 @@ class AlertService extends EventEmitter {
         return
       }
 
+      if (typeof alert.message === 'string' && alert.message.trim().length) {
+        alert.message = alert.message.slice(0, 250)
+      } else {
+        alert.message = null
+      }
+
       const activeAlert = this.getActiveAlert(alert, index.id)
       const priceOffset = index.price && alert.currentPrice ? alert.currentPrice - index.price : 0
 
@@ -77,7 +83,10 @@ class AlertService extends EventEmitter {
           activeAlert.user = alert.user
 
           if (typeof alert.newPrice === 'number') {
-            this.moveAlert(activeAlert, index.id, alert.newPrice, priceOffset)
+            this.moveAlert(activeAlert, {
+              price: alert.newPrice,
+              message: alert.message
+            }, priceOffset)
           } else if (alert.unsubscribe) {
             this.unregisterAlert(activeAlert, index.id)
           }
@@ -209,41 +218,45 @@ class AlertService extends EventEmitter {
     return false
   }
 
-  moveAlert(alert, market, newPrice, priceOffset) {
-    const rangePrice = this.getRangePrice(alert.price)
+  moveAlert(activeAlert, newAlert, priceOffset) {
+    const rangePrice = this.getRangePrice(activeAlert.price)
 
-    if (!this.alerts[market][rangePrice]) {
+    if (!this.alerts[activeAlert.market][rangePrice]) {
       return
     }
 
-    const index = this.alerts[market][rangePrice].indexOf(alert)
+    const index = this.alerts[activeAlert.market][rangePrice].indexOf(activeAlert)
 
     if (index !== -1) {
-      this.alerts[market][rangePrice].splice(index, 1)
+      this.alerts[activeAlert.market][rangePrice].splice(index, 1)
 
-      console.log(`[alert/${alert.user}] move alert on ${market} @${alert.price} -> ${newPrice}`)
+      console.log(`[alert/${activeAlert.user}] move alert on ${activeAlert.market} @${activeAlert.price} -> ${newAlert.price}`)
 
       const now = Date.now()
 
       this.emit('change', {
-        market: market,
-        previousPrice: alert.price,
-        price: newPrice,
-        user: alert.user,
+        market: activeAlert.market,
+        previousPrice: activeAlert.price,
+        price: newAlert.price,
+        user: activeAlert.user,
         type: 'move',
       })
 
-      alert.price = newPrice
-      alert.priceCompare = alert.price - (priceOffset || 0)
-      alert.timestamp = now
+      activeAlert.price = newAlert.price
+      if (newAlert.message && newAlert.message !== activeAlert.message) {
+        console.log(`\t 💬 ${activeAlert.message}`)
+        activeAlert.message = newAlert.message
+      }
+      activeAlert.priceCompare = activeAlert.price - (priceOffset || 0)
+      activeAlert.timestamp = now
 
-      const newRangePrice = this.getRangePrice(newPrice)
+      const newRangePrice = this.getRangePrice(newAlert.price)
 
-      if (!this.alerts[market][newRangePrice]) {
-        this.alerts[market][newRangePrice] = []
+      if (!this.alerts[activeAlert.market][newRangePrice]) {
+        this.alerts[activeAlert.market][newRangePrice] = []
       }
 
-      this.alerts[market][newRangePrice].push(alert)
+      this.alerts[activeAlert.market][newRangePrice].push(activeAlert)
     }
   }
 
