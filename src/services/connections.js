@@ -332,9 +332,9 @@ module.exports.registerConnection = function (id, exchange, pair) {
     }
 
     if (config.pairs.indexOf(id) === -1) {
-      // force fetch last 4h of data through recent trades
+      // force fetch last 1h30 of data through recent trades
       connections[id].forceRecovery = true
-      connections[id].timestamp = now - 1000 * 60 * 60 * 4
+      connections[id].timestamp = now - 1000 * 60 * 60 * 1.5
     }
   } else {
     connections[id].restarts++

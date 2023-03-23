@@ -658,7 +658,9 @@ class Exchange extends EventEmitter {
           await saveProducts(this.id, formatedProducts)
         }
       } catch (error) {
-        console.error(`[${this.id}/getProducts] failed to fetch products`, error)
+        console.error(`[${this.id}/getProducts] failed to fetch products`, error.message)
+
+        throw error
       }
     }
 
