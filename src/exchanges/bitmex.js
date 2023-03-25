@@ -19,8 +19,8 @@ class Bitmex extends Exchange {
     }
 
     this.url = () => {
-          return `wss://www.bitmex.com/realtime`
-        };
+      return `wss://www.bitmex.com/realtime`
+    };
   }
 
   formatProducts(data) {

@@ -287,11 +287,11 @@ class Exchange extends EventEmitter {
     const pairsToConnect = api._pending.slice()
 
     for (const pair of pairsToConnect) {
-        try {
-            await this.subscribe(api, pair)
-        } catch( error ) {
-            console.error(`[${this.id} failed to subscribe pair ${pair}: \n`, error.message)
-        }
+      try {
+        await this.subscribe(api, pair)
+      } catch (error) {
+        console.error(`[${this.id} failed to subscribe pair ${pair}: \n`, error.message)
+      }
     }
   }
 
@@ -557,9 +557,10 @@ class Exchange extends EventEmitter {
         const sortedQueuedTrades = this.queuedTrades.sort((a, b) => a.timestamp - b.timestamp)
 
         console.log(
-          `[${this.id}] release trades queue (${sortedQueuedTrades.length} trades, ${new Date(
-            +sortedQueuedTrades[0].timestamp
-          ).toISOString().split('T').pop()} to ${new Date(+sortedQueuedTrades[sortedQueuedTrades.length - 1].timestamp).toISOString().split('T').pop()})`
+          `[${this.id}] release trades queue (${sortedQueuedTrades.length} trades, ${new Date(+sortedQueuedTrades[0].timestamp)
+            .toISOString()
+            .split('T')
+            .pop()} to ${new Date(+sortedQueuedTrades[sortedQueuedTrades.length - 1].timestamp).toISOString().split('T').pop()})`
         )
         this.emit('trades', sortedQueuedTrades)
         this.queuedTrades = []
@@ -826,12 +827,6 @@ class Exchange extends EventEmitter {
    * @param {Trade[]} trades
    */
   emitTrades(source, trades) {
-    /*if (source) {
-      trades.forEach((trade) =>
-        console.log('[feed]', new Date(trade.timestamp).toISOString(), trade.size, trade.liquidation ? '(!!) trade is a liquidation' : '')
-      )
-    }*/
-
     if (source && this.promisesOfApiReconnections[source]) {
       return
     }
@@ -905,11 +900,7 @@ class Exchange extends EventEmitter {
 
     currentDelay = Math.max(minDelay, currentDelay || 0)
 
-    // console.debug(`[${this.id}] schedule ${operationId} in ${getHms(currentDelay)}`)
-
     this.scheduledOperations[operationId] = setTimeout(() => {
-      // console.debug(`[${this.id}] schedule timer fired`)
-
       delete this.scheduledOperations[operationId]
 
       operationFunction()
