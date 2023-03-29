@@ -115,7 +115,7 @@ class Mexc extends Exchange {
     return {
       exchange: this.id,
       pair: pair,
-      timestamp: +trade[0],
+      timestamp: trade.t,
       price: +trade.p,
       size: trade.v,
       side: trade.S === 1 ? 'buy' : 'sell',
