@@ -1,4 +1,3 @@
-const config = require('../../src/config')
 const { prepareStandalone, getMarkets, getHms, formatAmount, sleep } = require('../../src/helper')
 const { parseMarket } = require('../../src/services/catalog')
 const { getReqKey, getAllData } = require('./utils')
@@ -8,14 +7,14 @@ console.log('PID: ', process.pid)
 async function program() {
   const { exchanges, storage } = await prepareStandalone(false)
 
-  const influxMeasurement = 'trades_' + getHms(config.timeframe)
-  const influxRP = config.influxRetentionPrefix + getHms(config.timeframe)
+  const influxMeasurement = 'trades_' + getHms(config.TIMEFRAME)
+  const influxRP = config.INFLUX_RETENTION_PREFIX + getHms(config.TIMEFRAME)
 
   const pairs = getMarkets()
 
   console.log('Extend historical')
-  console.log('from', new Date(config.from).toISOString())
-  console.log('to', new Date(config.to).toISOString())
+  console.log('from', new Date(config.FROM).toISOString())
+  console.log('to', new Date(config.TO).toISOString())
   console.log('on', pairs.map((a) => a.market).join(', '))
 
   const resampleRange = {
@@ -40,7 +39,7 @@ async function program() {
       continue
     }
 
-    const data = await getAllData(market, config.from, config.to, config.timeframe)
+    const data = await getAllData(market, config.FROM, config.TO, config.TIMEFRAME)
 
     const points = []
     let totalVbuy = 0
@@ -157,8 +156,8 @@ async function program() {
   }
 
   if (resampleRange.points) {
-    await storage.resample(resampleRange, config.timeframe)
-    console.log(`resampled ${resampleRange.markets.length} market${resampleRange.markets.length > 1 ? 's' : ''} from timeframe ${getHms(config.timeframe)}`)
+    await storage.resample(resampleRange, config.TIMEFRAME)
+    console.log(`resampled ${resampleRange.markets.length} market${resampleRange.markets.length > 1 ? 's' : ''} from timeframe ${getHms(config.TIMEFRAME)}`)
   }
 }
 

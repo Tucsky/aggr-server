@@ -1,6 +1,12 @@
 ![aggr-server](https://i.imgur.com/slF3jDy.png)
 
 Autonomous multi market trades monitoring, storing and resampling solution.
+- Stores raw trade data
+- Resample into timeframes
+- On demand historical data REST api
+- Aggregated trades broadcasting
+- Push notification price alert
+- Clustering made easy with PM2
 
 ## How to install
 1. Clone the repo and get into the working dir
@@ -19,14 +25,12 @@ cd aggr-server
 npm install
 ```
 
-3. If you want to configure server using json, move exemple as "config.json" inside root directory and edit configuration.
+3. Configuration
+Clone default options file and start from there, see [the example configuration file](.env.default) for details
 
 ```bash
-cp config.json.example config.json
-```
-
-```bash
-nano config.json
+cp .env.default .env
+code .env
 ```
 
 3. Run server
@@ -36,23 +40,24 @@ node index
 ```
 
 ## Configuration
-All settings are optional and can be changed in the [server configuration file](config.json.example) (rename config.json.example into config.json).
+see [documentation](.env.default)
 
-```js
-// see [server configuration file](src/config.js) for all server options
+Options can be set using CLI
+- Setting port `node index PORT=3001`
+- Setting port & pair `node index PORT=3002 MARKETS="COINBASE:ETH-USD"`
+- Setting port & multiple pairs `node index PORT=3002 MARKETS="COINBASE:ETH-USD,BINANCE:ethusdt"`
+
+Or pass a specific .env file
+```bash
+node index dotenv_config_path=/custom/path/to/.env
 ```
 
-
-All options can be set using CLI
-- Setting port `node index port=3001`
-- Setting port & pair `node index port=3002 pairs="COINBASE:ETH-USD"`
-- Setting port & multiple pairs `node index port=3002 pair="COINBASE:ETH-USD,BINANCE:ethusdt"`
-
-You may use specific config file using the `config` argument :
+You may want to use the legacy configuration files
 
 ```bash
 node index config=custom.config.json
 ```
+
 ## Working with clusters
 
 When watching hundred of markets you may want to run multiple instances of this project.
@@ -64,20 +69,20 @@ This server is now designed to work with multiple *collectors* instances + one *
 Say you have 2 config files using influx storage : 
 - one for the api node (api set to true, collect set to false)
 - one for the collectors nodes (api false and collect true)
-Both with `influxCollectors` enabled
+Both with `config.INFLUX_COLLECTORS` enabled
 
 Then use with 1 api instance and 2 collectors
 
 ```bash
-node index config=api.config.json
+node index dotenv_config_path=./api.env
 ```
 
 ```bash
-node index config=collector.config.json pairs="COINBASE:ETH-USD,BITSTAMP:ethusdt"
+node index dotenv_config_path=./collector.env MARKETS="COINBASE:ETH-USD,BITSTAMP:ethusdt"
 ```
 
 ```bash
-node index config=collector.config.json pairs="COINBASE:BTC-USD,BITSTAMP:btcusdt"
+node index dotenv_config_path=./collector.env MARKETS="COINBASE:BTC-USD,BITSTAMP:btcusdt"
 ```
 
 ## How to install: Docker

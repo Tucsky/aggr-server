@@ -14,20 +14,20 @@ class AlertService extends EventEmitter {
     this.alerts = {}
     this.alertEndpoints = {}
 
-    if (config.influxCollectors && config.collect && !config.api) {
+    if (config.INFLUX_COLLECTORS && config.COLLECT && !config.API) {
       // node is a collector: listen for toggleAlerts op
       socketService.on('toggleAlert', ({ data, questionId }) => {
         this.toggleAlert(data, questionId)
       })
     }
 
-    if (config.collect) {
+    if (config.COLLECT) {
       this.getAlerts()
     }
 
-    if (config.publicVapidKey && config.privateVapidKey) {
+    if (config.PUCLIC_VAPID_KEY && config.PRIVATE_VAPID_KEY) {
       this.enabled = true
-      webPush.setVapidDetails('mailto: contact@aggr.trade', config.publicVapidKey, config.privateVapidKey)
+      webPush.setVapidDetails('mailto: contact@aggr.trade', config.PUCLIC_VAPID_KEY, config.PRIVATE_VAPID_KEY)
     }
   }
 
@@ -50,7 +50,7 @@ class AlertService extends EventEmitter {
       throw new Error('you are using an outdated client, please refresh')
     }
 
-    if (!messageId && config.influxCollectors && socketService.clusteredCollectors.length) {
+    if (!messageId && config.INFLUX_COLLECTORS && socketService.clusteredCollectors.length) {
       const collector = socketService.getNodeByMarket(alert.market)
 
       if (!collector) {
@@ -284,7 +284,7 @@ class AlertService extends EventEmitter {
     const now = Date.now()
 
     for (const endpoint in this.alertEndpoints) {
-      if (this.alertEndpoints[endpoint].timestamp && now - this.alertEndpoints[endpoint].timestamp > config.alertEndpointExpiresAfter) {
+      if (this.alertEndpoints[endpoint].timestamp && now - this.alertEndpoints[endpoint].timestamp > config.ALERTS_EXPIRES_AFTER) {
         console.warn(`[alert/get] removed expired endpoint (last updated ${ago(this.alertEndpoints[endpoint].timestamp)} ago)`)
         delete this.alertEndpoints[endpoint]
       }
@@ -344,7 +344,7 @@ class AlertService extends EventEmitter {
   }
 
   async persistAlerts(isExiting = false) {
-    if (!config.collect) {
+    if (!config.COLLECT) {
       return
     }
 
@@ -362,7 +362,7 @@ class AlertService extends EventEmitter {
         )
       }
 
-      if (!otherAlertEndpoints[endpoint].timestamp || now - otherAlertEndpoints[endpoint].timestamp < config.alertEndpointExpiresAfter) {
+      if (!otherAlertEndpoints[endpoint].timestamp || now - otherAlertEndpoints[endpoint].timestamp < config.ALERTS_EXPIRES_AFTER) {
         this.alertEndpoints[endpoint] = otherAlertEndpoints[endpoint]
       }
     }
@@ -453,8 +453,8 @@ class AlertService extends EventEmitter {
       .sendNotification(this.alertEndpoints[alert.endpoint], payload, {
         vapidDetails: {
           subject: 'mailto: contact@aggr.trade',
-          publicKey: config.publicVapidKey,
-          privateKey: config.privateVapidKey,
+          publicKey: config.PUCLIC_VAPID_KEY,
+          privateKey: config.PRIVATE_VAPID_KEY,
         },
         contentEncoding: 'aes128gcm',
       })
@@ -493,7 +493,7 @@ class AlertService extends EventEmitter {
     for (let i = 0; i < this.alerts[market][rangePrice].length; i++) {
       const alert = this.alerts[market][rangePrice][i]
 
-      if (now - alert.timestamp < config.influxTimeframe) {
+      if (now - alert.timestamp < config.INFLUX_TIMEFRAME) {
         continue
       }
 

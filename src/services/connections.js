@@ -27,10 +27,10 @@ const indexes = (module.exports.indexes = [])
 
   const cacheIndexes = {}
 
-  for (const market of config.pairs) {
+  for (const market of config.MARKETS) {
     const product = parseMarket(market)
 
-    if (config.priceIndexesBlacklist.indexOf(product.exchange) !== -1) {
+    if (config.INDEX_EXCHANGE_BLACKLIST.indexOf(product.exchange) !== -1 || config.INDEX_QUOTE_BLACKLIST.indexOf(product.quote) !== -1) {
       continue
     }
 
@@ -126,7 +126,7 @@ function cleanConnection(connection) {
 /**
  * Get dynamic threshold for that connection
  *
- * config.reconnectionThreshold now accepts simple formula
+ * config.RECONNECTION_THRESHOLD now accepts simple formula
  * ex: `7200000 / Math.log(Math.exp(1) + connection.avg)`
  * for 0 hit/min = 2h
  * for 0.1 hit/min = 1h, 55m, 48s
@@ -135,17 +135,17 @@ function cleanConnection(connection) {
  * for 100 hit/min = 25m, 54s
  * for 1000 hit/min = 17m, 21s
  *
- * Or just use fixed threshold (in ms) in config.reconnectionThreshold
+ * Or just use fixed threshold (in ms) in config.RECONNECTION_THRESHOLD
  * ex: 7200000
  *
  * @param {Connection} connection
  * @returns {number} average hits per 1min
  */
 function getConnectionThreshold(connection) {
-  let threshold = config.reconnectionThreshold
+  let threshold = config.RECONNECTION_THRESHOLD
 
-  if (config.reconnectionThreshold && typeof config.reconnectionThreshold === 'string' && isNaN(config.reconnectionThreshold)) {
-    threshold = new Function('connection', `'use strict'; return ${config.reconnectionThreshold}`)(connection)
+  if (config.RECONNECTION_THRESHOLD && typeof config.RECONNECTION_THRESHOLD === 'string' && isNaN(config.RECONNECTION_THRESHOLD)) {
+    threshold = new Function('connection', `'use strict'; return ${config.RECONNECTION_THRESHOLD}`)(connection)
   }
 
   if (!threshold || threshold < 0 || !isFinite(threshold)) {
@@ -188,7 +188,7 @@ module.exports.updateConnectionStats = function (connection) {
  * Inject connection data (start time, last ping, total hit) from shared persistance into current instance
  */
 module.exports.restoreConnections = async function () {
-  if (!config.persistConnections) {
+  if (!config.CACHE_CONNECTIONS) {
     return
   }
 
@@ -198,7 +198,7 @@ module.exports.restoreConnections = async function () {
   const now = Date.now()
 
   for (const market in persistance) {
-    if (config.pairs.indexOf(market) === -1 || config.exchanges.indexOf(persistance[market].exchange) === -1) {
+    if (config.MARKETS.indexOf(market) === -1 || config.EXCHANGES.indexOf(persistance[market].exchange) === -1) {
       // filter out connection that doesn't concern this instance
       continue
     }
@@ -206,7 +206,7 @@ module.exports.restoreConnections = async function () {
     if (
       !persistance[market].forceRecovery &&
       (!persistance[market].timestamp ||
-        (config.staleConnectionThreshold > 0 && now - persistance[market].timestamp > config.staleConnectionThreshold))
+        (config.RESTORE_CONNECTION_THRESHOLD > 0 && now - persistance[market].timestamp > config.RESTORE_CONNECTION_THRESHOLD))
     ) {
       console.log(
         `[connections] couldn't restore ${market}'s connection because ${
@@ -279,7 +279,7 @@ module.exports.saveConnections = async function (immediate = false) {
     return
   }
 
-  if (!config.persistConnections) {
+  if (!config.CACHE_CONNECTIONS) {
     return
   }
 
@@ -331,7 +331,7 @@ module.exports.registerConnection = function (id, exchange, pair) {
       timestamp: null,
     }
 
-    if (config.pairs.indexOf(id) === -1) {
+    if (config.MARKETS.indexOf(id) === -1) {
       // force fetch last 1h30 of data through recent trades
       connections[id].forceRecovery = true
       connections[id].timestamp = now - 1000 * 60 * 60 * 1.5

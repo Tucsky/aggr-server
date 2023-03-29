@@ -130,7 +130,7 @@ function saveReqKey(key) {
 async function getReqKey() {
   let [key, timestamp] = await readReqKey()
 
-  let renew = config.renew || !key
+  let renew = config.RENEW || !key
 
   if (!renew && Date.now() - timestamp > 1000 * 60 * 2) {
     renew = true

@@ -9,23 +9,12 @@ const alertService = require('./src/services/alert')
 const { saveConnections } = require('./src/services/connections')
 const socketService = require('./src/services/socket')
 
-/* Load available exchanges
- */
-
-if (!config.exchanges || !config.exchanges.length) {
-  config.exchanges = []
-
-  fs.readdirSync('./src/exchanges/').forEach((file) => {
-    ;/\.js$/.test(file) && config.exchanges.push(file.replace(/\.js$/, ''))
-  })
-}
-
 const exchanges = []
 
-for (let name of config.exchanges) {
+for (let name of config.EXCHANGES) {
   const exchange = new (require('./src/exchanges/' + name))()
 
-  config.exchanges[config.exchanges.indexOf(name)] = exchange.id
+  config.EXCHANGES[config.EXCHANGES.indexOf(name)] = exchange.id
 
   exchanges.push(exchange)
 }
@@ -44,7 +33,7 @@ process.on('SIGINT', async function () {
     return
   }
 
-  if (config.collect) {
+  if (config.COLLECT) {
     if (alertService.enabled) {
       try {
         await alertService.persistAlerts()
@@ -54,7 +43,7 @@ process.on('SIGINT', async function () {
       }
     }
     
-    if (config.persistConnections) {
+    if (config.CACHE_CONNECTIONS) {
       try {
         await saveConnections(true)
         console.log(`[exit] saved connections ✓`)
@@ -83,7 +72,7 @@ process.on('SIGINT', async function () {
   process.exit()
 })
 
-if (process.env.pmx) {
+if (config.pmx) {
   tx2.action('connect', function (markets, reply) {
     server.connect(markets.split(',')).then(result => {
       reply(result.join(', '))

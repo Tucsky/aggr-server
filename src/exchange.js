@@ -985,11 +985,11 @@ class Exchange extends EventEmitter {
    * @returns {Promise<void>}
    */
   waitBeforeContinueRecovery() {
-    if (!config.recoveryRequestDelay) {
+    if (!config.RECOVERY_REQUEST_DELAY) {
       return Promise.resolve()
     }
 
-    return sleep(config.recoveryRequestDelay)
+    return sleep(config.RECOVERY_REQUEST_DELAY)
   }
 }
 

@@ -37,33 +37,33 @@ class InfluxStorage {
   }
 
   async connect() {
-    if (/\-/.test(config.influxDatabase)) {
+    if (/\-/.test(config.INFLUX_DATABASE)) {
       throw new Error('dashes not allowed inside influxdb database')
     }
 
-    let host = config.influxHost
-    let port = config.influxPort
+    let host = config.INFLUX_HOST
+    let port = config.INFLUX_PORT
 
-    if (typeof config.influxUrl === 'string' && config.influxUrl.length) {
-      ;[host, port] = config.influxUrl.split(':')
+    if (typeof config.INFLUX_URL === 'string' && config.INFLUX_URL.length) {
+      ;[host, port] = config.INFLUX_URL.split(':')
     }
 
-    console.log(`[storage/influx] connecting to ${host}:${port} on db "${config.influxDatabase}"`)
+    console.log(`[storage/influx] connecting to ${host}:${port} on db "${config.INFLUX_DATABASE}"`)
 
     try {
       this.influx = new Influx.InfluxDB({
         host: host || 'localhost',
         port: port || '8086',
-        database: config.influxDatabase,
+        database: config.INFLUX_DATABASE,
       })
 
       const databases = await this.influx.getDatabaseNames()
 
-      if (!databases.includes(config.influxDatabase)) {
-        await this.influx.createDatabase(config.influxDatabase)
+      if (!databases.includes(config.INFLUX_DATABASE)) {
+        await this.influx.createDatabase(config.INFLUX_DATABASE)
       }
 
-      if (config.collect) {
+      if (config.COLLECT) {
         await this.ensureRetentionPolicies()
         await this.getPreviousBars()
       }
@@ -74,16 +74,16 @@ class InfluxStorage {
 
       return this.connect()
     } finally {
-      if (config.influxCollectors) {
-        if (config.api) {
+      if (config.INFLUX_COLLECTORS) {
+        if (config.API) {
           this.bindCollectorsEvents()
-        } else if (config.collect) {
+        } else if (config.COLLECT) {
           this.bindClusterEvents()
         }
 
-        if (config.api && !config.collect) {
-          // schedule import of all collectors every influxResampleInterval until the scripts die
-          setTimeout(this.importCollectors.bind(this), config.influxResampleInterval)
+        if (config.API && !config.COLLECT) {
+          // schedule import of all collectors every config.INFLUX_RESAMPLE_INTERVAL until the scripts die
+          setTimeout(this.importCollectors.bind(this), config.INFLUX_RESAMPLE_INTERVAL)
         }
       }
 
@@ -191,18 +191,18 @@ class InfluxStorage {
       return output
     }, {})
 
-    const timeframes = [config.influxTimeframe].concat(config.influxResampleTo)
-    this.influxTimeframeRetentionDuration = config.influxTimeframe * config.influxRetentionPerTimeframe
+    const timeframes = [config.INFLUX_TIMEFRAME].concat(config.INFLUX_RESAMPLE_TO)
+    this.influxTimeframeRetentionDuration = config.INFLUX_TIMEFRAME * config.INFLUX_RETENTION_PER_TIMEFRAME
 
     for (let timeframe of timeframes) {
-      const rpDuration = timeframe * config.influxRetentionPerTimeframe
+      const rpDuration = timeframe * config.INFLUX_RETENTION_PER_TIMEFRAME
       const rpDurationLitteral = getHms(rpDuration, true)
-      const rpName = config.influxRetentionPrefix + getHms(timeframe)
+      const rpName = config.INFLUX_RETENTION_PREFIX + getHms(timeframe)
 
       if (!retentionsPolicies[rpName]) {
         console.log(`[storage/influx] create retention policy ${rpName} (duration ${rpDurationLitteral})`)
         await this.influx.createRetentionPolicy(rpName, {
-          database: config.influxDatabase,
+          database: config.INFLUX_DATABASE,
           duration: rpDurationLitteral,
           replication: 1,
         })
@@ -212,29 +212,29 @@ class InfluxStorage {
     }
 
     for (let rpName in retentionsPolicies) {
-      if (rpName.indexOf(config.influxRetentionPrefix) === 0) {
+      if (rpName.indexOf(config.INFLUX_RETENTION_PREFIX) === 0) {
         console.warn(`[storage/influx] unused retention policy ? (${rpName})`)
-        // await this.influx.dropRetentionPolicy(rpName, config.influxDatabase)
+        // await this.influx.dropRetentionPolicy(rpName, config.INFLUX_DATABASE)
         // just warning now because of multiple instances of aggr-server running with different RPs
       }
     }
 
-    this.baseRp = config.influxRetentionPrefix + getHms(config.influxTimeframe)
+    this.baseRp = config.INFLUX_RETENTION_PREFIX + getHms(config.INFLUX_TIMEFRAME)
   }
 
   getPreviousBars() {
-    const timeframeLitteral = getHms(config.influxTimeframe)
+    const timeframeLitteral = getHms(config.INFLUX_TIMEFRAME)
     const now = +new Date()
 
-    let query = `SELECT * FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${'_' + timeframeLitteral}`
+    let query = `SELECT * FROM ${config.INFLUX_RETENTION_PREFIX}${timeframeLitteral}.${config.INFLUX_MEASUREMENT}${'_' + timeframeLitteral}`
 
-    query += ` WHERE (${config.pairs.map((market) => `market = '${market}'`).join(' OR ')})`
+    query += ` WHERE (${config.MARKETS.map((market) => `market = '${market}'`).join(' OR ')})`
 
     query += `GROUP BY "market" ORDER BY time DESC LIMIT 1`
 
     this.influx.query(query).then((data) => {
       for (let bar of data) {
-        if (now - bar.time > config.influxResampleInterval) {
+        if (now - bar.time > config.INFLUX_RESAMPLE_INTERVAL) {
           // can't use lastBar because it is too old anyway
           continue
         }
@@ -308,8 +308,8 @@ class InfluxStorage {
       // otherwise cluster will send a command for that (to balance write tasks between collectors nodes)
 
       const now = Date.now()
-      const timeBackupFloored = Math.floor(now / config.backupInterval) * config.backupInterval
-      const timeMinuteFloored = Math.floor(now / config.influxResampleInterval) * config.influxResampleInterval
+      const timeBackupFloored = Math.floor(now / config.BACKUP_INTERVAL) * config.BACKUP_INTERVAL
+      const timeMinuteFloored = Math.floor(now / config.INFLUX_RESAMPLE_INTERVAL) * config.INFLUX_RESAMPLE_INTERVAL
 
       if (timeBackupFloored === timeMinuteFloored) {
         return this.import()
@@ -347,7 +347,7 @@ class InfluxStorage {
     for (let i = 0; i < trades.length; i++) {
       const trade = trades[i]
       const market = trade.exchange + ':' + trade.pair
-      const tradeFlooredTime = Math.floor(trade.timestamp / config.influxTimeframe) * config.influxTimeframe
+      const tradeFlooredTime = Math.floor(trade.timestamp / config.INFLUX_TIMEFRAME) * config.INFLUX_TIMEFRAME
 
       if (!ranges[market]) {
         ranges[market] = {
@@ -519,7 +519,7 @@ class InfluxStorage {
           }
 
           return {
-            measurement: 'trades_' + getHms(config.influxTimeframe),
+            measurement: 'trades_' + getHms(config.INFLUX_TIMEFRAME),
             tags: {
               market: bar.market,
             },
@@ -588,7 +588,7 @@ class InfluxStorage {
   }
 
   /**
-   * Start from minimum tf (influxTimeframe) and update all timeframes above it (influxResampleTo)
+   * Start from minimum tf (influxTimeframe) and update all timeframes above it (config.INFLUX_RESAMPLE_TO)
    * 10s into 30s, 30s into 1m, 1m into 3m, 1m into 5m, 5m into 15m, 3m into 21m, 15m into 30m etc
    *
    * @memberof InfluxStorage
@@ -605,11 +605,11 @@ class InfluxStorage {
     let minimumTimeframe
     let timeframes
     if (fromTimeframe) {
-      minimumTimeframe = Math.max(fromTimeframe, config.influxTimeframe)
-      timeframes = config.influxResampleTo.filter((a) => a > fromTimeframe)
+      minimumTimeframe = Math.max(fromTimeframe, config.INFLUX_TIMEFRAME)
+      timeframes = config.INFLUX_RESAMPLE_TO.filter((a) => a > fromTimeframe)
     } else {
-      minimumTimeframe = config.influxTimeframe
-      timeframes = config.influxResampleTo
+      minimumTimeframe = config.INFLUX_TIMEFRAME
+      timeframes = config.INFLUX_RESAMPLE_TO
     }
 
     let bars = 0
@@ -663,8 +663,8 @@ class InfluxStorage {
       sum(vbuy) AS vbuy, 
       sum(vsell) AS vsell`
 
-      const query_from = `${config.influxDatabase}.${config.influxRetentionPrefix}${sourceTimeframeLitteral}.${config.influxMeasurement}_${sourceTimeframeLitteral}`
-      const query_into = `${config.influxDatabase}.${config.influxRetentionPrefix}${destinationTimeframeLitteral}.${config.influxMeasurement}_${destinationTimeframeLitteral}`
+      const query_from = `${config.INFLUX_DATABASE}.${config.INFLUX_RETENTION_PREFIX}${sourceTimeframeLitteral}.${config.INFLUX_MEASUREMENT}_${sourceTimeframeLitteral}`
+      const query_into = `${config.INFLUX_DATABASE}.${config.INFLUX_RETENTION_PREFIX}${destinationTimeframeLitteral}.${config.INFLUX_MEASUREMENT}_${destinationTimeframeLitteral}`
 
       let coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
       coverage += ` AND (${range.markets.map((market) => `market = '${market}'`).join(' OR ')})`
@@ -737,7 +737,7 @@ class InfluxStorage {
   fetch({ from, to, timeframe = 60000, markets = [] }) {
     const timeframeLitteral = getHms(timeframe)
 
-    let query = `SELECT * FROM "${config.influxDatabase}"."${config.influxRetentionPrefix}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
+    let query = `SELECT * FROM "${config.INFLUX_DATABASE}"."${config.INFLUX_RETENTION_PREFIX}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
 
     if (markets.length) {
       query += ` AND (${markets.map((market) => `market = '${market}'`).join(' OR ')})`
@@ -760,7 +760,7 @@ class InfluxStorage {
           output.results = results.results[0].series[0].values
         }
 
-        if (to > +new Date() - config.influxResampleInterval) {
+        if (to > +new Date() - config.INFLUX_RESAMPLE_INTERVAL) {
           return this.appendPendingBarsToResponse(output.results, markets, from, to, timeframe).then((bars) => {
             output.results = bars
             return output
@@ -787,7 +787,7 @@ class InfluxStorage {
    * @returns
    */
   appendPendingBarsToResponse(bars, markets, from, to, timeframe) {
-    if (config.influxCollectors && socketService.clusteredCollectors.length) {
+    if (config.INFLUX_COLLECTORS && socketService.clusteredCollectors.length) {
       // use collectors nodes pending bars
       return this.requestPendingBars(markets, from, to, timeframe).then((pendingBars) => {
         return bars.concat(pendingBars)
@@ -819,7 +819,7 @@ class InfluxStorage {
       })
     }
 
-    setTimeout(this.importCollectors.bind(this), config.influxResampleInterval)
+    setTimeout(this.importCollectors.bind(this), config.INFLUX_RESAMPLE_INTERVAL)
   }
 
   /**

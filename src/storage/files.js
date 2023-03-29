@@ -11,15 +11,15 @@ class FilesStorage {
     /** @type {{[timestamp: string]: {stream: fs.WriteStream, timestamp: number}}} */
     this.writableStreams = {}
 
-    if (!config.filesInterval) {
-      config.filesInterval = 3600000 // 1h file default
+    if (!config.FILES_INTERVAL) {
+      config.FILES_INTERVAL = 3600000 // 1h file default
     }
 
-    if (!fs.existsSync(config.filesLocation)) {
-      fs.mkdirSync(config.filesLocation)
+    if (!fs.existsSync(config.FILES_LOCATION)) {
+      fs.mkdirSync(config.FILES_LOCATION)
     }
 
-    console.log(`[storage/${this.name}] destination folder: ${config.filesLocation}`)
+    console.log(`[storage/${this.name}] destination folder: ${config.FILES_LOCATION}`)
   }
 
   /**
@@ -36,20 +36,20 @@ class FilesStorage {
 
     pair = pair.replace(/[/:]/g, '-')
 
-    const folderPart = `${config.filesLocation}/${exchange}/${pair}`
+    const folderPart = `${config.FILES_LOCATION}/${exchange}/${pair}`
     const datePart = `${date.getUTCFullYear()}-${('0' + (date.getUTCMonth() + 1)).slice(-2)}-${('0' + date.getUTCDate()).slice(-2)}`
 
     let file = `${folderPart}/${datePart}`
 
-    if (config.filesInterval < 1000 * 60 * 60 * 24) {
+    if (config.FILES_INTERVAL < 1000 * 60 * 60 * 24) {
       file += `-${('0' + date.getUTCHours()).slice(-2)}`
     }
 
-    if (config.filesInterval < 1000 * 60 * 60) {
+    if (config.FILES_INTERVAL < 1000 * 60 * 60) {
       file += `-${('0' + date.getUTCMinutes()).slice(-2)}`
     }
 
-    if (config.filesInterval < 1000 * 60) {
+    if (config.FILES_INTERVAL < 1000 * 60) {
       file += `-${('0' + date.getUTCSeconds()).slice(-2)}`
     }
 
@@ -84,8 +84,8 @@ class FilesStorage {
     const now = +new Date()
 
     for (let id in this.writableStreams) {
-      // close 5 min (config.filesCloseAfter) after file expiration
-      if (now > this.writableStreams[id].timestamp + config.filesInterval + config.filesCloseAfter) {
+      // close 5 min (config.FILES_CLOSE_AFTER) after file expiration
+      if (now > this.writableStreams[id].timestamp + config.FILES_INTERVAL + config.FILES_CLOSE_AFTER) {
         const path = this.writableStreams[id].stream.path
 
         console.debug(`[storage/${this.name}] close writable stream ${id}`)
@@ -98,7 +98,7 @@ class FilesStorage {
 
         delete this.writableStreams[id]
 
-        if (config.filesGzipAfterUse) {
+        if (config.FILES_GZIP_AFTER_USE) {
           try {
             this.gzipFileAndRemoveRaw(path)
           } catch (error) {
@@ -148,7 +148,7 @@ class FilesStorage {
       for (let i = 0; i < groups[identifier].length; i++) {
         const trade = groups[identifier][i]
 
-        const ts = Math.floor(trade[0] / config.filesInterval) * config.filesInterval
+        const ts = Math.floor(trade[0] / config.FILES_INTERVAL) * config.FILES_INTERVAL
 
         if (!output[identifier][ts]) {
           output[identifier][ts] = {

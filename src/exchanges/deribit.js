@@ -51,7 +51,7 @@ class Deribit extends Exchange {
     }
 
     if (api._connected.length === 1) {
-      if (!config.deribitClientId) {
+      if (!config.DERIBIT_CLIENT_ID) {
         throw new Error(
           'As of 15 Jan 2022 Deribit will no longer allow unauthenticated connections to subscribe to raw feeds\n\nAdd deribitClientId & deribitClientSecret to the config and restart server'
         )
@@ -63,8 +63,8 @@ class Deribit extends Exchange {
           method: 'public/auth',
           params: {
             grant_type: 'client_credentials',
-            client_id: config.deribitClientId,
-            client_secret: config.deribitClientSecret,
+            client_id: config.DERIBIT_CLIENT_ID,
+            client_secret: config.DERIBIT_SECRET_ID,
           },
         })
       )

@@ -9,5 +9,7 @@ data/*
 .vscode
 !**/.gitkeep
 *.config.json
+*.env
+.env.*
 persistence.json
 coinalize.key

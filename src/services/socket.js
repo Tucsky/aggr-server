@@ -24,13 +24,13 @@ class SocketService extends EventEmitter {
     this.clusterSocket = null
     this.clusteredCollectors = []
 
-    if (config.influxCollectors) {
-      if (config.api && !config.collect) {
+    if (config.INFLUX_COLLECTORS) {
+      if (config.API && !config.COLLECT) {
         // CLUSTER NODE (node is dedicated to serving data)
         this.createCluster()
 
         return
-      } else if (!config.api && config.collect) {
+      } else if (!config.API && config.COLLECT) {
         // COLLECTOR NODE (node is just collecting + storing data)
 
         this.connectToCluster()
@@ -52,7 +52,7 @@ class SocketService extends EventEmitter {
 
     // console.debug('[socket/collector] connecting to cluster..')
 
-    this.clusterSocket = net.createConnection(config.influxCollectorsClusterSocketPath)
+    this.clusterSocket = net.createConnection(config.INFLUX_COLLECTORS_CLUSTER_SOCKET_PATH)
 
     this.clusterSocket.on('connect', () => {
       console.log('[socket/collector] successfully connected to cluster')
@@ -98,8 +98,8 @@ class SocketService extends EventEmitter {
       JSON.stringify({
         opId: 'markets',
         data: {
-          markets: config.pairs,
-          timeframes: [config.influxTimeframe, ...config.influxResampleTo],
+          markets: config.MARKETS,
+          timeframes: [config.INFLUX_TIMEFRAME, ...config.INFLUX_RESAMPLE_TO],
           indexes: indexes.map(a => a.id),
         },
       }) + '#'
@@ -120,14 +120,14 @@ class SocketService extends EventEmitter {
     if (this._clusterConnectionTimeout) {
       clearTimeout(this._clusterConnectionTimeout)
     } else {
-      // console.log(`[socket/collector] schedule reconnect to cluster (${config.influxCollectorsReconnectionDelay / 1000}s)`)
+      // console.log(`[socket/collector] schedule reconnect to cluster (${config.INFLUX_COLLECTORS_RECONNECTION_DELAY / 1000}s)`)
     }
 
     this._clusterConnectionTimeout = setTimeout(() => {
       this._clusterConnectionTimeout = null
 
       this.connectToCluster()
-    }, config.influxCollectorsReconnectionDelay)
+    }, config.INFLUX_COLLECTORS_RECONNECTION_DELAY)
   }
 
   /**
@@ -138,9 +138,9 @@ class SocketService extends EventEmitter {
    */
   createCluster() {
     try {
-      if (statSync(config.influxCollectorsClusterSocketPath)) {
+      if (statSync(config.INFLUX_COLLECTORS_CLUSTER_SOCKET_PATH)) {
         console.debug(`[socket/cluster] unix socket was not closed properly last time`)
-        unlinkSync(config.influxCollectorsClusterSocketPath)
+        unlinkSync(config.INFLUX_COLLECTORS_CLUSTER_SOCKET_PATH)
       }
     } catch (error) {}
 
@@ -199,7 +199,7 @@ class SocketService extends EventEmitter {
       console.error(`[socket/cluster] server socket error`, error)
     })
 
-    this.serverSocket.listen(config.influxCollectorsClusterSocketPath)
+    this.serverSocket.listen(config.INFLUX_COLLECTORS_CLUSTER_SOCKET_PATH)
   }
 
   parseSocketData(callback, data) {

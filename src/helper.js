@@ -178,10 +178,10 @@ module.exports = {
     //return +new Date(date.getTime() - date.getTimezoneOffset() * 60000)
   },
   getMarkets() {
-    return config.pairs.map((market) => {
+    return config.MARKETS.map((market) => {
       const [exchange, symbol] = market.match(/([^:]*):(.*)/).slice(1, 3)
 
-      if (config.exchanges.indexOf(exchange) === -1) {
+      if (config.EXCHANGES.indexOf(exchange) === -1) {
         console.warn(`${market} is not supported`)
       }
 
@@ -193,53 +193,53 @@ module.exports = {
     })
   },
   async prepareStandalone(onlyNativeRecovery = true) {
-    if (!config.exchanges || !config.exchanges.length) {
-      config.exchanges = []
+    if (!config.EXCHANGES || !config.EXCHANGES.length) {
+      config.EXCHANGES = []
 
       fs.readdirSync('./src/exchanges/').forEach((file) => {
-        ;/\.js$/.test(file) && config.exchanges.push(file.replace(/\.js$/, ''))
+        ;/\.js$/.test(file) && config.EXCHANGES.push(file.replace(/\.js$/, ''))
       })
     }
 
     const exchanges = []
 
-    for (let i = 0; i < config.exchanges.length; i++) {
-      const name = config.exchanges[i]
-      const exchange = new (require('../src/exchanges/' + name))(config)
+    for (let i = 0; i < config.EXCHANGES.length; i++) {
+      const name = config.EXCHANGES[i]
+      const exchange = new (require('../src/exchanges/' + name))()
 
       if (!onlyNativeRecovery || typeof exchange.getMissingTrades === 'function') {
-        config.exchanges[i] = exchange.id
+        config.EXCHANGES[i] = exchange.id
 
         exchanges.push(exchange)
       } else {
-        config.exchanges.splice(i, 1)
+        config.EXCHANGES.splice(i, 1)
         i--
       }
     }
 
-    if (config.from) {
-      config.from = module.exports.parseDatetime(config.from)
+    if (config.FROM) {
+      config.FROM = module.exports.parseDatetime(config.FROM)
     } else {
       throw new Error('from is required')
     }
 
-    if (config.to) {
-      config.to = module.exports.parseDatetime(config.to) - 1
+    if (config.TO) {
+      config.TO = module.exports.parseDatetime(config.TO) - 1
     } else {
-      config.to = +new Date()
+      config.TO = +new Date()
     }
 
-    if (isNaN(config.to) || isNaN(config.to)) {
+    if (isNaN(config.TO) || isNaN(config.TO)) {
       throw new Error('invalid from / to')
     }
 
-    if (!config.timeframe) {
+    if (!config.TIMEFRAME) {
       throw new Error('you must choose a timeframe / resolution (ex timeframe=1m)')
     }
 
-    config.timeframe = module.exports.parseDuration(config.timeframe)
+    config.TIMEFRAME = module.exports.parseDuration(config.TIMEFRAME)
 
-    if (isNaN(config.timeframe)) {
+    if (isNaN(config.TIMEFRAME)) {
       throw new Error('invalid timeframe')
     }
 
@@ -251,7 +251,7 @@ module.exports = {
 
     let storage
 
-    for (let name of config.storage) {
+    for (let name of config.STORAGE) {
       if (name !== 'influx') {
         continue
       }
@@ -287,5 +287,26 @@ module.exports = {
     }
 
     return 'connecting'
-  }
+  },
+  parseList(stringifiedList) {
+    if (Array.isArray(stringifiedList)) {
+      return stringifiedList
+    }
+
+    if (typeof stringifiedList === 'string' && stringifiedList.trim().length) {
+      return stringifiedList.split(',').reduce((acc, value) => {
+        const trimmedValue = value.trim()
+        if (trimmedValue.length) {
+          acc.push(value.trim())
+        }
+
+        return acc
+      }, [])
+    }
+
+    return []
+  },
+  camelcaseToSnakecase(str) {
+    return (str[0].toLowerCase() + str.slice(1, str.length).replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)).toUpperCase()
+  },
 }

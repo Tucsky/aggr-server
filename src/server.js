@@ -58,14 +58,14 @@ class Server extends EventEmitter {
 
     this.BANNED_IPS = []
 
-    if (config.collect) {
+    if (config.COLLECT) {
       console.log(
         `\n[server] collect is enabled`,
-        config.broadcast && config.broadcastAggr ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)' : '',
-        config.broadcast && config.broadcastDebounce && !config.broadcastAggr
-          ? `\n\twill broadcast trades every ${config.broadcastDebounce}ms`
-          : config.broadcast
-          ? `\n\twill broadcast ${config.broadcastAggr ? 'aggregated ' : ''}trades instantly`
+        config.BROADCAST && config.BROADCAST_AGGR ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)' : '',
+        config.BROADCAST && config.BROADCAST_DEBOUNCE && !config.BROADCAST_AGGR
+          ? `\n\twill broadcast trades every ${config.BROADCAST_DEBOUNCE}ms`
+          : config.BROADCAST
+          ? `\n\twill broadcast ${config.BROADCAST_AGGR ? 'aggregated ' : ''}trades instantly`
           : ''
       )
       console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
@@ -81,7 +81,7 @@ class Server extends EventEmitter {
     }
 
     this.initStorages().then(() => {
-      if (config.collect) {
+      if (config.COLLECT) {
         if (this.storages) {
           const delay = this.scheduleNextBackup()
 
@@ -91,10 +91,10 @@ class Server extends EventEmitter {
         }
       }
 
-      if (config.api || config.broadcast) {
-        if (!config.port) {
+      if (config.API || config.BROADCAST) {
+        if (!config.SERVER_PORT) {
           console.error(
-            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${config.port})\n\n`
+            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${config.SERVER_PORT})\n\n`
           )
           process.exit()
         }
@@ -105,10 +105,10 @@ class Server extends EventEmitter {
         this._usageMonitorInterval = setInterval(this.monitorUsage.bind(this), 10000)
       }
 
-      if (config.broadcast) {
+      if (config.BROADCAST) {
         this.createWSServer()
 
-        if (config.broadcastAggr) {
+        if (config.BROADCAST_AGGR) {
           this._broadcastAggregatedTradesInterval = setInterval(this.broadcastAggregatedTrades.bind(this), 50)
         }
       }
@@ -119,7 +119,7 @@ class Server extends EventEmitter {
   }
 
   initStorages() {
-    if (!config.storage) {
+    if (!config.STORAGE) {
       return Promise.resolve()
     }
 
@@ -127,10 +127,10 @@ class Server extends EventEmitter {
 
     const promises = []
 
-    for (let name of config.storage) {
+    for (let name of config.STORAGE) {
       console.log(`[storage] Using "${name}" storage solution`)
 
-      if (config.api && config.storage.length > 1 && !config.storage.indexOf(name)) {
+      if (config.API && config.STORAGE.length > 1 && !config.STORAGE.indexOf(name)) {
         console.log(`[storage] Set "${name}" as primary storage for API`)
       }
 
@@ -195,10 +195,10 @@ class Server extends EventEmitter {
     }
 
     const now = new Date()
-    let delay = Math.ceil(now / config.backupInterval) * config.backupInterval - now - 20
+    let delay = Math.ceil(now / config.BACKUP_INTERVAL) * config.BACKUP_INTERVAL - now - 20
 
     if (delay < 1000) {
-      delay += config.backupInterval
+      delay += config.BACKUP_INTERVAL
     }
 
     this.backupTimeout = setTimeout(this.backupTrades.bind(this), delay)
@@ -208,7 +208,7 @@ class Server extends EventEmitter {
 
   handleExchangesEvents() {
     this.exchanges.forEach((exchange) => {
-      if (config.broadcast && config.broadcastAggr) {
+      if (config.BROADCAST && config.BROADCAST_AGGR) {
         exchange.on('trades', this.dispatchAggregateTrade.bind(this, exchange.id))
       } else {
         exchange.on('trades', this.dispatchRawTrades.bind(this, exchange.id))
@@ -290,7 +290,7 @@ class Server extends EventEmitter {
   }
 
   createWSServer() {
-    if (!config.broadcast) {
+    if (!config.BROADCAST) {
       return
     }
 
@@ -299,7 +299,7 @@ class Server extends EventEmitter {
     })
 
     this.wss.on('listening', () => {
-      console.log(`[server] websocket server listening at localhost:${config.port}`)
+      console.log(`[server] websocket server listening at localhost:${config.SERVER_PORT}`)
     })
 
     this.wss.on('connection', (ws, req) => {
@@ -403,10 +403,10 @@ class Server extends EventEmitter {
 
     app.use(cors())
 
-    if (config.enableRateLimit) {
+    if (config.ENABLE_RATE_LIMIT) {
       const limiter = rateLimit({
-        windowMs: config.rateLimitTimeWindow,
-        max: config.rateLimitMax,
+        windowMs: config.RATE_LIMIT_TIME_WINDOW,
+        max: config.RATE_LIMIT_MAX,
         handler: function (req, res) {
           res.header('Access-Control-Allow-Origin', '*')
           return res.status(429).send({
@@ -427,7 +427,7 @@ class Server extends EventEmitter {
 
       const origin = typeof req.headers['origin'] !== 'undefined' ? req.headers['origin'].toString() : 'undefined'
 
-      if (typeof origin === 'undefined' || (!new RegExp(config.origin).test(origin) && config.whitelist.indexOf(user) === -1)) {
+      if (typeof origin === 'undefined' || (!new RegExp(config.API_ORIGIN).test(origin) && config.API_WHITELIST.indexOf(user) === -1)) {
         console.log(`[${user}/BLOCKED] socket origin mismatch "${origin}"`)
         return res.status(500).send('💀')
       } else if (this.BANNED_IPS.indexOf(user) !== -1) {
@@ -469,7 +469,7 @@ class Server extends EventEmitter {
     }
 
     app.get('/products', (req, res) => {
-      let products = config.extraProducts
+      let products = config.MARKETS_EXTRA
 
       if (socketService.clusteredCollectors.length) {
         // node is a cluster
@@ -478,7 +478,7 @@ class Server extends EventEmitter {
           .reduce((acc, collectorSocket) => acc.concat(collectorSocket.markets), [])
           .filter((x, i, a) => a.indexOf(x) == i))
       } else {
-        products = products.concat(config.pairs)
+        products = products.concat(config.MARKETS)
       }
 
       res.json(products)
@@ -500,7 +500,7 @@ class Server extends EventEmitter {
           .filter((a) => a.length)
       }
 
-      if (!config.api || !this.storages) {
+      if (!config.API || !this.storages) {
         return res.status(501).json({
           error: 'no storage',
         })
@@ -519,7 +519,7 @@ class Server extends EventEmitter {
 
         length = (to - from) / timeframe
 
-        if (length > config.maxFetchLength) {
+        if (length > config.API_MAX_FETCH_LENGTH) {
           return res.status(400).json({
             error: 'too many bars',
           })
@@ -578,8 +578,8 @@ class Server extends EventEmitter {
       }
     })
 
-    this.server = app.listen(config.port, () => {
-      console.log(`[server] http server listening at localhost:${config.port}`, !config.api ? '(historical api is disabled)' : '')
+    this.server = app.listen(config.SERVER_PORT, () => {
+      console.log(`[server] http server listening at localhost:${config.SERVER_PORT}`, !config.API ? '(historical api is disabled)' : '')
     })
 
     this.app = app
@@ -603,14 +603,14 @@ class Server extends EventEmitter {
   }
 
   connectExchanges() {
-    if (!this.exchanges.length || !config.pairs.length) {
+    if (!this.exchanges.length || !config.MARKETS.length) {
       return
     }
 
     this.chunk = []
 
     for (const exchange of this.exchanges) {
-      const exchangePairs = config.pairs.filter((pair) => pair.indexOf(':') === -1 || new RegExp('^' + exchange.id + ':').test(pair))
+      const exchangePairs = config.MARKETS.filter((pair) => pair.indexOf(':') === -1 || new RegExp('^' + exchange.id + ':').test(pair))
 
       if (!exchangePairs.length) {
         continue
@@ -619,7 +619,7 @@ class Server extends EventEmitter {
       exchange.getProductsAndConnect(exchangePairs)
     }
 
-    if (config.broadcast && config.broadcastDebounce && !config.broadcastAggr) {
+    if (config.BROADCAST && config.BROADCAST_DEBOUNCE && !config.BROADCAST_AGGR) {
       this._broadcastDelayedTradesInterval = setInterval(() => {
         if (!this.delayedForBroadcast.length) {
           return
@@ -628,13 +628,13 @@ class Server extends EventEmitter {
         this.broadcastTrades(this.delayedForBroadcast)
 
         this.delayedForBroadcast = []
-      }, config.broadcastDebounce || 1000)
+      }, config.BROADCAST_DEBOUNCE || 1000)
     }
   }
 
   async connect(markets) {
     markets = markets.filter((market) => {
-      if (config.pairs.indexOf(market) !== -1) {
+      if (config.MARKETS.indexOf(market) !== -1) {
         return false
       }
 
@@ -664,7 +664,7 @@ class Server extends EventEmitter {
         for (let market of exchangeMarkets) {
           try {
             await exchange.link(market, true)
-            config.pairs.push(market)
+            config.MARKETS.push(market)
             results.push(`${market} ✅`)
           } catch (error) {
             console.error(error.message)
@@ -688,7 +688,7 @@ class Server extends EventEmitter {
 
   async disconnect(markets) {
     markets = markets.filter((market) => {
-      if (config.pairs.indexOf(market) === -1) {
+      if (config.MARKETS.indexOf(market) === -1) {
         return false
       }
 
@@ -703,7 +703,7 @@ class Server extends EventEmitter {
 
     for (let i = 0; i < markets.length; i++) {
       const market = markets[i]
-      const marketIndex = config.pairs.indexOf(market)
+      const marketIndex = config.MARKETS.indexOf(market)
 
       const [exchangeId] = market.match(/([^:]*):(.*)/).slice(1, 3)
 
@@ -711,7 +711,7 @@ class Server extends EventEmitter {
         if (exchange.id === exchangeId) {
           try {
             await exchange.unlink(market)
-            config.pairs.splice(marketIndex, 1)
+            config.MARKETS.splice(marketIndex, 1)
             results.push(`${market} ✅`)
           } catch (error) {
             console.error(error.message)
@@ -745,27 +745,27 @@ class Server extends EventEmitter {
       return
     }
 
-    if (!config.configPath) {
+    if (!config.CONFIG_PATH) {
       console.warn(`[server] couldn't save config because configPath isn't known`)
       return Promise.resolve()
     }
 
     return new Promise((resolve, reject) => {
-      fs.readFile(config.configPath, 'utf8', (err, rawConfig) => {
+      fs.readFile(config.CONFIG_PATH, 'utf8', (err, rawConfig) => {
         if (err) {
           return reject(new Error(`failed to read config file (${err.message})`))
         }
 
         const jsonConfig = JSON.parse(rawConfig)
 
-        jsonConfig.pairs = config.pairs
+        jsonprocess.env.MARKETS = config.MARKETS
 
-        fs.writeFile(config.configPath, JSON.stringify(jsonConfig, null, '\t'), (err) => {
+        fs.writeFile(config.CONFIG_PATH, JSON.stringify(jsonConfig, null, '\t'), (err) => {
           if (err) {
             return reject(new Error(`failed to write config file (${err.message})`))
           }
 
-          console.log(`[server] saved active pairs in ${config.configPath}`)
+          console.log(`[server] saved active pairs in ${config.CONFIG_PATH}`)
 
           resolve()
         })
@@ -790,7 +790,7 @@ class Server extends EventEmitter {
       return
     }
 
-    const groups = groupTrades(trades, true, config.broadcastThreshold)
+    const groups = groupTrades(trades, true, config.BROADCAST_THRESHOLD)
 
     this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
@@ -894,8 +894,8 @@ class Server extends EventEmitter {
       }
     }
 
-    if (config.broadcast) {
-      if (!config.broadcastAggr && !config.broadcastDebounce) {
+    if (config.BROADCAST) {
+      if (!config.BROADCAST_AGGR && !config.BROADCAST_DEBOUNCE) {
         this.broadcastTrades(data)
       } else {
         Array.prototype.push.apply(this.delayedForBroadcast, data)
