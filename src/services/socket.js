@@ -2,7 +2,7 @@ const { statSync, unlinkSync } = require('fs')
 const net = require('net')
 const EventEmitter = require('events')
 const config = require('../config')
-const { indexes } = require('./connections')
+const { indexes, getActiveConnections } = require('./connections')
 const { v4: uuidv4 } = require('uuid');
 
 require('../typedef')
@@ -89,16 +89,29 @@ class SocketService extends EventEmitter {
       })
   }
 
-  syncMarkets() {
+  syncMarkets(force = false) {
     if (!this.clusterSocket) {
       return
     }
+
+    if (!force) {
+      if (this._syncMarketsTimeout) {
+        clearTimeout(this._syncMarketsTimeout)
+      }
+
+      this._syncMarketsTimeout = setTimeout(this.syncMarkets.bind(this, true), 3000)
+      return
+    } else if (this._syncMarketsTimeout) {
+      this._syncMarketsTimeout = null
+    }
+    
+    const markets = getActiveConnections()
     
     this.clusterSocket.write(
       JSON.stringify({
         opId: 'markets',
         data: {
-          markets: config.pairs,
+          markets,
           timeframes: [config.influxTimeframe, ...config.influxResampleTo],
           indexes: indexes.map(a => a.id),
         },

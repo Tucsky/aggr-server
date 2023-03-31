@@ -11,14 +11,14 @@ class Binance extends Exchange {
     this.subscriptions = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://api.binance.com/api/v1/ticker/allPrices',
+      PRODUCTS: 'https://data.binance.com/api/v3/exchangeInfo',
     }
 
     this.url = () => `wss://stream.binance.com:9443/ws`
   }
 
   formatProducts(data) {
-    return data.map((product) => product.symbol.toLowerCase())
+    return data.symbols.map(a => a.symbol.toLowerCase())
   }
 
   /**
@@ -96,7 +96,7 @@ class Binance extends Exchange {
     const startTime = range.from
     const below1HEndTime = Math.min(range.to, startTime + 1000 * 60 * 60)
 
-    const endpoint = `https://api.binance.com/api/v3/aggTrades?symbol=${range.pair.toUpperCase()}&startTime=${
+    const endpoint = `https://data.binance.com/api/v3/aggTrades?symbol=${range.pair.toUpperCase()}&startTime=${
       startTime + 1
     }&endTime=${below1HEndTime}&limit=1000`
 

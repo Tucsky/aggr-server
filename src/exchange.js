@@ -63,7 +63,7 @@ class Exchange extends EventEmitter {
      * Max connections per apis
      * @type {number}
      */
-    this.maxConnectionsPerApi = null
+    this.maxConnectionsPerApi = 50
 
     /**
      * Define if the incoming trades should be queued

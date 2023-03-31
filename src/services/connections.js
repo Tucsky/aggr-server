@@ -443,3 +443,15 @@ module.exports.dumpConnections = function (connections) {
     console.table(table)
   }
 }
+
+module.exports.getActiveConnections = function() {
+  const now = Date.now()
+
+  return Object.keys(connections).reduce((acc, id) => {
+    if (connections[id].apiId || now - connections[id].timestamp < 60000) {
+      acc.push(id)
+    }
+
+    return acc
+  }, [])
+}

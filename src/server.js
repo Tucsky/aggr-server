@@ -18,6 +18,7 @@ const {
   recovering,
   updateConnectionStats,
   dumpConnections,
+  getActiveConnections,
 } = require('./services/connections')
 
 class Server extends EventEmitter {
@@ -253,6 +254,8 @@ class Server extends EventEmitter {
         console.log(`[connections] ${id}${lastPing} connected to ${apiId} (${apiLength} total)`)
 
         connections[id].apiId = apiId
+        
+        socketService.syncMarkets()
       })
 
       exchange.on('open', (apiId, pairs) => {
@@ -314,9 +317,7 @@ class Server extends EventEmitter {
 
       const data = {
         type: 'welcome',
-        supportedPairs: Object.values(connections)
-          .filter((connection) => connection.apiId)
-          .map((a) => a.exchange + ':' + a.pair),
+        supportedPairs: getActiveConnections(),
         timestamp: Date.now(),
         exchanges: this.exchanges.map((exchange) => {
           return {
