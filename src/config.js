@@ -197,7 +197,8 @@ const defaultConfig = {
   privateVapidKey: null,
   alertExpiresAfter: 1000 * 60 * 60 * 24 * 7,
   alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 30,
-  priceIndexesBlacklist: [],
+  indexExchangeBlacklist: [],
+  indexQuoteWhitelist: ['USD','USDT','BUSD','USDC'],
 
   // verbose
   debug: false
@@ -311,6 +312,18 @@ if (config.whitelist && config.whitelist === 'string') {
   config.whitelist = config.whitelist.split(',').map(a => a.trim())
 } else if (!config.whitelist) {
   config.whitelist = []
+}
+
+if (typeof config.indexExchangeBlacklist === 'string' &&  config.indexExchangeBlacklist.trim().length) {
+  config.indexExchangeBlacklist = config.indexExchangeBlacklist.split(',').map(a => a.trim())
+} else if (!Array.isArray(config.indexExchangeBlacklist)) {
+  config.indexExchangeBlacklist = []
+}
+
+if (typeof config.indexQuoteWhitelist === 'string' &&  config.indexQuoteWhitelist.trim().length) {
+  config.indexQuoteWhitelist = config.indexQuoteWhitelist.split(',').map(a => a.trim())
+} else if (!Array.isArray(config.indexQuoteWhitelist)) {
+  config.indexQuoteWhitelist = []
 }
 
 if (config.pair) {
