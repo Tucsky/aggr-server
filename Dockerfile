@@ -15,7 +15,7 @@ RUN   apk add --no-cache tini
 COPY  --from=builder /node_modules  ${WORKDIR}/node_modules
 COPY  src ${WORKDIR}/src
 COPY  index.js ${WORKDIR}
-COPY  config.json.example ${WORKDIR}/config.json
+COPY  config.json ${WORKDIR}
 
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["/usr/bin/node", "index"]
