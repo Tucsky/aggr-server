@@ -41,11 +41,8 @@
   "backupInterval": 5000,
   "collect": true,
   "storage": [
-    "influx",
     "files"
   ],
   "origin": ".*",
-  "filesLocation": "./data",
-  "influxHost": "localhost",
-  "influxPort": 8086
+  "filesLocation": "./data"
 }

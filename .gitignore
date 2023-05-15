@@ -11,3 +11,4 @@ data/*
 *.config.json
 persistence.json
 coinalize.key
+.env

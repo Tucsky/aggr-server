@@ -1,102 +1,199 @@
+# Autonomous multi market trades monitoring, storing and resampling solution
+
 ![aggr-server](https://i.imgur.com/slF3jDy.png)
 
-Autonomous multi market trades monitoring, storing and resampling solution.
-
 ## How to install
-1. Clone the repo and get into the working dir
 
-```bash
-git clone https://github.com/Tucsky/aggr-server
-```
+To install the application, follow these steps:
 
-```bash
-cd aggr-server
-```
+1. Clone the repository and navigate to the working directory:
 
-2. Install dependencies
+    ```bash
+    git clone https://github.com/Tucsky/aggr-server
+    cd aggr-server
+    ```
 
-```bash
-npm install
-```
+2. Install the dependencies:
 
-3. If you want to configure server using json, move exemple as "config.json" inside root directory and edit configuration.
+    ```bash
+    npm install
+    ```
 
-```bash
-cp config.json.example config.json
-```
+3. If desired, customize the server settings using JSON configuration. Move the example file to the root directory and edit it:
 
-```bash
-nano config.json
-```
+    ```bash
+    cp config.json.example config.json
+    nano config.json
+    ```
 
-3. Run server
+4. Run server
 
-```bash
-node index
-```
+    ```bash
+    node index
+    ```
+
+    Note: If you haven't created the config.json file during step 3, the application will detect it  and automatically create it for you.
 
 ## Configuration
-All settings are optional and can be changed in the [server configuration file](config.json.example) (rename config.json.example into config.json).
 
-```js
-// see [server configuration file](src/config.js) for all server options
-```
+All settings are optional and can be customized in the [server configuration file](config.json.example).
 
+See [server configuration file](src/config.js) for all server options available.
 
-All options can be set using CLI
-- Setting port `node index port=3001`
-- Setting port & pair `node index port=3002 pairs="COINBASE:ETH-USD"`
-- Setting port & multiple pairs `node index port=3002 pair="COINBASE:ETH-USD,BINANCE:ethusdt"`
+Users can set configuration options using the CLI. Examples of the command-line arguments are:
 
-You may use specific config file using the `config` argument :
+- Setting port:
+  
+  ```bash
+    node index port=3001
+  ```
 
-```bash
-node index config=custom.config.json
-```
-## Working with clusters
+- Setting port & pair:
+  
+  ```bash
+        node index port=3002 pairs="COINBASE:ETH-USD"
+  ````
 
-When watching hundred of markets you may want to run multiple instances of this project.
+- Setting port & multiple pairs:
 
-This server is now designed to work with multiple *collectors* instances + one *api* node
-- A collector is dedicated to listening for trades and storing the data of a given set of markets (using influxDB)
-- A api node serves the data to the client, using influxDB as a main source but *WILL* query the collectors in order to ensure ALL data is send including the one *NOT YET* stored in influxdb
+    ```bash
+        node index port=3002 pair="COINBASE:ETH-USD,BINANCE:ethusdt"
+    ````
 
-Say you have 2 config files using influx storage : 
-- one for the api node (api set to true, collect set to false)
-- one for the collectors nodes (api false and collect true)
-Both with `influxCollectors` enabled
-
-Then use with 1 api instance and 2 collectors
+You may use specific config file using the `config` argument:
 
 ```bash
-node index config=api.config.json
+    node index config=custom.config.json
 ```
 
-```bash
-node index config=collector.config.json pairs="COINBASE:ETH-USD,BITSTAMP:ethusdt"
+## InfluxDB
+
+This application supports InfluxDB v1.8.X. You can download it from the software editor website or use Docker to set it up.
+
+To start using InfluxDB, set `storage=[ 'influx' ]` in `config.json`. You can also save the data in files at the same time you are recording it into InfluxDB by setting `storage=[ 'files', 'influx' ]`.
+
+Please note that InfluxDB auth is disabled, and connecting to a remote InfluxDB has not yet been tested.
+
+## Installation with Docker
+
+To install the application with Docker, follow these steps:
+
+Create a config file based on the existing template living in the project's root folder:
+`cp config.json.example config.json`
+
+Modify the Dockerfile accordingly by replacing the following line:
+
+```txt
+COPY  config.json.example ${WORKDIR}
 ```
 
-```bash
-node index config=collector.config.json pairs="COINBASE:BTC-USD,BITSTAMP:btcusdt"
+by
+
+```txt
+COPY  config.json ${WORKDIR}
 ```
 
-## How to install: Docker
+If you skip this step, you'll be running `aggr-server` in its default setup.
 
-```
-➜ docker-compose build
-➜ docker-compose up -d
-```
-This will give you a running server on <http://127.0.0.1:3000> with mounted `./data` volume.
+## Running Docker
 
-See `./env` file for some basic configuration.
+We provide several `docker-compose` services that you could run as containers to help you setting up and running this app. Besides, the main application, all other services are commented out. You will have to uncomment the appropriate lines in order to be able to run them.
 
-Watch logs using `docker logs -f st-server`.
+The three services provided are:
 
-Uncomment `influx` part in `docker-compose.yml` and set `STORAGE=influx` in `.env` to start using influxdb as a storage.
+1. 'server': the main application container
+2. 'influx': a container that allows you to store collected data in an InfluxDB database
+3. 'chronograf': a container that allows you to easily visualize the data stored in InfluxDB
 
-## If you like what is being done here, consider supporting this project !
-ETH [0xe3c893cdA4bB41fCF402726154FB4478Be2732CE](https://etherscan.io/address/0xe3c893cdA4bB41fCF402726154FB4478Be2732CE)<br>
-BTC [3PK1bBK8sG3zAjPBPD7g3PL14Ndux3zWEz](bitcoin:3PK1bBK8sG3zAjPBPD7g3PL14Ndux3zWEz)<br>
-XMR 48NJj3RJDo33zMLaudQDdM8G6MfPrQbpeZU2YnRN2Ep6hbKyYRrS2ZSdiAKpkUXBcjD2pKiPqXtQmSZjZM7fC6YT6CMmoX6<br>
+Here are 3 of the most likely scenarios:
+
+1. Running `aggr-server` on Docker without a database.
+
+    Change directory to the project's root folder and type in terminal:
+
+    ```bash
+        // create a docker image for the main application from `.Dockerfile`
+        ➜ docker-compose build
+        ➜ docker-compose up -d
+    ```
+
+    Note: if you haven't ran the application yet or haven't created a `config.json`, the  `docker-compose build` will fail. See [## How to install
+    ](## How to install)
+
+    This will give you a running server on <http://127.0.0.1:3000> with mounted `./data` volume for persistence.
+
+    Default configuration should allow you to run this set up without further configuration. See `./env` file for basic configuration.
+
+2. Running `aggr-server` locally with an InfluxDB v1.8 database on Docker.
+
+    - Uncomment  `influx` service in `docker-compose.yml`
+    - In `config.json` file, add 'influx' to `storage` array
+    - In `.env` file,  uncomment `INFLUX_PORT` and `INFLUX_HOST`
+
+    ```bash
+        // run database container - build is not needed
+        docker-compose up influx
+        
+        // run server
+        node index
+    ```
+
+3. Running `aggr-server` and an InfluxDB v1.8 database on Docker.
+
+    - Uncomment  `influx` service in `docker-compose.yml`
+    - In `config.json`, add 'influx' to `storage` array
+    - In `.env`,  uncomment `INFLUX_PORT` and `INFLUX_HOST`.
+
+    ```bash
+        // build main application image
+        docker-compose build
+
+        // run main application and database containers
+        docker-compose up
+    ```
+
+## Working with Clusters
+
+When monitoring hundreds of markets, users may want to run multiple instances of this project. This server is designed to work with multiple collectors instances plus one API node:
+
+- A collector is dedicated to listening for trades and storing the data of a given set of markets (using InfluxDB).
+- An API node serves the data to the client, using InfluxDB as a main source but *WIll* query the collectors to ensure all data is sent, including the one *NOT YET* stored in InfluxDB.
+
+To run the application with multiple instances:
+
+1. Create two configuration files using Influx storage: one for the API node (with api set to true and collect set to false) and one for the collectors nodes (with api set to false and collect set to true). Both files should have influxCollectors enabled.
+2. Use the following command to run one API instance and two collectors
+
+    ```bash
+    // API node
+    node index config=api.config.json
+
+    // collector A
+    node index config=collector.config.json pairs="COINBASE:ETH-USD,BITSTAMP:ethusdt"
+
+    // collector B
+    node index config=collector.config.json pairs="COINBASE:BTC-USD,BITSTAMP:btcusdt"
+    ```
+
+## Troubleshooting
+
+### Port already in use
+
+If you get an error message `Error: listen EADDRINUSE :::3000`, it means that the server is already running on this port.`
+You can kill the process by running `kill $(lsof -t -i:3000)`.
+
+### Docker container logs
+
+You can check the logs of your Docker containers by running `docker-compose logs -f`.
+
+## Contributing
+
+We welcome contributions to this project. If you find any issues, please report them on the GitHub issues page. Pull requests are also welcome.
+
+## If you like what is being done here, consider supporting this project
+
+ETH [0xe3c893cdA4bB41fCF402726154FB4478Be2732CE](https://etherscan.io/address/0xe3c893cdA4bB41fCF402726154FB4478Be2732CE)\
+BTC [3PK1bBK8sG3zAjPBPD7g3PL14Ndux3zWEz](bitcoin:3PK1bBK8sG3zAjPBPD7g3PL14Ndux3zWEz)\
+XMR 48NJj3RJDo33zMLaudQDdM8G6MfPrQbpeZU2YnRN2Ep6hbKyYRrS2ZSdiAKpkUXBcjD2pKiPqXtQmSZjZM7fC6YT6CMmoX6\
 COINBASE
-https://commerce.coinbase.com/checkout/c58bd003-5e47-4cfb-ae25-5292f0a0e1e8
+<https://commerce.coinbase.com/checkout/c58bd003-5e47-4cfb-ae25-5292f0a0e1e8>
