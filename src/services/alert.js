@@ -29,6 +29,7 @@ class AlertService extends EventEmitter {
       this.enabled = true
       webPush.setVapidDetails('mailto: contact@aggr.trade', config.publicVapidKey, config.privateVapidKey)
     }
+    console.log(`[alert] service enabled: ${this.enabled}`)
   }
 
   getRangePrice(n) {

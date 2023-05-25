@@ -5,8 +5,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-	"docker:server:build": "docker-compose build",
-	"docker:server:up": "docker-compose up -d"
+    "generateVapidKeys": "node scripts/web-push/generateVapidKeys",
+    "docker:server:build": "docker-compose build",
+    "docker:server:up": "docker-compose up -d"
   },
   "repository": {
     "type": "git",
