@@ -450,7 +450,7 @@ class Server extends EventEmitter {
       app.use(bodyParser.json())
 
       app.post('/alert', async (req, res) => {
-        const user = req.headers['x-forwarded-for'] || req.connection.remoteAddress
+        const user = getIp()
         const alert = req.body
 
         if (!alert || !alert.endpoint || !alert.keys || typeof alert.market !== 'string' || typeof alert.price !== 'number') {
