@@ -1,8 +1,8 @@
-FROM  mhart/alpine-node:12.1 as builder
+FROM  node:20.2.0-alpine3.17 as builder
 COPY  package*.json /
 RUN   set ex && npm install --production
 
-FROM  mhart/alpine-node:slim-12.1
+FROM  node:20.2.0-slim
 
 ARG   WORKDIR
 
