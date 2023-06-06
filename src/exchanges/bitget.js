@@ -43,7 +43,7 @@ class Bitget extends Exchange {
       ]
 
       for (const product of response.data) {
-        const symbol = product.symbolName || product.symbol
+        const symbol = product.symbol || product.symbolName
 
         products.push(symbol)
 
