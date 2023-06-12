@@ -1,4 +1,6 @@
-# Autonomous multi market trades monitoring, storing and resampling solution
+# Aggr server
+
+Autonomous multi market trades monitoring, storing and resampling solution
 
 ![aggr-server](https://i.imgur.com/slF3jDy.png)
 
