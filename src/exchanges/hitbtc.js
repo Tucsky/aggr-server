@@ -1,7 +1,7 @@
 const Exchange = require('../exchange')
 const WebSocket = require('websocket').w3cwebsocket
 
-class Huobi extends Exchange {
+class HitBtc extends Exchange {
   constructor() {
     super()
 
@@ -85,4 +85,4 @@ class Huobi extends Exchange {
   }
 }
 
-module.exports = Huobi
+module.exports = HitBtc
