@@ -69,7 +69,7 @@ class Server extends EventEmitter {
           ? `\n\twill broadcast ${config.broadcastAggr ? 'aggregated ' : ''}trades instantly`
           : ''
       )
-      console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
+	  	 console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
 
       this.handleExchangesEvents()
 
@@ -103,7 +103,10 @@ class Server extends EventEmitter {
         this.createHTTPServer()
 
         // monitor data requests
-        this._usageMonitorInterval = setInterval(this.monitorUsage.bind(this), 10000)
+        this._usageMonitorInterval = setInterval(
+          this.monitorUsage.bind(this),
+          10000
+        )
       }
 
       if (config.broadcast) {
@@ -450,21 +453,32 @@ class Server extends EventEmitter {
       app.use(bodyParser.json())
 
       app.post('/alert', async (req, res) => {
-        const user = getIp()
-        const alert = req.body
+          const user = getIp()
+          const alert = req.body
 
-        if (!alert || !alert.endpoint || !alert.keys || typeof alert.market !== 'string' || typeof alert.price !== 'number') {
-          return res.status(400).json({ error: 'invalid alert payload' })
-        }
+          if (
+            !alert ||
+            !alert.endpoint ||
+            !alert.keys ||
+            typeof alert.market !== 'string' ||
+            typeof alert.price !== 'number'
+          ) {
+            return res.status(400).json({
+              error: 'invalid alert payload'
+            })
+          }
 
-        alert.user = user
-
-        try {
+          alert.user = user
+		  try {
           const data = await alertService.toggleAlert(alert)
           res.status(201).json(data || {})
         } catch (error) {
-          console.error(`[alert] couldn't toggle user alert because ${error.message}`)
-          res.status(400).json({ error: error.message })
+          console.error(
+            `[alert] couldn't toggle user alert because ${error.message}`
+          )
+          res.status(400).json({
+            error: error.message
+          })
         }
       })
     }
@@ -507,7 +521,7 @@ class Server extends EventEmitter {
         })
       }
 
-      const storage = this.storages[0]
+      const storage = this.storages[config.storage.indexOf('influx')]
 
       if (isNaN(from) || isNaN(to)) {
         return res.status(400).json({

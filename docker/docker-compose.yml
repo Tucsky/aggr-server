@@ -1,0 +1,67 @@
+version: '3.7'
+
+name: aggr-server
+
+networks:
+  backend:
+    name: aggr_backend
+
+services:
+  server:
+    container_name: aggr-server
+    image: aggr-server
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      args:
+        - WORKDIR=${WORKDIR}
+    volumes:
+      - ./:/usr/src/app/
+    ports:
+      - ${PORT}:${PORT}
+    env_file:
+      - ./.env
+    networks:
+      - backend
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1024M
+        reservations:
+          cpus: '0.3'
+          memory: 512M
+
+  influx:
+    container_name: aggr-influx
+    image: influxdb:1.8.10
+    ports:
+      - ${INFLUX_PORT}:${INFLUX_PORT}
+    volumes:
+      - ./${FILES_LOCATION}/influxdb:/var/lib/influxdb/
+    networks:
+      - backend
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 4096M
+        reservations:
+          cpus: '0.3'
+          memory: 2048M
+
+  chronograf:
+    container_name: aggr-chronograf
+    image: chronograf:latest
+    volumes:
+      - ${FILES_LOCATION}/chronograf:/var/lib/chronograf
+    ports:
+      - '8885:8888'
+    links:
+      - influx
+    environment:
+      - 'INFLUXDB_URL=http://${INFLUX_HOST}:${INFLUX_PORT}'
+    networks:
+      - backend
