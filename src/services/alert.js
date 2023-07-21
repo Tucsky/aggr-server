@@ -32,18 +32,23 @@ class AlertService extends EventEmitter {
     console.log(`[alert] Service is ${this.enabled ? 'enabled.' : 'disabled. \nPlease run: npm run generateVapidKeys and add the generated keys to config.json.'}`)
   }
 
+  /**
+   * Calculates the range price based on the given number.
+   * The range price is determined by the number of decimal places in the input number.
+   * If the input number is positive, it rounds down the number to the nearest multiple of the decimal place.
+   * e.g.: 15.24456 -> 15, 0.00045 -> 0.0004
+   * If the input number is negative, it rounds up the number to the nearest multiple of the decimal place.
+   * If the input number is zero, it returns zero.
+   *
+   * @param {number} n - The number for which to calculate the range price.
+   * @returns {number} The calculated range price.
+   */
+
   getRangePrice(n) {
-    let dec = n.toString().split('.')
+    const absValue = Math.abs(n)
+    const multiplier = Math.pow(10, Math.floor(Math.log10(absValue)) - 1) || 1
 
-    if (!+dec[0]) {
-      dec = 1 / Math.pow(10, dec[1].replace(/(0*).*/, '$1').length + 1)
-    } else {
-      dec = Math.pow(10, dec[0].length - 2)
-    }
-
-    dec = dec || 1
-
-    return Math.floor(n / dec) * dec
+    return Math.floor(n / multiplier) * multiplier
   }
 
   toggleAlert(alert, messageId) {
