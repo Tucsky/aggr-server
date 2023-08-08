@@ -21,7 +21,6 @@ class SocketService extends EventEmitter {
      */
     this.serverSocket = null
 
-    this.clusterSocket = null
     this.clusteredCollectors = []
 
     if (config.influxCollectors) {
