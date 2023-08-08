@@ -140,7 +140,8 @@ class Exchange extends EventEmitter {
 
   /**
    * Link exchange to a pair
-   * @param {*} pair
+   * @param {string} pair
+   * @param {boolean} returnConnectedEvent
    * @returns {Promise<WebSocket>}
    */
   async link(pair, returnConnectedEvent) {
