@@ -49,10 +49,10 @@
  * Keep track of a single connection (exchange + pair)
  * @typedef  Connection
  * @type {{
- *  exchange: string, 
- *  pair: string, 
- *  apiId: string, 
- *  hit: number, 
+ *  exchange: string,
+ *  pair: string,
+ *  apiId: string,
+ *  hit: number,
  *  ping: number,
  *  bar?: Bar
  * }}
