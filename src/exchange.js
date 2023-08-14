@@ -933,10 +933,11 @@ class Exchange extends EventEmitter {
   }
 
   /**
-   * Unsub
+   * Unsubscribe
    * @param {WebSocket} api
    * @param {string} pair
    * @param {boolean} skipSending skip sending unsusbribe message
+   * @returns {boolean}
    */
   async unsubscribe(api, pair, skipSending) {
     if (!this.markPairAsDisconnected(api, pair)) {
