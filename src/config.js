@@ -232,15 +232,11 @@ if (process.argv.length > 2) {
 
 let userSettings = {}
 
-const specificConfigFile = commandSettings.config
-  ? commandSettings.config
-  : commandSettings.configFile
-  ? commandSettings.configFile
-  : commandSettings.configPath
-  ? commandSettings.configPath
-  : null
-
-let configPath = specificConfigFile || 'config.json'
+const configPath =
+  commandSettings?.config ||
+  commandSettings?.configFile ||
+  commandSettings?.configPath ||
+  'config.json'
 
 try {
   console.log('[init] using config file ' + configPath)
