@@ -453,7 +453,7 @@ class Server extends EventEmitter {
       app.use(bodyParser.json())
 
       app.post('/alert', async (req, res) => {
-          const user = getIp()
+          const user = getIp(req)
           const alert = req.body
 
           if (
@@ -467,6 +467,7 @@ class Server extends EventEmitter {
               error: 'invalid alert payload'
             })
           }
+
 
           alert.user = user
 		  try {
