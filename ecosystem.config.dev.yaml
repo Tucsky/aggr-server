@@ -1,0 +1,7 @@
+name: 'aggr'
+max_memory_restart: '500M'
+script: 'index.js'
+time: true
+kill_timeout: 4000
+watch: ["./index.js","src"]
+ignore_watch: ["node_modules", "data", "products", ".git"]

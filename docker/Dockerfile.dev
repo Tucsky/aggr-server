@@ -1,0 +1,18 @@
+FROM  node:current-alpine3.18 as builder
+COPY  package*.json /
+COPY  ecosystem.config.dev.yaml /
+RUN   set ex && npm install
+
+FROM  node:20.2.0-alpine3.18
+
+ARG   WORKDIR
+WORKDIR /$WORKDIR
+
+RUN apk update && \
+	npm install pm2 -g
+
+COPY  --from=builder ./ecosystem.config.dev.yaml ${WORKDIR}/
+
+EXPOSE ${PORT}
+
+CMD [ "pm2-dev", "ecosystem.config.dev.yaml"]
