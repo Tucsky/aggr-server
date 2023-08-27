@@ -316,8 +316,6 @@ class Server extends EventEmitter {
         ws.pairs = pairs
       }
 
-      ws.pairs = pairs
-
       const data = {
         type: 'welcome',
         supportedPairs: getActiveConnections(),
