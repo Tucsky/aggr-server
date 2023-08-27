@@ -1,5 +1,10 @@
 FROM  node:current-alpine3.18 as builder
 
+RUN apk add --update --no-cache \
+   python3 \
+   make \
+   g++
+
 COPY  package*.json /
 RUN   set ex && npm install --production
 
