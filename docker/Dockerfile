@@ -3,7 +3,7 @@ FROM  node:current-alpine3.18 as builder
 COPY  package*.json /
 RUN   set ex && npm install --production
 
-FROM  node:20.2.0-slim
+FROM  node:20.5.0-slim
 
 WORKDIR /$WORKDIR
 
