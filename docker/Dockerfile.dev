@@ -1,9 +1,10 @@
 FROM  node:current-alpine3.18 as builder
+
 COPY  package*.json /
 COPY  ecosystem.config.dev.yaml /
 RUN   set ex && npm install
 
-FROM  node:20.2.0-alpine3.18
+FROM  node:20.5.0-alpine3.18
 
 ARG   WORKDIR
 WORKDIR /$WORKDIR
