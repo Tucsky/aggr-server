@@ -13,8 +13,8 @@ class Okex extends Exchange {
       PRODUCTS: [
         'https://www.okex.com/api/v5/public/instruments?instType=SPOT',
         'https://www.okex.com/api/v5/public/instruments?instType=FUTURES',
-        'https://www.okex.com/api/v5/public/instruments?instType=SWAP',
-      ],
+        'https://www.okex.com/api/v5/public/instruments?instType=SWAP'
+      ]
     }
 
     this.liquidationProducts = []
@@ -67,7 +67,7 @@ class Okex extends Exchange {
       specs,
       aliases,
       types,
-      inversed,
+      inversed
     }
   }
 
@@ -100,9 +100,9 @@ class Okex extends Exchange {
         args: [
           {
             channel: 'trades',
-            instId: pair,
-          },
-        ],
+            instId: pair
+          }
+        ]
       })
     )
   }
@@ -135,9 +135,9 @@ class Okex extends Exchange {
         args: [
           {
             channel: 'trades',
-            instId: pair,
-          },
-        ],
+            instId: pair
+          }
+        ]
       })
     )
   }
@@ -151,7 +151,7 @@ class Okex extends Exchange {
 
     return this.emitTrades(
       api.id,
-      json.data.map((trade) => this.formatTrade(trade))
+      json.data.map(trade => this.formatTrade(trade))
     )
   }
 
@@ -159,7 +159,9 @@ class Okex extends Exchange {
     let size
 
     if (typeof this.specs[trade.instId] !== 'undefined') {
-      size = (trade.sz * this.specs[trade.instId]) / (this.inversed[trade.instId] ? trade.px : 1)
+      size =
+        (trade.sz * this.specs[trade.instId]) /
+        (this.inversed[trade.instId] ? trade.px : 1)
     } else {
       size = trade.sz
     }
@@ -170,12 +172,13 @@ class Okex extends Exchange {
       timestamp: +trade.ts,
       price: +trade.px,
       size: +size,
-      side: trade.side,
+      side: trade.side
     }
   }
 
   formatLiquidation(trade, pair) {
-    const size = (trade.sz * this.specs[pair]) / (this.inversed[pair] ? trade.bkPx : 1)
+    const size =
+      (trade.sz * this.specs[pair]) / (this.inversed[pair] ? trade.bkPx : 1)
     //console.debug(`[${this.id}] okex liquidation at ${new Date(+trade.ts).toISOString()}`)
 
     return {
@@ -185,7 +188,7 @@ class Okex extends Exchange {
       price: +trade.bkPx,
       size: size,
       side: trade.side,
-      liquidation: true,
+      liquidation: true
     }
   }
 
@@ -198,7 +201,10 @@ class Okex extends Exchange {
 
     this._liquidationProductIndex = 0
 
-    this._liquidationInterval = setInterval(this.fetchLatestLiquidations.bind(this), 2500)
+    this._liquidationInterval = setInterval(
+      this.fetchLatestLiquidations.bind(this),
+      2500
+    )
   }
 
   stopLiquidationTimer() {
@@ -216,23 +222,27 @@ class Okex extends Exchange {
   async getMissingTrades(range, totalRecovered = 0, beforeTradeId) {
     let endpoint
     if (beforeTradeId) {
-      endpoint = `https://www.okex.com/api/v5/market/history-trades?instId=${range.pair}&limit=500${
-        beforeTradeId ? '&after=' + beforeTradeId : ''
-      }`
+      endpoint = `https://www.okex.com/api/v5/market/history-trades?instId=${
+        range.pair
+      }&limit=500${beforeTradeId ? '&after=' + beforeTradeId : ''}`
     } else {
       endpoint = `https://www.okex.com/api/v5/market/trades?instId=${range.pair}&limit=500`
     }
 
     return axios
       .get(endpoint)
-      .then((response) => {
+      .then(response => {
         if (response.data.data.length) {
-          const lastTradeId = response.data.data[response.data.data.length - 1].tradeId
-          const earliestTradeTime = +response.data.data[response.data.data.length - 1].ts
+          const lastTradeId =
+            response.data.data[response.data.data.length - 1].tradeId
+          const earliestTradeTime =
+            +response.data.data[response.data.data.length - 1].ts
 
           const trades = response.data.data
-            .map((trade) => this.formatTrade(trade))
-            .filter((a) => a.timestamp >= range.from + 1 && a.timestamp < range.to)
+            .map(trade => this.formatTrade(trade))
+            .filter(
+              a => a.timestamp >= range.from + 1 && a.timestamp < range.to
+            )
 
           if (trades.length) {
             this.emitTrades(null, trades)
@@ -243,22 +253,35 @@ class Okex extends Exchange {
 
           const remainingMissingTime = range.to - range.from
 
-          if (trades.length && remainingMissingTime > 500 && earliestTradeTime >= range.from) {
+          if (
+            trades.length &&
+            remainingMissingTime > 500 &&
+            earliestTradeTime >= range.from
+          ) {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(
-                remainingMissingTime
-              )} remaining)`
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } ... but theres more (${getHms(remainingMissingTime)} remaining)`
             )
-            return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered, lastTradeId))
+            return this.waitBeforeContinueRecovery().then(() =>
+              this.getMissingTrades(range, totalRecovered, lastTradeId)
+            )
           } else {
-            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } (${getHms(remainingMissingTime)} remaining)`
+            )
           }
         }
 
         return totalRecovered
       })
-      .catch((err) => {
-        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+      .catch(err => {
+        console.error(
+          `[${this.id}] failed to get missing trades on ${range.pair}`,
+          err.message
+        )
 
         return totalRecovered
       })
@@ -279,7 +302,10 @@ class Okex extends Exchange {
   }
 
   fetchLatestLiquidations() {
-    const productId = this.liquidationProducts[this._liquidationProductIndex++ % this.liquidationProducts.length]
+    const productId =
+      this.liquidationProducts[
+        this._liquidationProductIndex++ % this.liquidationProducts.length
+      ]
     const endpoint = this.getLiquidationEndpoint(productId)
 
     this._liquidationAxiosHandler && this._liquidationAxiosHandler.cancel()
@@ -287,7 +313,7 @@ class Okex extends Exchange {
 
     axios
       .get(endpoint)
-      .then((response) => {
+      .then(response => {
         if (
           !this.apis.length ||
           !response.data ||
@@ -300,9 +326,14 @@ class Okex extends Exchange {
           return
         }
 
-        const liquidations = response.data.data[0].details.filter((liquidation) => {
-          return !this.liquidationProductsReferences[productId] || liquidation.ts > this.liquidationProductsReferences[productId]
-        })
+        const liquidations = response.data.data[0].details.filter(
+          liquidation => {
+            return (
+              !this.liquidationProductsReferences[productId] ||
+              liquidation.ts > this.liquidationProductsReferences[productId]
+            )
+          }
+        )
 
         if (!liquidations.length) {
           return
@@ -312,10 +343,12 @@ class Okex extends Exchange {
 
         this.emitLiquidations(
           null,
-          liquidations.map((liquidation) => this.formatLiquidation(liquidation, productId))
+          liquidations.map(liquidation =>
+            this.formatLiquidation(liquidation, productId)
+          )
         )
       })
-      .catch((err) => {
+      .catch(err => {
         let message = `[okex.fetchLatestLiquidations] ${productId} ${err.message} at ${endpoint}`
 
         if (err.response && err.response.data && err.response.data.msg) {

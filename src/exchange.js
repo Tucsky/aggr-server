@@ -3,8 +3,16 @@ const WebSocket = require('websocket').w3cwebsocket
 const config = require('./config')
 
 const { ID, getHms, sleep, humanReadyState } = require('./helper')
-const { readProducts, fetchProducts, saveProducts } = require('./services/catalog')
-const { connections, recovering, dumpConnections } = require('./services/connections')
+const {
+  readProducts,
+  fetchProducts,
+  saveProducts
+} = require('./services/catalog')
+const {
+  connections,
+  recovering,
+  dumpConnections
+} = require('./services/connections')
 
 require('./typedef')
 
@@ -90,7 +98,9 @@ class Exchange extends EventEmitter {
    */
   isMatching(pair) {
     if (!this.products || !this.products.length) {
-      console.debug(`[${this.id}.isMatching] couldn't match ${pair}, exchange has no products`)
+      console.debug(
+        `[${this.id}.isMatching] couldn't match ${pair}, exchange has no products`
+      )
       return false
     }
 
@@ -98,11 +108,17 @@ class Exchange extends EventEmitter {
       console.debug(`[${this.id}.isMatching] couldn't match ${pair}`)
 
       const caseInsencitiveMatch = this.products.filter(
-        (exchangePair) => exchangePair.toLowerCase().replace(/[^a-z]/g, '') === pair.toLowerCase().replace(/[^a-z]/g, '')
+        exchangePair =>
+          exchangePair.toLowerCase().replace(/[^a-z]/g, '') ===
+          pair.toLowerCase().replace(/[^a-z]/g, '')
       )
 
       if (caseInsencitiveMatch.length) {
-        console.debug(`\t did you write it correctly ? (found ${caseInsencitiveMatch.join(', ')})`)
+        console.debug(
+          `\t did you write it correctly ? (found ${caseInsencitiveMatch.join(
+            ', '
+          )})`
+        )
       }
 
       return false
@@ -131,7 +147,9 @@ class Exchange extends EventEmitter {
     pair = pair.replace(/[^:]*:/, '')
 
     if (!this.isMatching(pair)) {
-      throw new Error(`${pair} did NOT match with any existing symbol on ${this.id}`)
+      throw new Error(
+        `${pair} did NOT match with any existing symbol on ${this.id}`
+      )
     }
 
     console.debug(`[${this.id}.link] connecting ${pair}`)
@@ -150,10 +168,10 @@ class Exchange extends EventEmitter {
       }
 
       if (await promiseOfApiOpen) {
-        return new Promise((resolve) => {
+        return new Promise(resolve => {
           let timeout
 
-          const connectedEventHandler = (connectedPair) => {
+          const connectedEventHandler = connectedPair => {
             if (connectedPair === pair) {
               clearTimeout(timeout)
               this.off('connected', connectedEventHandler)
@@ -165,7 +183,9 @@ class Exchange extends EventEmitter {
           this.on('connected', connectedEventHandler)
 
           timeout = setTimeout(() => {
-            console.error(`[${this.id}/link] ${pair} connected event never fired, resolving returnConnectedEvent immediately`)
+            console.error(
+              `[${this.id}/link] ${pair} connected event never fired, resolving returnConnectedEvent immediately`
+            )
             connectedEventHandler(pair)
           }, 10000)
         })
@@ -180,16 +200,24 @@ class Exchange extends EventEmitter {
     if (!api) {
       api = this.createWs(url, pair)
     } else {
-      console.debug(`[${this.id}.resolveApi] use existing api (api is ${humanReadyState(api.readyState)})`)
+      console.debug(
+        `[${this.id}.resolveApi] use existing api (api is ${humanReadyState(
+          api.readyState
+        )})`
+      )
     }
 
     if (api._pending.indexOf(pair) !== -1) {
-      console.warn(`[${this.id}.resolveApi] ${pair}'s api is already connecting to ${pair}`)
+      console.warn(
+        `[${this.id}.resolveApi] ${pair}'s api is already connecting to ${pair}`
+      )
       return
     }
 
     if (api._connected.indexOf(pair) !== -1) {
-      console.warn(`[${this.id}.resolveApi] ${pair}'s api is already connected to ${pair}`)
+      console.warn(
+        `[${this.id}.resolveApi] ${pair}'s api is already connected to ${pair}`
+      )
       return
     }
 
@@ -212,7 +240,9 @@ class Exchange extends EventEmitter {
     const api = new WebSocket(url)
     api.id = ID()
 
-    console.log(`[${this.id}.createWs] initiate new ws connection ${url} (${api.id})`)
+    console.log(
+      `[${this.id}.createWs] initiate new ws connection ${url} (${api.id})`
+    )
 
     api.binaryType = 'arraybuffer'
 
@@ -222,40 +252,49 @@ class Exchange extends EventEmitter {
     this.apis.push(api)
 
     api._send = api.send
-    api.send = (data) => {
+    api.send = data => {
       if (api.readyState !== WebSocket.OPEN) {
-        console.error(`[${this.id}.createWs] attempted to send data to an non-OPEN websocket api`, data)
+        console.error(
+          `[${this.id}.createWs] attempted to send data to an non-OPEN websocket api`,
+          data
+        )
         return
       }
 
       if (!/ping|pong/.test(data)) {
-        console.debug(`[${this.id}.createWs] sending ${data.substr(0, 64)}${data.length > 64 ? '...' : ''} to ${api.url}`)
+        console.debug(
+          `[${this.id}.createWs] sending ${data.substr(0, 64)}${
+            data.length > 64 ? '...' : ''
+          } to ${api.url}`
+        )
       }
 
       api._send.apply(api, [data])
     }
 
-    api.onmessage = (event) => {
+    api.onmessage = event => {
       const wasBadData = !this.onMessage(event, api)
 
       if (
         wasBadData &&
         event.data &&
-        /\b(unrecognized|failure|invalid|error|expired|cannot|exceeded|error|alert|bad|please|warning)\b/.test(event.data)
+        /\b(unrecognized|failure|invalid|error|expired|cannot|exceeded|error|alert|bad|please|warning)\b/.test(
+          event.data
+        )
       ) {
         console.error(`[${this.id}] error message intercepted\n`, event.data)
       }
     }
 
-    api.onopen = (event) => {
+    api.onopen = event => {
       this.onOpen(event, api)
     }
 
-    api.onclose = (event) => {
+    api.onclose = event => {
       this.onClose(event, api)
     }
 
-    api.onerror = (event) => {
+    api.onerror = event => {
       this.onError(event, api)
 
       if (event.target.readyState === WebSocket.CLOSING) {
@@ -266,12 +305,16 @@ class Exchange extends EventEmitter {
     this.connecting[api.id] = {}
 
     this.connecting[api.id].promise = new Promise((resolve, reject) => {
-      this.connecting[api.id].resolver = (success) => {
+      this.connecting[api.id].resolver = success => {
         if (success) {
           this.onApiCreated(api)
           resolve(api)
         } else {
-          reject(new Error('Failed to establish a websocket connection with exchange'))
+          reject(
+            new Error(
+              'Failed to establish a websocket connection with exchange'
+            )
+          )
         }
       }
     })
@@ -281,7 +324,9 @@ class Exchange extends EventEmitter {
 
   async subscribePendingPairs(api) {
     console.debug(
-      `[${this.id}.subscribePendingPairs] subscribe to ${api._pending.length} pairs of api ${api.url} (${api._pending.join(', ')})`
+      `[${this.id}.subscribePendingPairs] subscribe to ${
+        api._pending.length
+      } pairs of api ${api.url} (${api._pending.join(', ')})`
     )
 
     const pairsToConnect = api._pending.slice()
@@ -290,7 +335,10 @@ class Exchange extends EventEmitter {
       try {
         await this.subscribe(api, pair)
       } catch (error) {
-        console.error(`[${this.id} failed to subscribe pair ${pair}: \n`, error.message)
+        console.error(
+          `[${this.id} failed to subscribe pair ${pair}: \n`,
+          error.message
+        )
       }
     }
   }
@@ -310,16 +358,25 @@ class Exchange extends EventEmitter {
       return
     }
 
-    if (api._connected.indexOf(pair) === -1 && api._pending.indexOf(pair) === -1) {
+    if (
+      api._connected.indexOf(pair) === -1 &&
+      api._pending.indexOf(pair) === -1
+    ) {
       return
     }
 
-    console.debug(`[${this.id}.unlink] disconnecting ${pair} ${skipSending ? '(skip sending)' : ''}`)
+    console.debug(
+      `[${this.id}.unlink] disconnecting ${pair} ${
+        skipSending ? '(skip sending)' : ''
+      }`
+    )
 
     await this.unsubscribe(api, pair, skipSending)
 
     if (!api._connected.length) {
-      console.debug(`[${this.id}.unlink] ${pair}'s api is now empty (trigger close api)`)
+      console.debug(
+        `[${this.id}.unlink] ${pair}'s api is now empty (trigger close api)`
+      )
       return this.removeWs(api)
     } else {
       return
@@ -333,7 +390,10 @@ class Exchange extends EventEmitter {
    */
   getActiveApiByPair(pair) {
     for (let i = 0; i < this.apis.length; i++) {
-      if (this.apis[i]._connected.indexOf(pair) !== -1 || this.apis[i]._pending.indexOf(pair) !== -1) {
+      if (
+        this.apis[i]._connected.indexOf(pair) !== -1 ||
+        this.apis[i]._pending.indexOf(pair) !== -1
+      ) {
         return this.apis[i]
       }
     }
@@ -349,7 +409,9 @@ class Exchange extends EventEmitter {
       if (
         this.apis[i].readyState < 2 &&
         this.apis[i].url === url &&
-        (!this.maxConnectionsPerApi || this.apis[i]._connected.length + this.apis[i]._pending.length < this.maxConnectionsPerApi)
+        (!this.maxConnectionsPerApi ||
+          this.apis[i]._connected.length + this.apis[i]._pending.length <
+            this.maxConnectionsPerApi)
       ) {
         return this.apis[i]
       }
@@ -374,7 +436,8 @@ class Exchange extends EventEmitter {
       this.disconnecting[api.id] = {}
 
       this.disconnecting[api.id].promise = new Promise((resolve, reject) => {
-        this.disconnecting[api.id].resolver = (success) => (success ? resolve() : reject())
+        this.disconnecting[api.id].resolver = success =>
+          success ? resolve() : reject()
 
         if (api.readyState < WebSocket.CLOSING) {
           api.close()
@@ -388,7 +451,7 @@ class Exchange extends EventEmitter {
         this.onClose(
           {
             code: 'none',
-            reason: 'forced close',
+            reason: 'forced close'
           },
           api
         )
@@ -417,9 +480,11 @@ class Exchange extends EventEmitter {
     api.onmessage = null
 
     console.debug(
-      `[${this.id}.reconnectApi] reconnect api ${api.id}${reason ? ' reason: ' + reason : ''} (url: ${
-        api.url
-      }, _connected: ${api._connected.join(', ')}, _pending: ${api._pending.join(', ')})`
+      `[${this.id}.reconnectApi] reconnect api ${api.id}${
+        reason ? ' reason: ' + reason : ''
+      } (url: ${api.url}, _connected: ${api._connected.join(
+        ', '
+      )}, _pending: ${api._pending.join(', ')})`
     )
 
     const pairsToReconnect = [...api._pending, ...api._connected]
@@ -437,8 +502,14 @@ class Exchange extends EventEmitter {
 
     dumpConnections(affectedConnections)
 
-    this.promisesOfApiReconnections[api.id] = this.reconnectPairs(pairsToReconnect).then(() => {
-      console.log(`[${this.id}.reconnectApi] done reconnecting api (was ${api.id}${reason ? ' because of ' + reason : ''})`)
+    this.promisesOfApiReconnections[api.id] = this.reconnectPairs(
+      pairsToReconnect
+    ).then(() => {
+      console.log(
+        `[${this.id}.reconnectApi] done reconnecting api (was ${api.id}${
+          reason ? ' because of ' + reason : ''
+        })`
+      )
       delete this.promisesOfApiReconnections[api.id]
     })
 
@@ -454,7 +525,10 @@ class Exchange extends EventEmitter {
       return
     }
 
-    if (!connection.forceRecovery && connection.lastConnectionMissEstimate < 10) {
+    if (
+      !connection.forceRecovery &&
+      connection.lastConnectionMissEstimate < 10
+    ) {
       return
     } else if (connection.forceRecovery) {
       delete connection.forceRecovery
@@ -466,7 +540,7 @@ class Exchange extends EventEmitter {
       pair: connection.pair,
       from: connection.timestamp,
       to: now,
-      missEstimate: connection.lastConnectionMissEstimate,
+      missEstimate: connection.lastConnectionMissEstimate
     }
 
     this.recoveryRanges.push(range)
@@ -486,12 +560,14 @@ class Exchange extends EventEmitter {
     const missingTime = range.to - range.from
 
     console.log(
-      `[${this.id}.recoverTrades] get missing trades for ${range.pair} (expecting ${range.missEstimate} on a ${getHms(
+      `[${this.id}.recoverTrades] get missing trades for ${
+        range.pair
+      } (expecting ${range.missEstimate} on a ${getHms(
         missingTime
-      )} blackout going from ${new Date(range.from).toISOString().split('T').pop()} to ${new Date(range.to)
+      )} blackout going from ${new Date(range.from)
         .toISOString()
         .split('T')
-        .pop()})`
+        .pop()} to ${new Date(range.to).toISOString().split('T').pop()})`
     )
 
     const connection = connections[this.id + ':' + range.pair]
@@ -503,15 +579,19 @@ class Exchange extends EventEmitter {
 
       if (recoveredCount) {
         console.info(
-          `[${this.id}.recoverTrades] recovered ${recoveredCount} (expected ${range.missEstimate}) trades on ${this.id}:${
-            range.pair
-          } (${getHms(missingTime - (range.to - range.from))} recovered out of ${getHms(missingTime)} | ${getHms(
+          `[${this.id}.recoverTrades] recovered ${recoveredCount} (expected ${
+            range.missEstimate
+          }) trades on ${this.id}:${range.pair} (${getHms(
+            missingTime - (range.to - range.from)
+          )} recovered out of ${getHms(missingTime)} | ${getHms(
             range.to - range.from
           )} remaining)`
         )
       } else {
         console.info(
-          `[${this.id}.recoverTrades] 0 trade recovered on ${range.pair} (expected ${range.missEstimate} for ${getHms(
+          `[${this.id}.recoverTrades] 0 trade recovered on ${
+            range.pair
+          } (expected ${range.missEstimate} for ${getHms(
             missingTime
           )} blackout)`
         )
@@ -520,9 +600,13 @@ class Exchange extends EventEmitter {
       if (connection) {
         // save new timestamp to connection
         if (connection.timestamp && connection.timestamp > range.to) {
-          ;`[${this.id}.recoverTrades] ${range.pair} trade recovery is late on the schedule (last emitted trade: ${new Date(
+          ;`[${this.id}.recoverTrades] ${
+            range.pair
+          } trade recovery is late on the schedule (last emitted trade: ${new Date(
             +connection.timestamp
-          ).toISOString()}, last recovered trade: ${new Date(+range.to).toISOString()})`
+          ).toISOString()}, last recovered trade: ${new Date(
+            +range.to
+          ).toISOString()})`
         }
         connection.timestamp = range.to
       }
@@ -545,7 +629,10 @@ class Exchange extends EventEmitter {
         }
       }
     } catch (error) {
-      console.error(`[${this.id}.recoverTrades] something went wrong while recovering ${range.pair}'s missing trades`, error.message)
+      console.error(
+        `[${this.id}.recoverTrades] something went wrong while recovering ${range.pair}'s missing trades`,
+        error.message
+      )
     }
 
     if (!this.recoveryRanges.length) {
@@ -554,19 +641,30 @@ class Exchange extends EventEmitter {
       delete recovering[this.id]
 
       if (this.queuedTrades.length) {
-        const sortedQueuedTrades = this.queuedTrades.sort((a, b) => a.timestamp - b.timestamp)
+        const sortedQueuedTrades = this.queuedTrades.sort(
+          (a, b) => a.timestamp - b.timestamp
+        )
 
         console.log(
-          `[${this.id}] release trades queue (${sortedQueuedTrades.length} trades, ${new Date(+sortedQueuedTrades[0].timestamp)
+          `[${this.id}] release trades queue (${
+            sortedQueuedTrades.length
+          } trades, ${new Date(+sortedQueuedTrades[0].timestamp)
             .toISOString()
             .split('T')
-            .pop()} to ${new Date(+sortedQueuedTrades[sortedQueuedTrades.length - 1].timestamp).toISOString().split('T').pop()})`
+            .pop()} to ${new Date(
+            +sortedQueuedTrades[sortedQueuedTrades.length - 1].timestamp
+          )
+            .toISOString()
+            .split('T')
+            .pop()})`
         )
         this.emit('trades', sortedQueuedTrades)
         this.queuedTrades = []
       }
     } else {
-      return this.waitBeforeContinueRecovery().then(() => this.recoverNextRange(true))
+      return this.waitBeforeContinueRecovery().then(() =>
+        this.recoverNextRange(true)
+      )
     }
   }
 
@@ -578,9 +676,15 @@ class Exchange extends EventEmitter {
   async reconnectPairs(pairs) {
     const pairsToReconnect = pairs.slice(0, pairs.length)
 
-    console.info(`[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(',')}`)
+    console.info(
+      `[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(
+        ','
+      )}`
+    )
 
-    console.debug(`[${this.id}.reconnectPairs] unlinking ${pairsToReconnect.length} pairs`)
+    console.debug(
+      `[${this.id}.reconnectPairs] unlinking ${pairsToReconnect.length} pairs`
+    )
 
     for (let pair of pairsToReconnect) {
       await this.unlink(this.id + ':' + pair, true)
@@ -588,13 +692,19 @@ class Exchange extends EventEmitter {
 
     const promisesOfSubscriptions = []
 
-    console.debug(`[${this.id}.reconnectPairs] linking ${pairsToReconnect.length} pairs`)
+    console.debug(
+      `[${this.id}.reconnectPairs] linking ${pairsToReconnect.length} pairs`
+    )
 
     for (let pair of pairsToReconnect) {
       promisesOfSubscriptions.push(this.link(this.id + ':' + pair))
     }
 
-    console.info(`[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(',')}`)
+    console.info(
+      `[${this.id}.reconnectPairs] reconnect pairs ${pairsToReconnect.join(
+        ','
+      )}`
+    )
 
     return Promise.all(promisesOfSubscriptions)
   }
@@ -659,14 +769,20 @@ class Exchange extends EventEmitter {
           await saveProducts(this.id, formatedProducts)
         }
       } catch (error) {
-        console.error(`[${this.id}/getProducts] failed to fetch products`, error.message)
+        console.error(
+          `[${this.id}/getProducts] failed to fetch products`,
+          error.message
+        )
 
         throw error
       }
     }
 
     if (formatedProducts) {
-      if (typeof formatedProducts === 'object' && formatedProducts.hasOwnProperty('products')) {
+      if (
+        typeof formatedProducts === 'object' &&
+        formatedProducts.hasOwnProperty('products')
+      ) {
         for (let key in formatedProducts) {
           this[key] = formatedProducts[key]
         }
@@ -674,7 +790,9 @@ class Exchange extends EventEmitter {
         this.products = formatedProducts
       }
     } else {
-      console.error(`[${this.id}/getProducts] no stored products / no defined api endpoint`)
+      console.error(
+        `[${this.id}/getProducts] no stored products / no defined api endpoint`
+      )
 
       this.products = null
     }
@@ -715,7 +833,9 @@ class Exchange extends EventEmitter {
 
     const pairs = [...api._pending, ...api._connected]
 
-    console.debug(`[${this.id}.onOpen] opened api ${api.id} (${pairs.join(', ')})`)
+    console.debug(
+      `[${this.id}.onOpen] opened api ${api.id} (${pairs.join(', ')})`
+    )
 
     this.failedConnections = 0
 
@@ -739,7 +859,10 @@ class Exchange extends EventEmitter {
   onError(event, api) {
     const pairs = [...api._pending, ...api._connected]
 
-    console.error(`[${this.id}.onError] ${pairs.join(',')}'s api errored`, event.message)
+    console.error(
+      `[${this.id}.onError] ${pairs.join(',')}'s api errored`,
+      event.message
+    )
 
     this.emit('error', api.id, event.message)
   }
@@ -760,7 +883,11 @@ class Exchange extends EventEmitter {
     if (this.connecting[api.id]) {
       this.failedConnections++
       const delay = 1000 * this.failedConnections
-      console.debug(`[${this.id}] api refused connection, sleeping ${delay / 1000}s before trying again`)
+      console.debug(
+        `[${this.id}] api refused connection, sleeping ${
+          delay / 1000
+        }s before trying again`
+      )
       await sleep(delay)
       this.connecting[api.id].resolver(false)
       delete this.connecting[api.id]
@@ -873,7 +1000,9 @@ class Exchange extends EventEmitter {
 
     this.keepAliveIntervals[api.id] = setInterval(() => {
       if (api.readyState === WebSocket.OPEN) {
-        api.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
+        api.send(
+          typeof payload === 'string' ? payload : JSON.stringify(payload)
+        )
       }
     }, every)
   }
@@ -889,7 +1018,14 @@ class Exchange extends EventEmitter {
     delete this.keepAliveIntervals[api.id]
   }
 
-  schedule(operationFunction, operationId, minDelay, delayMultiplier, maxDelay, currentDelay) {
+  schedule(
+    operationFunction,
+    operationId,
+    minDelay,
+    delayMultiplier,
+    maxDelay,
+    currentDelay
+  ) {
     if (this.scheduledOperations[operationId]) {
       clearTimeout(this.scheduledOperations[operationId])
     }
@@ -921,7 +1057,9 @@ class Exchange extends EventEmitter {
     if (pendingIndex !== -1) {
       api._pending.splice(pendingIndex, 1)
     } else {
-      console.warn(`[${this.id}.markPairAsConnected] ${pair} appears to be NOT connecting anymore (prevent undesired subscription)`)
+      console.warn(
+        `[${this.id}.markPairAsConnected] ${pair} appears to be NOT connecting anymore (prevent undesired subscription)`
+      )
       return false
     }
 
@@ -955,13 +1093,17 @@ class Exchange extends EventEmitter {
     const connectedIndex = api._connected.indexOf(pair)
 
     if (connectedIndex === -1) {
-      console.debug(`[${this.id}.markPairAsDisconnected] ${pair} was NOT found in in the _connected list (prevent double unsubscription)`)
+      console.debug(
+        `[${this.id}.markPairAsDisconnected] ${pair} was NOT found in in the _connected list (prevent double unsubscription)`
+      )
       return false
     }
 
     api._connected.splice(connectedIndex, 1)
 
-    console.debug(`[${this.id}.markPairAsDisconnected] ${pair} removed from _connected list`)
+    console.debug(
+      `[${this.id}.markPairAsDisconnected] ${pair} removed from _connected list`
+    )
 
     return true
   }

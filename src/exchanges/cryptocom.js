@@ -117,12 +117,10 @@ class CryptoCom extends Exchange {
       .get(endpoint)
       .then(response => {
         const data = response.data.result.data
-		
-		if (data.length) {
 
-        const { d: earliestTradeId, t: earliestTradeTime } =
-          data[(data.length - 1, 1)]
-
+        if (data.length) {
+          const { d: earliestTradeId, t: earliestTradeTime } =
+            data[(data.length - 1, 1)]
 
           const trades = []
 

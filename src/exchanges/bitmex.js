@@ -15,12 +15,12 @@ class Bitmex extends Exchange {
     this.underlyingToPositionMultipliers = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://www.bitmex.com/api/v1/instrument/active',
+      PRODUCTS: 'https://www.bitmex.com/api/v1/instrument/active'
     }
 
     this.url = () => {
       return `wss://www.bitmex.com/realtime`
-    };
+    }
   }
 
   formatProducts(data) {
@@ -30,11 +30,16 @@ class Bitmex extends Exchange {
     const underlyingToPositionMultipliers = {}
 
     for (const product of data) {
-      types[product.symbol] = product.isInverse ? 'inverse' : product.isQuanto ? 'quanto' : 'linear'
+      types[product.symbol] = product.isInverse
+        ? 'inverse'
+        : product.isQuanto
+        ? 'quanto'
+        : 'linear'
       multipliers[product.symbol] = product.multiplier
 
       if (types[product.symbol] === 'linear') {
-        underlyingToPositionMultipliers[product.symbol] = product.underlyingToPositionMultiplier
+        underlyingToPositionMultipliers[product.symbol] =
+          product.underlyingToPositionMultiplier
       }
 
       products.push(product.symbol)
@@ -44,7 +49,7 @@ class Bitmex extends Exchange {
       products,
       types,
       multipliers,
-      underlyingToPositionMultipliers,
+      underlyingToPositionMultipliers
     }
   }
 
@@ -61,7 +66,7 @@ class Bitmex extends Exchange {
     api.send(
       JSON.stringify({
         op: 'subscribe',
-        args: ['trade:' + pair, 'liquidation:' + pair],
+        args: ['trade:' + pair, 'liquidation:' + pair]
       })
     )
   }
@@ -79,7 +84,7 @@ class Bitmex extends Exchange {
     api.send(
       JSON.stringify({
         op: 'unsubscribe',
-        args: ['trade:' + pair, 'liquidation:' + pair],
+        args: ['trade:' + pair, 'liquidation:' + pair]
       })
     )
   }
@@ -91,12 +96,12 @@ class Bitmex extends Exchange {
       if (json.table === 'liquidation' && json.action === 'insert') {
         return this.emitLiquidations(
           api.id,
-          json.data.map((trade) => this.formatLiquidation(trade))
+          json.data.map(trade => this.formatLiquidation(trade))
         )
       } else if (json.table === 'trade' && json.action === 'insert') {
         return this.emitTrades(
           api.id,
-          json.data.map((trade) => this.formatTrade(trade))
+          json.data.map(trade => this.formatTrade(trade))
         )
       } else if (json.table === 'instrument' && json.data[0].lastPrice) {
         this.xbtPrice = json.data[0].lastPrice
@@ -111,7 +116,7 @@ class Bitmex extends Exchange {
       timestamp: +new Date(trade.timestamp),
       price: trade.price,
       size: trade.homeNotional,
-      side: trade.side === 'Buy' ? 'buy' : 'sell',
+      side: trade.side === 'Buy' ? 'buy' : 'sell'
     }
   }
 
@@ -119,21 +124,26 @@ class Bitmex extends Exchange {
     let size
 
     if (this.types[trade.symbol] === 'quanto') {
-      size = (this.multipliers[trade.symbol] / 100000000) * trade.leavesQty * this.xbtPrice
+      size =
+        (this.multipliers[trade.symbol] / 100000000) *
+        trade.leavesQty *
+        this.xbtPrice
     } else if (this.types[trade.symbol] === 'inverse') {
       size = trade.leavesQty / trade.price
     } else {
-      size = (1 / this.underlyingToPositionMultipliers[trade.symbol]) * trade.leavesQty
+      size =
+        (1 / this.underlyingToPositionMultipliers[trade.symbol]) *
+        trade.leavesQty
     }
 
-    return  {
+    return {
       exchange: this.id,
       pair: trade.symbol,
       timestamp: +new Date(),
       price: trade.price,
       size: size,
       side: trade.side === 'Buy' ? 'buy' : 'sell',
-      liquidation: true,
+      liquidation: true
     }
   }
 
@@ -142,13 +152,15 @@ class Bitmex extends Exchange {
     const endTimeISO = new Date(range.to).toISOString()
 
     const endpoint = `https://www.bitmex.com/api/v1/trade?symbol=${range.pair}&startTime=${startTimeISO}&endTime=${endTimeISO}&count=1000`
-    
+
     return axios
       .get(endpoint)
-      .then((response) => {
+      .then(response => {
         if (response.data.length) {
-          const trades = response.data.map((trade) => this.formatTrade(trade, range.pair))
-  
+          const trades = response.data.map(trade =>
+            this.formatTrade(trade, range.pair)
+          )
+
           this.emitTrades(null, trades)
 
           totalRecovered += trades.length
@@ -157,17 +169,30 @@ class Bitmex extends Exchange {
           const remainingMissingTime = range.to - range.from
 
           if (remainingMissingTime > 1000 && response.data.length >= 1000) {
-            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(remainingMissingTime)} remaining)`)
-            return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered))
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } ... but theres more (${getHms(remainingMissingTime)} remaining)`
+            )
+            return this.waitBeforeContinueRecovery().then(() =>
+              this.getMissingTrades(range, totalRecovered)
+            )
           } else {
-            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } (${getHms(remainingMissingTime)} remaining)`
+            )
           }
         }
 
         return totalRecovered
       })
-      .catch((err) => {
-        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+      .catch(err => {
+        console.error(
+          `[${this.id}] failed to get missing trades on ${range.pair}`,
+          err.message
+        )
       })
   }
 
@@ -175,7 +200,7 @@ class Bitmex extends Exchange {
     api.send(
       JSON.stringify({
         op: 'subscribe',
-        args: ['instrument:XBTUSD'],
+        args: ['instrument:XBTUSD']
       })
     )
   }

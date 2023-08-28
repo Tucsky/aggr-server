@@ -10,14 +10,16 @@ class BinanceUs extends Exchange {
     this.subscriptions = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://api.binance.us/api/v3/exchangeInfo',
+      PRODUCTS: 'https://api.binance.us/api/v3/exchangeInfo'
     }
 
     this.url = () => `wss://stream.binance.us:9443/ws`
   }
 
   formatProducts(data) {
-    return data.symbols.filter((product) => product.status === 'TRADING').map((product) => product.symbol.toLowerCase())
+    return data.symbols
+      .filter(product => product.status === 'TRADING')
+      .map(product => product.symbol.toLowerCase())
   }
 
   /**
@@ -38,7 +40,7 @@ class BinanceUs extends Exchange {
       JSON.stringify({
         method: 'SUBSCRIBE',
         params,
-        id: this.subscriptions[pair],
+        id: this.subscriptions[pair]
       })
     )
 
@@ -62,14 +64,14 @@ class BinanceUs extends Exchange {
       JSON.stringify({
         method: 'UNSUBSCRIBE',
         params,
-        id: this.subscriptions[pair],
+        id: this.subscriptions[pair]
       })
     )
 
     delete this.subscriptions[pair]
 
     // this websocket api have a limit of about 5 messages per second.
-    return new Promise((resolve) => setTimeout(resolve, 250))
+    return new Promise(resolve => setTimeout(resolve, 250))
   }
 
   onMessage(event, api) {
@@ -83,8 +85,8 @@ class BinanceUs extends Exchange {
           timestamp: json.E,
           price: +json.p,
           size: +json.q,
-          side: json.m ? 'sell' : 'buy',
-        },
+          side: json.m ? 'sell' : 'buy'
+        }
       ])
     }
   }

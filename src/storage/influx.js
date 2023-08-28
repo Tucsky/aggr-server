@@ -48,13 +48,15 @@ class InfluxStorage {
       ;[host, port] = config.influxUrl.split(':')
     }
 
-    console.log(`[storage/influx] connecting to ${host}:${port} on db "${config.influxDatabase}"`)
+    console.log(
+      `[storage/influx] connecting to ${host}:${port} on db "${config.influxDatabase}"`
+    )
 
     try {
       this.influx = new Influx.InfluxDB({
         host: host || 'localhost',
         port: port || '8086',
-        database: config.influxDatabase,
+        database: config.influxDatabase
       })
 
       const databases = await this.influx.getDatabaseNames()
@@ -68,12 +70,13 @@ class InfluxStorage {
         await this.getPreviousBars()
       }
     } catch (error) {
-      console.error([
-      	`[storage/influx] Error: ${error.message}... retrying in 1s`,
-      	`Please ensure that the environment variable INFLUX_HOST is correctly set or that InfluxDB is running.`,
-		`Refer to the README.md file for more instructions.`,
-      ].join('\n'))
-    
+      console.error(
+        [
+          `[storage/influx] Error: ${error.message}... retrying in 1s`,
+          `Please ensure that the environment variable INFLUX_HOST is correctly set or that InfluxDB is running.`,
+          `Refer to the README.md file for more instructions.`
+        ].join('\n')
+      )
 
       await sleep()
 
@@ -88,7 +91,10 @@ class InfluxStorage {
 
         if (config.api && !config.collect) {
           // schedule import of all collectors every influxResampleInterval until the scripts die
-          setTimeout(this.importCollectors.bind(this), config.influxResampleInterval)
+          setTimeout(
+            this.importCollectors.bind(this),
+            config.influxResampleInterval
+          )
         }
       }
 
@@ -110,7 +116,7 @@ class InfluxStorage {
           this.promiseOfImport() // trigger next import (if any)
         }
       })
-      .on('requestPendingBars', ({data}) => {
+      .on('requestPendingBars', ({ data }) => {
         // response from pending bars request
 
         if (this.promisesOfPendingBars[data.pendingBarsRequestId]) {
@@ -126,16 +132,16 @@ class InfluxStorage {
    */
   bindClusterEvents() {
     socketService
-      .on('requestPendingBars', ({data}) => {
+      .on('requestPendingBars', ({ data }) => {
         // this is a request for pending bars from cluster
         const payload = {
           pendingBarsRequestId: data.pendingBarsRequestId,
-          results: this.getPendingBars(data.markets, data.from, data.to),
+          results: this.getPendingBars(data.markets, data.from, data.to)
         }
         socketService.clusterSocket.write(
           JSON.stringify({
             opId: 'requestPendingBars',
-            data: payload,
+            data: payload
           }) + '#'
         )
       })
@@ -146,7 +152,7 @@ class InfluxStorage {
           if (socketService.clusterSocket) {
             socketService.clusterSocket.write(
               JSON.stringify({
-                opId: 'import',
+                opId: 'import'
               }) + '#'
             )
           }
@@ -158,46 +164,52 @@ class InfluxStorage {
    * Listen for alerts change
    */
   bindAlertsEvents() {
-    alertService.on('change', ({ market, price, user, type, previousPrice }) => {
-      const fields = {
-        price,
-        user,
-        type,
-      }
-
-      if (typeof previousPrice !== 'undefined') {
-        fields.previousPrice = previousPrice
-      }
-
-      this.writePoints(
-        [
-          {
-            measurement: 'alerts',
-            tags: {
-              market,
-            },
-            fields,
-            timestamp: Date.now(),
-          },
-        ],
-        {
-          precision: 'ms',
+    alertService.on(
+      'change',
+      ({ market, price, user, type, previousPrice }) => {
+        const fields = {
+          price,
+          user,
+          type
         }
-      )
-    })
+
+        if (typeof previousPrice !== 'undefined') {
+          fields.previousPrice = previousPrice
+        }
+
+        this.writePoints(
+          [
+            {
+              measurement: 'alerts',
+              tags: {
+                market
+              },
+              fields,
+              timestamp: Date.now()
+            }
+          ],
+          {
+            precision: 'ms'
+          }
+        )
+      }
+    )
   }
 
   /**
    *
    */
   async ensureRetentionPolicies() {
-    const retentionsPolicies = (await this.influx.showRetentionPolicies()).reduce((output, retentionPolicy) => {
+    const retentionsPolicies = (
+      await this.influx.showRetentionPolicies()
+    ).reduce((output, retentionPolicy) => {
       output[retentionPolicy.name] = retentionPolicy.duration
       return output
     }, {})
 
     const timeframes = [config.influxTimeframe].concat(config.influxResampleTo)
-    this.influxTimeframeRetentionDuration = config.influxTimeframe * config.influxRetentionPerTimeframe
+    this.influxTimeframeRetentionDuration =
+      config.influxTimeframe * config.influxRetentionPerTimeframe
 
     for (let timeframe of timeframes) {
       const rpDuration = timeframe * config.influxRetentionPerTimeframe
@@ -205,11 +217,13 @@ class InfluxStorage {
       const rpName = config.influxRetentionPrefix + getHms(timeframe)
 
       if (!retentionsPolicies[rpName]) {
-        console.log(`[storage/influx] create retention policy ${rpName} (duration ${rpDurationLitteral})`)
+        console.log(
+          `[storage/influx] create retention policy ${rpName} (duration ${rpDurationLitteral})`
+        )
         await this.influx.createRetentionPolicy(rpName, {
           database: config.influxDatabase,
           duration: rpDurationLitteral,
-          replication: 1,
+          replication: 1
         })
       }
 
@@ -231,13 +245,17 @@ class InfluxStorage {
     const timeframeLitteral = getHms(config.influxTimeframe)
     const now = +new Date()
 
-    let query = `SELECT * FROM ${config.influxRetentionPrefix}${timeframeLitteral}.${config.influxMeasurement}${'_' + timeframeLitteral}`
+    let query = `SELECT * FROM ${
+      config.influxRetentionPrefix
+    }${timeframeLitteral}.${config.influxMeasurement}${'_' + timeframeLitteral}`
 
-    query += ` WHERE (${config.pairs.map((market) => `market = '${market}'`).join(' OR ')})`
+    query += ` WHERE (${config.pairs
+      .map(market => `market = '${market}'`)
+      .join(' OR ')})`
 
     query += `GROUP BY "market" ORDER BY time DESC LIMIT 1`
 
-    this.influx.query(query).then((data) => {
+    this.influx.query(query).then(data => {
       for (let bar of data) {
         if (now - bar.time > config.influxResampleInterval) {
           // can't use lastBar because it is too old anyway
@@ -250,7 +268,10 @@ class InfluxStorage {
           this.pendingBars[bar.market] = {}
         }
 
-        if (this.pendingBars[bar.market] && (originalBar = this.pendingBars[bar.market][+bar.time])) {
+        if (
+          this.pendingBars[bar.market] &&
+          (originalBar = this.pendingBars[bar.market][+bar.time])
+        ) {
           this.sumBar(originalBar, bar)
         } else {
           this.pendingBars[bar.market][+bar.time] = this.sumBar({}, bar)
@@ -279,8 +300,17 @@ class InfluxStorage {
       }
     }
 
-    if (!barToMutate.open && !barToMutate.high && !barToMutate.low && !barToMutate.close) {
-      barToMutate.open = barToMutate.high = barToMutate.low = barToMutate.close = null
+    if (
+      !barToMutate.open &&
+      !barToMutate.high &&
+      !barToMutate.low &&
+      !barToMutate.close
+    ) {
+      barToMutate.open =
+        barToMutate.high =
+        barToMutate.low =
+        barToMutate.close =
+          null
     }
 
     return barToMutate
@@ -313,8 +343,11 @@ class InfluxStorage {
       // otherwise cluster will send a command for that (to balance write tasks between collectors nodes)
 
       const now = Date.now()
-      const timeBackupFloored = Math.floor(now / config.backupInterval) * config.backupInterval
-      const timeMinuteFloored = Math.floor(now / config.influxResampleInterval) * config.influxResampleInterval
+      const timeBackupFloored =
+        Math.floor(now / config.backupInterval) * config.backupInterval
+      const timeMinuteFloored =
+        Math.floor(now / config.influxResampleInterval) *
+        config.influxResampleInterval
 
       if (timeBackupFloored === timeMinuteFloored) {
         return this.import()
@@ -352,12 +385,14 @@ class InfluxStorage {
     for (let i = 0; i < trades.length; i++) {
       const trade = trades[i]
       const market = trade.exchange + ':' + trade.pair
-      const tradeFlooredTime = Math.floor(trade.timestamp / config.influxTimeframe) * config.influxTimeframe
+      const tradeFlooredTime =
+        Math.floor(trade.timestamp / config.influxTimeframe) *
+        config.influxTimeframe
 
       if (!ranges[market]) {
         ranges[market] = {
           low: trade.price,
-          high: trade.price,
+          high: trade.price
         }
       } else {
         ranges[market].low = Math.min(ranges[market].low, trade.price)
@@ -373,12 +408,19 @@ class InfluxStorage {
           this.pendingBars[market] = {}
         }
 
-        if (this.pendingBars[market] && this.pendingBars[market][tradeFlooredTime]) {
+        if (
+          this.pendingBars[market] &&
+          this.pendingBars[market][tradeFlooredTime]
+        ) {
           bars[market] = this.pendingBars[market][tradeFlooredTime]
           //console.log(`\tuse pending bar (time ${new Date(bars[market].time).toISOString().split('T').pop().replace(/\..*/, '')})`)
-        } else if (connections[market].bar && connections[market].bar.time === tradeFlooredTime) {
+        } else if (
+          connections[market].bar &&
+          connections[market].bar.time === tradeFlooredTime
+        ) {
           // trades passed in save() contains some of the last batch (trade time = last bar time)
-          bars[market] = this.pendingBars[market][tradeFlooredTime] = connections[market].bar
+          bars[market] = this.pendingBars[market][tradeFlooredTime] =
+            connections[market].bar
           //console.log(`\tuse connection bar (time ${new Date(bars[market].time).toISOString().split('T').pop().replace(/\..*/, '')})`)
         } else {
           bars[market] = this.pendingBars[market][tradeFlooredTime] = {
@@ -393,7 +435,7 @@ class InfluxStorage {
             open: null,
             high: null,
             low: null,
-            close: null,
+            close: null
           }
           //console.log(`\tcreate new bar (time ${new Date(bars[market].time).toISOString().split('T').pop().replace(/\..*/, '')})`)
         }
@@ -404,7 +446,11 @@ class InfluxStorage {
         bars[market]['l' + trade.side] += trade.price * trade.size
       } else {
         if (bars[market].open === null) {
-          bars[market].open = bars[market].high = bars[market].low = bars[market].close = +trade.price
+          bars[market].open =
+            bars[market].high =
+            bars[market].low =
+            bars[market].close =
+              +trade.price
         } else {
           bars[market].high = Math.max(bars[market].high, +trade.price)
           bars[market].low = Math.min(bars[market].low, +trade.price)
@@ -431,7 +477,7 @@ class InfluxStorage {
         connections[market].close = this.pendingBars[market][timestamp].close
       }
     }
-    
+
     await updateIndexes(ranges, async (index, high, low, direction) => {
       await alertService.checkPriceCrossover(index, high, low, direction)
     })
@@ -474,7 +520,7 @@ class InfluxStorage {
     const importedRange = {
       from: Infinity,
       to: 0,
-      markets: [],
+      markets: []
     }
 
     for (const identifier in this.pendingBars) {
@@ -484,7 +530,13 @@ class InfluxStorage {
 
       for (const timestamp in this.pendingBars[identifier]) {
         if (timestamp < now - this.influxTimeframeRetentionDuration) {
-          console.log(`[storage/influx] ${new Date(+timestamp).toISOString()} < ${new Date(now - this.influxTimeframeRetentionDuration).toISOString()}`)
+          console.log(
+            `[storage/influx] ${new Date(
+              +timestamp
+            ).toISOString()} < ${new Date(
+              now - this.influxTimeframeRetentionDuration
+            ).toISOString()}`
+          )
           continue
         }
 
@@ -504,7 +556,7 @@ class InfluxStorage {
       // console.log(`[storage/influx] importing ${barsToImport.length} bars`)
 
       await this.writePoints(
-        barsToImport.map((bar) => {
+        barsToImport.map(bar => {
           const fields = {}
 
           if (bar.vbuy || bar.vsell) {
@@ -520,21 +572,24 @@ class InfluxStorage {
           }
 
           if (bar.close !== null) {
-            ;(fields.open = bar.open), (fields.high = bar.high), (fields.low = bar.low), (fields.close = bar.close)
+            ;(fields.open = bar.open),
+              (fields.high = bar.high),
+              (fields.low = bar.low),
+              (fields.close = bar.close)
           }
 
           return {
             measurement: 'trades_' + getHms(config.influxTimeframe),
             tags: {
-              market: bar.market,
+              market: bar.market
             },
             fields: fields,
-            timestamp: +bar.time,
+            timestamp: +bar.time
           }
         }),
         {
           precision: 'ms',
-          retentionPolicy: this.baseRp,
+          retentionPolicy: this.baseRp
         }
       )
     }
@@ -565,23 +620,31 @@ class InfluxStorage {
       await this.influx.writePoints(points, options)
 
       if (attempt > 0) {
-        console.log(`[storage/influx] successfully wrote points after ${attempt} attempt(s)`)
+        console.log(
+          `[storage/influx] successfully wrote points after ${attempt} attempt(s)`
+        )
       }
     } catch (error) {
       attempt++
 
       console.error(
         `[storage/influx] write points failed (${attempt}${
-          attempt === 1 ? 'st' : attempt === 2 ? 'nd' : attempt === 3 ? 'rd' : 'th'
+          attempt === 1
+            ? 'st'
+            : attempt === 2
+            ? 'nd'
+            : attempt === 3
+            ? 'rd'
+            : 'th'
         } attempt)`,
         error.message
       )
 
       if (attempt >= 5) {
         console.error(
-          `too many attemps at writing points\n\n${measurement}, ${new Date(from).toUTCString()} to ${new Date(
-            to
-          ).toUTCString()}\n\t-> abort`
+          `too many attemps at writing points\n\n${measurement}, ${new Date(
+            from
+          ).toUTCString()} to ${new Date(to).toUTCString()}\n\t-> abort`
         )
         throw error.message
       }
@@ -605,13 +668,15 @@ class InfluxStorage {
     let now = Date.now()
     let before = now
 
-    console.log(`[storage/influx/resample] resampling ${range.markets.length} markets`)
+    console.log(
+      `[storage/influx/resample] resampling ${range.markets.length} markets`
+    )
 
     let minimumTimeframe
     let timeframes
     if (fromTimeframe) {
       minimumTimeframe = Math.max(fromTimeframe, config.influxTimeframe)
-      timeframes = config.influxResampleTo.filter((a) => a > fromTimeframe)
+      timeframes = config.influxResampleTo.filter(a => a > fromTimeframe)
     } else {
       minimumTimeframe = config.influxTimeframe
       timeframes = config.influxResampleTo
@@ -631,13 +696,18 @@ class InfluxStorage {
       if (isOddTimeframe) {
         const dayOpen = Math.floor(range.from / DAY) * DAY
         flooredRange = {
-          from: dayOpen + Math.floor((range.from - dayOpen) / timeframe) * timeframe,
-          to: dayOpen + Math.floor((range.to - dayOpen) / timeframe) * timeframe + timeframe,
+          from:
+            dayOpen +
+            Math.floor((range.from - dayOpen) / timeframe) * timeframe,
+          to:
+            dayOpen +
+            Math.floor((range.to - dayOpen) / timeframe) * timeframe +
+            timeframe
         }
       } else {
         flooredRange = {
           from: Math.floor(range.from / timeframe) * timeframe,
-          to: Math.floor(range.to / timeframe) * timeframe + timeframe,
+          to: Math.floor(range.to / timeframe) * timeframe + timeframe
         }
       }
 
@@ -672,7 +742,9 @@ class InfluxStorage {
       const query_into = `${config.influxDatabase}.${config.influxRetentionPrefix}${destinationTimeframeLitteral}.${config.influxMeasurement}_${destinationTimeframeLitteral}`
 
       let coverage = `WHERE time >= ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
-      coverage += ` AND (${range.markets.map((market) => `market = '${market}'`).join(' OR ')})`
+      coverage += ` AND (${range.markets
+        .map(market => `market = '${market}'`)
+        .join(' OR ')})`
 
       const group = `GROUP BY time(${destinationTimeframeLitteral}${
         isOddTimeframe ? ', ' + getHms(flooredRange.from % timeframe) : ''
@@ -680,7 +752,9 @@ class InfluxStorage {
 
       bars += (flooredRange.to - flooredRange.from) / timeframe
 
-      await this.executeQuery(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
+      await this.executeQuery(
+        `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`
+      )
     }
 
     now = Date.now()
@@ -688,13 +762,19 @@ class InfluxStorage {
     const elapsedOp = now - before
 
     console.log(
-      `[storage/influx/resample] done resampling ${parseInt((now - before) / bars)}ms per bar (${parseInt(
-        elapsedOp
-      )}ms for ${bars} bars)`
+      `[storage/influx/resample] done resampling ${parseInt(
+        (now - before) / bars
+      )}ms per bar (${parseInt(elapsedOp)}ms for ${bars} bars)`
     )
 
     if (elapsedOp > 10000) {
-      console.log(`[storage/influx/resample] resample range ${new Date(range.from).toISOString()} to ${new Date(range.to).toISOString()} (${range.markets.length} markets)`)
+      console.log(
+        `[storage/influx/resample] resample range ${new Date(
+          range.from
+        ).toISOString()} to ${new Date(range.to).toISOString()} (${
+          range.markets.length
+        } markets)`
+      )
     }
   }
 
@@ -712,18 +792,30 @@ class InfluxStorage {
       await this.influx.query(query)
 
       if (attempt > 0) {
-        console.log(`[storage/influx] successfully executed query ${attempt} attempt(s)`)
+        console.log(
+          `[storage/influx] successfully executed query ${attempt} attempt(s)`
+        )
       }
     } catch (error) {
       attempt++
 
       console.error(
-        `[storage/influx] query failed (${attempt}${attempt === 1 ? 'st' : attempt === 2 ? 'nd' : attempt === 3 ? 'rd' : 'th'} attempt)`,
+        `[storage/influx] query failed (${attempt}${
+          attempt === 1
+            ? 'st'
+            : attempt === 2
+            ? 'nd'
+            : attempt === 3
+            ? 'rd'
+            : 'th'
+        } attempt)`,
         error.message
       )
 
       if (attempt >= 5) {
-        console.error(`too many attemps at executing query\n\n${query}\n\t-> abort`)
+        console.error(
+          `too many attemps at executing query\n\n${query}\n\t-> abort`
+        )
         throw error.message
       }
 
@@ -745,28 +837,41 @@ class InfluxStorage {
     let query = `SELECT * FROM "${config.influxDatabase}"."${config.influxRetentionPrefix}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
 
     if (markets.length) {
-      query += ` AND (${markets.map((market) => `market = '${market}'`).join(' OR ')})`
+      query += ` AND (${markets
+        .map(market => `market = '${market}'`)
+        .join(' OR ')})`
     }
 
     return this.influx
       .queryRaw(query, {
         precision: 's',
-        epoch: 's',
+        epoch: 's'
       })
-      .then((results) => {
+      .then(results => {
         const output = {
           format: this.format,
           columns: {},
-          results: [],
+          results: []
         }
 
-        if (results.results[0].series && results.results[0].series[0].values.length) {
-          output.columns = this.formatColumns(results.results[0].series[0].columns)
+        if (
+          results.results[0].series &&
+          results.results[0].series[0].values.length
+        ) {
+          output.columns = this.formatColumns(
+            results.results[0].series[0].columns
+          )
           output.results = results.results[0].series[0].values
         }
 
         if (to > +new Date() - config.influxResampleInterval) {
-          return this.appendPendingBarsToResponse(output.results, markets, from, to, timeframe).then((bars) => {
+          return this.appendPendingBarsToResponse(
+            output.results,
+            markets,
+            from,
+            to,
+            timeframe
+          ).then(bars => {
             output.results = bars
             return output
           })
@@ -774,8 +879,11 @@ class InfluxStorage {
 
         return output
       })
-      .catch((err) => {
-        console.error(`[storage/influx] failed to retrieves trades between ${from} and ${to} with timeframe ${timeframe}\n\t`, err.message)
+      .catch(err => {
+        console.error(
+          `[storage/influx] failed to retrieves trades between ${from} and ${to} with timeframe ${timeframe}\n\t`,
+          err.message
+        )
 
         throw err
       })
@@ -794,21 +902,27 @@ class InfluxStorage {
   appendPendingBarsToResponse(bars, markets, from, to, timeframe) {
     if (config.influxCollectors && socketService.clusteredCollectors.length) {
       // use collectors nodes pending bars
-      return this.requestPendingBars(markets, from, to, timeframe).then((pendingBars) => {
-        return bars.concat(pendingBars)
-      })
+      return this.requestPendingBars(markets, from, to, timeframe).then(
+        pendingBars => {
+          return bars.concat(pendingBars)
+        }
+      )
     } else {
       // use current node pending bars
-      const injectedPendingBars = this.getPendingBars(markets, from, to).sort((a, b) => a.time - b.time)
+      const injectedPendingBars = this.getPendingBars(markets, from, to).sort(
+        (a, b) => a.time - b.time
+      )
 
       return Promise.resolve(bars.concat(injectedPendingBars))
     }
   }
   async importCollectors() {
     for (const collector of socketService.clusteredCollectors) {
-      await new Promise((resolve) => {
+      await new Promise(resolve => {
         let importTimeout = setTimeout(() => {
-          console.error('[storage/influx/cluster] collector import was resolved early (5s timeout fired)')
+          console.error(
+            '[storage/influx/cluster] collector import was resolved early (5s timeout fired)'
+          )
           importTimeout = null
           resolve()
         }, 5000)
@@ -838,12 +952,12 @@ class InfluxStorage {
   async requestPendingBars(markets, from, to, timeframe) {
     const collectors = []
 
-
     for (let i = 0; i < markets.length; i++) {
       for (let j = 0; j < socketService.clusteredCollectors.length; j++) {
         if (
           collectors.indexOf(socketService.clusteredCollectors[j]) === -1 &&
-          socketService.clusteredCollectors[j].markets.indexOf(markets[i]) !== -1
+          socketService.clusteredCollectors[j].markets.indexOf(markets[i]) !==
+            -1
         ) {
           collectors.push(socketService.clusteredCollectors[j])
         }
@@ -853,13 +967,21 @@ class InfluxStorage {
     const promisesOfBars = []
 
     for (const collector of collectors) {
-      if (collector.timeframes && collector.timeframes.indexOf(timeframe) === -1 && collectors.length === 1) {
+      if (
+        collector.timeframes &&
+        collector.timeframes.indexOf(timeframe) === -1 &&
+        collectors.length === 1
+      ) {
         throw new Error(`${getHms(timeframe)} timeframe isn't supported`)
       }
-      promisesOfBars.push(this.requestCollectorPendingBars(collector, markets, from, to))
+      promisesOfBars.push(
+        this.requestCollectorPendingBars(collector, markets, from, to)
+      )
     }
 
-    return [].concat.apply([], await Promise.all(promisesOfBars)).sort((a, b) => a.time - b.time)
+    return [].concat
+      .apply([], await Promise.all(promisesOfBars))
+      .sort((a, b) => a.time - b.time)
   }
 
   /**
@@ -871,11 +993,15 @@ class InfluxStorage {
    * @param {number} to
    */
   async requestCollectorPendingBars(collector, markets, from, to) {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const pendingBarsRequestId = ID()
 
       let promiseOfPendingBarsTimeout = setTimeout(() => {
-        console.error('[storage/influx/cluster] promise of realtime bar timeout fired (pendingBarsRequestId: ' + pendingBarsRequestId + ')')
+        console.error(
+          '[storage/influx/cluster] promise of realtime bar timeout fired (pendingBarsRequestId: ' +
+            pendingBarsRequestId +
+            ')'
+        )
 
         // response empty array as we didn't got the expected bars...
         this.promisesOfPendingBars[pendingBarsRequestId]([])
@@ -885,7 +1011,7 @@ class InfluxStorage {
       }, 5000)
 
       // register promise
-      this.promisesOfPendingBars[pendingBarsRequestId] = (pendingBars) => {
+      this.promisesOfPendingBars[pendingBarsRequestId] = pendingBars => {
         if (promiseOfPendingBarsTimeout) {
           clearTimeout(promiseOfPendingBarsTimeout)
         }
@@ -903,8 +1029,8 @@ class InfluxStorage {
             pendingBarsRequestId,
             markets,
             from,
-            to,
-          },
+            to
+          }
         }) + '#'
       )
     })

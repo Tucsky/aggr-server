@@ -14,8 +14,7 @@ const socketService = require('./src/services/socket')
 
 if (!config.exchanges || !config.exchanges.length) {
   config.exchanges = []
-
-  fs.readdirSync('./src/exchanges/').forEach((file) => {
+  fs.readdirSync('./src/exchanges/').forEach(file => {
     ;/\.js$/.test(file) && config.exchanges.push(file.replace(/\.js$/, ''))
   })
 }
@@ -53,7 +52,7 @@ process.on('SIGINT', async function () {
         console.error(`[exit] failed to save alerts`, error.message)
       }
     }
-    
+
     if (config.persistConnections) {
       try {
         await saveConnections(true)
@@ -62,7 +61,7 @@ process.on('SIGINT', async function () {
         console.error(`[exit] failed to save connections`, error.message)
       }
     }
-  
+
     try {
       await server.backupTrades(true)
       console.log(`[exit] saved trades ✓`)
@@ -85,18 +84,24 @@ process.on('SIGINT', async function () {
 
 if (process.env.pmx) {
   tx2.action('connect', function (markets, reply) {
-    server.connect(markets.split(',')).then(result => {
-      reply(result.join(', '))
-    }).catch(err => {
-      reply(`FAILED to connect ${markets} (${err.message})`)
-    })
+    server
+      .connect(markets.split(','))
+      .then(result => {
+        reply(result.join(', '))
+      })
+      .catch(err => {
+        reply(`FAILED to connect ${markets} (${err.message})`)
+      })
   })
-  
+
   tx2.action('disconnect', function (markets, reply) {
-    server.disconnect(markets.split(',')).then(result => {
-      reply(result.join(', '))
-    }).catch(err => {
-      reply(`FAILED to disconnect ${markets} (${err.message})`)
-    })
+    server
+      .disconnect(markets.split(','))
+      .then(result => {
+        reply(result.join(', '))
+      })
+      .catch(err => {
+        reply(`FAILED to disconnect ${markets} (${err.message})`)
+      })
   })
 }

@@ -2,23 +2,24 @@ const axios = require('axios')
 const fs = require('fs')
 const { ensureDirectoryExists } = require('../helper')
 
-const baseQuoteLookupKnown = new RegExp(`^([A-Z0-9]{3,})[-/:_]?(USDT|USDC|TUSD|BUSD|USDD|USDK|USDP)$|^([A-Z0-9]{2,})[-/:]?(UST|EUR|USD)$`)
+const baseQuoteLookupKnown = new RegExp(
+  `^([A-Z0-9]{3,})[-/:_]?(USDT|USDC|TUSD|BUSD|USDD|USDK|USDP)$|^([A-Z0-9]{2,})[-/:]?(UST|EUR|USD)$`
+)
 const baseQuoteLookupOthers = new RegExp(`^([A-Z0-9]{2,})[-/_]?([A-Z0-9]{3,})$`)
 
 require('../typedef')
-
 
 module.exports.saveProducts = async function (exchangeId, data) {
   const path = 'products/' + exchangeId + '.json'
   const storage = {
     expiration: +new Date() + 1000 * 60 * 60 * 24 * 2, // 7 days
-    data,
+    data
   }
 
   await ensureDirectoryExists(path)
 
-  return new Promise((resolve) => {
-    fs.writeFile(path, JSON.stringify(storage), (err) => {
+  return new Promise(resolve => {
+    fs.writeFile(path, JSON.stringify(storage), err => {
       if (err) {
         console.error(`[${exchangeId}] failed to save products to ${path}`, err)
       }
@@ -74,7 +75,10 @@ module.exports.fetchProducts = async function (exchangeId, endpoints) {
     return Promise.resolve()
   }
 
-  let urls = typeof endpoints.PRODUCTS === 'function' ? endpoints.PRODUCTS() : endpoints.PRODUCTS
+  let urls =
+    typeof endpoints.PRODUCTS === 'function'
+      ? endpoints.PRODUCTS()
+      : endpoints.PRODUCTS
 
   if (!Array.isArray(urls)) {
     urls = [urls]
@@ -93,11 +97,14 @@ module.exports.fetchProducts = async function (exchangeId, endpoints) {
     data.push(
       await axios
         .get(target, {
-          method: method,
+          method: method
         })
-        .then((response) => response.data)
-        .catch((err) => {
-          console.error(`[${exchangeId}] failed to fetch ${target}\n\t->`, err.message)
+        .then(response => response.data)
+        .catch(err => {
+          console.error(
+            `[${exchangeId}] failed to fetch ${target}\n\t->`,
+            err.message
+          )
           throw err
         })
     )
@@ -114,13 +121,13 @@ module.exports.fetchProducts = async function (exchangeId, endpoints) {
   return null
 }
 
-const formatStablecoin = module.exports.formatStablecoin = function (pair) {
+const formatStablecoin = (module.exports.formatStablecoin = function (pair) {
   return pair.replace(/(\w{3})?b?usd?[a-z]?$/i, '$1USD')
-}
+})
 
 /**
- * 
- * @param {string} market 
+ *
+ * @param {string} market
  * @returns {Product}
  */
 module.exports.parseMarket = function (market, noStable = true) {
@@ -141,7 +148,10 @@ module.exports.parseMarket = function (market, noStable = true) {
     type = 'perp'
   } else if (exchangeId === 'BYBIT' && !/-SPOT$/.test(symbol)) {
     type = 'perp'
-  } else if (exchangeId === 'BITMEX' || /(-|_)swap$|(-|_|:)perp/i.test(symbol)) {
+  } else if (
+    exchangeId === 'BITMEX' ||
+    /(-|_)swap$|(-|_|:)perp/i.test(symbol)
+  ) {
     if (/\d{2}/.test(symbol)) {
       type = 'future'
     } else {
@@ -166,7 +176,9 @@ module.exports.parseMarket = function (market, noStable = true) {
   } else if (exchangeId === 'FTX' && type === 'future') {
     localSymbol = localSymbol.replace(/(\w+)-\d+$/, '$1-USD')
   } else if (exchangeId === 'BITFINEX') {
-    localSymbol = localSymbol.replace(/(.*)F0:(\w+)F0/, '$1-$2').replace(/UST($|F0)/, 'USDT$1')
+    localSymbol = localSymbol
+      .replace(/(.*)F0:(\w+)F0/, '$1-$2')
+      .replace(/UST($|F0)/, 'USDT$1')
   } else if (exchangeId === 'HUOBI') {
     localSymbol = localSymbol.replace(/_CW|_CQ|_NW|_NQ/i, 'USD')
   } else if (exchangeId === 'DERIBIT') {
@@ -197,7 +209,10 @@ module.exports.parseMarket = function (market, noStable = true) {
     match = localSymbolAlpha.match(baseQuoteLookupOthers)
   }
 
-  if (!match && (exchangeId === 'DERIBIT' || exchangeId === 'FTX' || exchangeId === 'HUOBI')) {
+  if (
+    !match &&
+    (exchangeId === 'DERIBIT' || exchangeId === 'FTX' || exchangeId === 'HUOBI')
+  ) {
     match = localSymbolAlpha.match(/(\w+)[^a-z0-9]/i)
 
     if (match) {

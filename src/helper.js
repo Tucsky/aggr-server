@@ -39,13 +39,27 @@ module.exports = {
     var s = Math.floor(((timestamp / 1000) % 3600) % 60)
     var output = ''
 
-    output += (!round || !output.length) && d > 0 ? d + 'd' + (!round && h ? ', ' : '') : ''
-    output += (!round || !output.length) && h > 0 ? h + 'h' + (!round && (m || s) ? ', ' : '') : ''
-    output += (!round || !output.length) && m > 0 ? m + 'm' + (!round && s ? ', ' : '') : ''
+    output +=
+      (!round || !output.length) && d > 0
+        ? d + 'd' + (!round && h ? ', ' : '')
+        : ''
+    output +=
+      (!round || !output.length) && h > 0
+        ? h + 'h' + (!round && (m || s) ? ', ' : '')
+        : ''
+    output +=
+      (!round || !output.length) && m > 0
+        ? m + 'm' + (!round && s ? ', ' : '')
+        : ''
     output += (!round || !output.length) && s > 0 ? s + 's' : ''
 
-    if (ms && (!output.length || (!round && timestamp < 60 * 1000 && timestamp > s * 1000)))
-      output += (output.length ? ' ' : '') + Math.round(timestamp - s * 1000) + 'ms'
+    if (
+      ms &&
+      (!output.length ||
+        (!round && timestamp < 60 * 1000 && timestamp > s * 1000))
+    )
+      output +=
+        (output.length ? ' ' : '') + Math.round(timestamp - s * 1000) + 'ms'
 
     return output.trim()
   },
@@ -55,9 +69,12 @@ module.exports = {
     let interval, output
 
     if ((interval = Math.floor(seconds / 31536000)) > 1) output = interval + 'y'
-    else if ((interval = Math.floor(seconds / 2592000)) >= 1) output = interval + 'm'
-    else if ((interval = Math.floor(seconds / 86400)) >= 1) output = interval + 'd'
-    else if ((interval = Math.floor(seconds / 3600)) >= 1) output = interval + 'h'
+    else if ((interval = Math.floor(seconds / 2592000)) >= 1)
+      output = interval + 'm'
+    else if ((interval = Math.floor(seconds / 86400)) >= 1)
+      output = interval + 'd'
+    else if ((interval = Math.floor(seconds / 3600)) >= 1)
+      output = interval + 'h'
     else if ((interval = Math.floor(seconds / 60)) >= 1) output = interval + 'm'
     else output = Math.ceil(seconds) + 's'
 
@@ -82,9 +99,21 @@ module.exports = {
       let toPush
 
       if (includeMarket) {
-        toPush = [trade.exchange, trade.pair, trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0]
+        toPush = [
+          trade.exchange,
+          trade.pair,
+          trade.timestamp,
+          trade.price,
+          trade.size,
+          trade.side === 'buy' ? 1 : 0
+        ]
       } else {
-        toPush = [trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0]
+        toPush = [
+          trade.timestamp,
+          trade.price,
+          trade.size,
+          trade.side === 'buy' ? 1 : 0
+        ]
       }
 
       if (trade.liquidation) {
@@ -122,7 +151,7 @@ module.exports = {
   },
 
   sleep(delay = 1000) {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       setTimeout(() => {
         resolve()
       }, delay)
@@ -133,11 +162,11 @@ module.exports = {
     const folder = target.substring(0, target.lastIndexOf('/'))
 
     return new Promise((resolve, reject) => {
-      fs.stat(folder, (err) => {
+      fs.stat(folder, err => {
         if (!err) {
           resolve()
         } else if (err.code === 'ENOENT') {
-          fs.mkdir(folder, { recursive: true }, (err) => {
+          fs.mkdir(folder, { recursive: true }, err => {
             if (err) {
               reject(err)
             }
@@ -178,7 +207,7 @@ module.exports = {
     //return +new Date(date.getTime() - date.getTimezoneOffset() * 60000)
   },
   getMarkets() {
-    return config.pairs.map((market) => {
+    return config.pairs.map(market => {
       const [exchange, symbol] = market.match(/([^:]*):(.*)/).slice(1, 3)
 
       if (config.exchanges.indexOf(exchange) === -1) {
@@ -188,7 +217,7 @@ module.exports = {
       return {
         market,
         exchange,
-        symbol,
+        symbol
       }
     })
   },
@@ -196,7 +225,7 @@ module.exports = {
     if (!config.exchanges || !config.exchanges.length) {
       config.exchanges = []
 
-      fs.readdirSync('./src/exchanges/').forEach((file) => {
+      fs.readdirSync('./src/exchanges/').forEach(file => {
         ;/\.js$/.test(file) && config.exchanges.push(file.replace(/\.js$/, ''))
       })
     }
@@ -207,7 +236,10 @@ module.exports = {
       const name = config.exchanges[i]
       const exchange = new (require('../src/exchanges/' + name))(config)
 
-      if (!onlyNativeRecovery || typeof exchange.getMissingTrades === 'function') {
+      if (
+        !onlyNativeRecovery ||
+        typeof exchange.getMissingTrades === 'function'
+      ) {
         config.exchanges[i] = exchange.id
 
         exchanges.push(exchange)
@@ -234,7 +266,9 @@ module.exports = {
     }
 
     if (!config.timeframe) {
-      throw new Error('you must choose a timeframe / resolution (ex timeframe=1m)')
+      throw new Error(
+        'you must choose a timeframe / resolution (ex timeframe=1m)'
+      )
     }
 
     config.timeframe = module.exports.parseDuration(config.timeframe)
@@ -275,7 +309,11 @@ module.exports = {
   },
   humanFileSize(size) {
     var i = Math.floor(Math.log(size) / Math.log(1024))
-    return (size / Math.pow(1024, i)).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
+    return (
+      (size / Math.pow(1024, i)).toFixed(2) * 1 +
+      ' ' +
+      ['B', 'kB', 'MB', 'GB', 'TB'][i]
+    )
   },
   humanReadyState(state) {
     if (state === 1) {

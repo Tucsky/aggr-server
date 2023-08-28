@@ -3,7 +3,7 @@ const net = require('net')
 const EventEmitter = require('events')
 const config = require('../config')
 const { indexes, getActiveConnections } = require('./connections')
-const { v4: uuidv4 } = require('uuid');
+const { v4: uuidv4 } = require('uuid')
 
 require('../typedef')
 
@@ -52,7 +52,9 @@ class SocketService extends EventEmitter {
 
     // console.debug('[socket/collector] connecting to cluster..')
 
-    this.clusterSocket = net.createConnection(config.influxCollectorsClusterSocketPath)
+    this.clusterSocket = net.createConnection(
+      config.influxCollectorsClusterSocketPath
+    )
 
     this.clusterSocket.on('connect', () => {
       console.log('[socket/collector] successfully connected to cluster')
@@ -66,7 +68,7 @@ class SocketService extends EventEmitter {
     this.clusterSocket
       .on(
         'data',
-        this.parseSocketData.bind(this, (data) => {
+        this.parseSocketData.bind(this, data => {
           if (data.answerId) {
             this.emit(data.answerId, data)
             return
@@ -82,7 +84,7 @@ class SocketService extends EventEmitter {
         // schedule reconnection
         this.reconnectCluster()
       })
-      .on('error', (error) => {
+      .on('error', error => {
         // the close even destroy the previous strem and may trigger error
         // reconnect in this situation as well
         this.reconnectCluster()
@@ -99,22 +101,25 @@ class SocketService extends EventEmitter {
         clearTimeout(this._syncMarketsTimeout)
       }
 
-      this._syncMarketsTimeout = setTimeout(this.syncMarkets.bind(this, true), 3000)
+      this._syncMarketsTimeout = setTimeout(
+        this.syncMarkets.bind(this, true),
+        3000
+      )
       return
     } else if (this._syncMarketsTimeout) {
       this._syncMarketsTimeout = null
     }
-    
+
     const markets = getActiveConnections()
-    
+
     this.clusterSocket.write(
       JSON.stringify({
         opId: 'markets',
         data: {
           markets,
           timeframes: [config.influxTimeframe, ...config.influxResampleTo],
-          indexes: indexes.map(a => a.id),
-        },
+          indexes: indexes.map(a => a.id)
+        }
       }) + '#'
     )
   }
@@ -152,12 +157,14 @@ class SocketService extends EventEmitter {
   createCluster() {
     try {
       if (statSync(config.influxCollectorsClusterSocketPath)) {
-        console.debug(`[socket/cluster] unix socket was not closed properly last time`)
+        console.debug(
+          `[socket/cluster] unix socket was not closed properly last time`
+        )
         unlinkSync(config.influxCollectorsClusterSocketPath)
       }
     } catch (error) {}
 
-    this.serverSocket = net.createServer((socket) => {
+    this.serverSocket = net.createServer(socket => {
       console.log('[socket/cluster] collector connected successfully')
 
       socket.on('end', () => {
@@ -177,22 +184,28 @@ class SocketService extends EventEmitter {
 
       socket.on(
         'data',
-        this.parseSocketData.bind(this, (data) => {
+        this.parseSocketData.bind(this, data => {
           if (data.opId === 'markets') {
             // this is our welcome message
             const { markets, indexes, timeframes } = data.data
             socket.markets = markets
             socket.indexes = indexes
             socket.timeframes = timeframes
-            
+
             const collectorIndex = this.clusteredCollectors.indexOf(socket)
 
             if (collectorIndex === -1) {
-              console.log('[socket/cluster] registered collector with indexes', socket.indexes.join(', '))
+              console.log(
+                '[socket/cluster] registered collector with indexes',
+                socket.indexes.join(', ')
+              )
 
               this.clusteredCollectors.push(socket)
             } else {
-              console.log('[socket/cluster] updated collector with indexes', socket.indexes.join(', '))
+              console.log(
+                '[socket/cluster] updated collector with indexes',
+                socket.indexes.join(', ')
+              )
             }
 
             return
@@ -208,7 +221,7 @@ class SocketService extends EventEmitter {
       )
     })
 
-    this.serverSocket.on('error', (error) => {
+    this.serverSocket.on('error', error => {
       console.error(`[socket/cluster] server socket error`, error)
     })
 
@@ -256,14 +269,22 @@ class SocketService extends EventEmitter {
         try {
           json = JSON.parse(this.pendingSocketData)
         } catch (error) {
-          console.error('[storage/influx] failed to parse socket data', error.message, this.pendingSocketData)
+          console.error(
+            '[storage/influx] failed to parse socket data',
+            error.message,
+            this.pendingSocketData
+          )
         }
 
         if (json) {
           try {
             callback(json)
           } catch (error) {
-            console.error('[storage/influx] failed to execute callback data', error, json)
+            console.error(
+              '[storage/influx] failed to execute callback data',
+              error,
+              json
+            )
           }
         }
 
@@ -281,7 +302,8 @@ class SocketService extends EventEmitter {
 
     for (let j = 0; j < this.clusteredCollectors.length; j++) {
       if (
-        (isIndex && this.clusteredCollectors[j].indexes.indexOf(market) !== -1) ||
+        (isIndex &&
+          this.clusteredCollectors[j].indexes.indexOf(market) !== -1) ||
         (!isIndex && this.clusteredCollectors[j].markets.indexOf(market) !== -1)
       ) {
         return this.clusteredCollectors[j]
@@ -292,9 +314,11 @@ class SocketService extends EventEmitter {
   async close() {
     if (this.clusterSocket) {
       console.log('[socket/collector] closing cluster connection')
-      await new Promise((resolve) => {
+      await new Promise(resolve => {
         this.clusterSocket.end(() => {
-          console.log('[socket/collector] successfully closed cluster connection')
+          console.log(
+            '[socket/collector] successfully closed cluster connection'
+          )
           resolve()
         })
       })
@@ -302,14 +326,14 @@ class SocketService extends EventEmitter {
   }
 
   /**
-   * 
-   * @param {net.Socket} socket 
-   * @param {any} data 
+   *
+   * @param {net.Socket} socket
+   * @param {any} data
    * @returns {Promise<any>}
    */
   ask(socket, opId, data) {
     const questionId = uuidv4()
-    
+
     return new Promise(resolve => {
       const handler = ({ data }) => {
         if (timeout) {
@@ -325,12 +349,14 @@ class SocketService extends EventEmitter {
       }, 5000)
 
       this.once(questionId, handler)
-    
-      socket.write(JSON.stringify({
-        opId,
-        questionId,
-        data
-      }) + '#')
+
+      socket.write(
+        JSON.stringify({
+          opId,
+          questionId,
+          data
+        }) + '#'
+      )
     })
   }
 
@@ -339,10 +365,12 @@ class SocketService extends EventEmitter {
       return
     }
 
-    socket.write(JSON.stringify({
-      answerId,
-      data
-    }) + '#')
+    socket.write(
+      JSON.stringify({
+        answerId,
+        data
+      }) + '#'
+    )
   }
 }
 

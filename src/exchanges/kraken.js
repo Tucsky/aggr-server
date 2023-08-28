@@ -11,10 +11,13 @@ class Kraken extends Exchange {
     this.keepAliveIntervals = {}
 
     this.endpoints = {
-      PRODUCTS: ['https://api.kraken.com/0/public/AssetPairs', 'https://futures.kraken.com/derivatives/api/v3/instruments'],
+      PRODUCTS: [
+        'https://api.kraken.com/0/public/AssetPairs',
+        'https://futures.kraken.com/derivatives/api/v3/instruments'
+      ]
     }
 
-    this.url = (pair) => {
+    this.url = pair => {
       if (typeof this.specs[pair] !== 'undefined') {
         return 'wss://futures.kraken.com/ws/v1'
       } else {
@@ -38,16 +41,28 @@ class Kraken extends Exchange {
 
           specs[pair] = product.contractSize
 
-          if (products.find((a) => a.toLowerCase() === product.symbol.toLowerCase())) {
-            throw new Error('duplicate pair detected on kraken exchange (' + pair + ')')
+          if (
+            products.find(a => a.toLowerCase() === product.symbol.toLowerCase())
+          ) {
+            throw new Error(
+              'duplicate pair detected on kraken exchange (' + pair + ')'
+            )
           }
           products.push(pair)
         }
       } else if (data.result) {
         for (let id in data.result) {
           if (data.result[id].wsname) {
-            if (products.find((a) => a.toLowerCase() === data.result[id].wsname.toLowerCase())) {
-              throw new Error('duplicate pair detected on kraken exchange (' + data.result[id].wsname + ')')
+            if (
+              products.find(
+                a => a.toLowerCase() === data.result[id].wsname.toLowerCase()
+              )
+            ) {
+              throw new Error(
+                'duplicate pair detected on kraken exchange (' +
+                  data.result[id].wsname +
+                  ')'
+              )
             }
             products.push(data.result[id].wsname)
           }
@@ -57,7 +72,7 @@ class Kraken extends Exchange {
 
     return {
       products,
-      specs,
+      specs
     }
   }
 
@@ -72,7 +87,7 @@ class Kraken extends Exchange {
     }
 
     const event = {
-      event: 'subscribe',
+      event: 'subscribe'
     }
 
     if (typeof this.specs[pair] !== 'undefined') {
@@ -83,7 +98,7 @@ class Kraken extends Exchange {
       // spot
       event.pair = [pair]
       event.subscription = {
-        name: 'trade',
+        name: 'trade'
       }
     }
 
@@ -101,7 +116,7 @@ class Kraken extends Exchange {
     }
 
     const event = {
-      event: 'unsubscribe',
+      event: 'unsubscribe'
     }
 
     if (typeof this.specs[pair] !== 'undefined') {
@@ -112,7 +127,7 @@ class Kraken extends Exchange {
       // spot
       event.pair = [pair]
       event.subscription = {
-        name: 'trade',
+        name: 'trade'
       }
     }
 
@@ -126,8 +141,10 @@ class Kraken extends Exchange {
         pair: pair,
         timestamp: isNaN(trade.time) ? +new Date(trade.time) : trade.time,
         price: trade.price,
-        size: (typeof trade.qty !== 'undefined' ? trade.qty : trade.size) / trade.price,
-        side: trade.side,
+        size:
+          (typeof trade.qty !== 'undefined' ? trade.qty : trade.size) /
+          trade.price,
+        side: trade.side
       }
 
       if (trade.type === 'liquidation') {
@@ -142,7 +159,7 @@ class Kraken extends Exchange {
         timestamp: trade[2] * 1000,
         price: +trade[0],
         size: +trade[1],
-        side: trade[3] === 'b' ? 'buy' : 'sell',
+        side: trade[3] === 'b' ? 'buy' : 'sell'
       }
     }
   }
@@ -160,14 +177,16 @@ class Kraken extends Exchange {
       if (json.type === 'fill') {
         this.emitTrades(api.id, [this.formatTrade(json, json.product_id, true)])
       } else if (json.type === 'liquidation') {
-        this.emitLiquidations(api.id, [this.formatTrade(json, json.product_id, true)])
+        this.emitLiquidations(api.id, [
+          this.formatTrade(json, json.product_id, true)
+        ])
       }
     } else if (json[1] && json[1].length) {
       // spot
 
       return this.emitTrades(
         api.id,
-        json[1].map((trade) => this.formatTrade(trade, json[3]))
+        json[1].map(trade => this.formatTrade(trade, json[3]))
       )
     }
 
@@ -182,15 +201,19 @@ class Kraken extends Exchange {
 
     if (isFutures) {
       // https://futures.kraken.com/derivatives/api/v3/history?symbol=PI_XBTUSD&lastTime=2022-06-16T12:32:23.002Z
-      endpoint = `https://futures.kraken.com/derivatives/api/v3/history?symbol=${pair}&lastTime=${new Date(range.to).toISOString()}`
+      endpoint = `https://futures.kraken.com/derivatives/api/v3/history?symbol=${pair}&lastTime=${new Date(
+        range.to
+      ).toISOString()}`
     } else {
       // https://api.kraken.com/0/public/Trades?pair=XBTUSD&since=1655381732.9661162
-      endpoint = `https://api.kraken.com/0/public/Trades?pair=${pair}&since=${range.from / 1000}`
+      endpoint = `https://api.kraken.com/0/public/Trades?pair=${pair}&since=${
+        range.from / 1000
+      }`
     }
 
     return axios
       .get(endpoint)
-      .then((response) => {
+      .then(response => {
         let raw
 
         if (isFutures) {
@@ -201,8 +224,10 @@ class Kraken extends Exchange {
 
         if (raw.length) {
           const trades = raw
-            .map((trade) => this.formatTrade(trade, range.pair, isFutures))
-            .filter((a) => a.timestamp >= range.from + 1 && a.timestamp < range.to)
+            .map(trade => this.formatTrade(trade, range.pair, isFutures))
+            .filter(
+              a => a.timestamp >= range.from + 1 && a.timestamp < range.to
+            )
 
           if (trades.length) {
             this.emitTrades(null, trades)
@@ -219,17 +244,21 @@ class Kraken extends Exchange {
 
             if (remainingMissingTime > 1000) {
               console.log(
-                `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(
+                `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                  range.pair
+                } ... but theres more (${getHms(
                   remainingMissingTime
                 )} remaining)`
               )
 
-              return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered))
+              return this.waitBeforeContinueRecovery().then(() =>
+                this.getMissingTrades(range, totalRecovered)
+              )
             } else {
               console.log(
-                `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... (${getHms(
-                  remainingMissingTime
-                )} remaining)`
+                `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                  range.pair
+                } ... (${getHms(remainingMissingTime)} remaining)`
               )
             }
           }
@@ -237,8 +266,11 @@ class Kraken extends Exchange {
 
         return totalRecovered
       })
-      .catch((err) => {
-        console.error(`Failed to get historical trades on ${range.pair}`, err.message)
+      .catch(err => {
+        console.error(
+          `Failed to get historical trades on ${range.pair}`,
+          err.message
+        )
       })
   }
 }

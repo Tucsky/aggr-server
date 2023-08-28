@@ -11,7 +11,7 @@ class Binance extends Exchange {
     this.subscriptions = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://data.binance.com/api/v3/exchangeInfo',
+      PRODUCTS: 'https://data.binance.com/api/v3/exchangeInfo'
     }
 
     this.url = () => `wss://stream.binance.com:9443/ws`
@@ -39,7 +39,7 @@ class Binance extends Exchange {
       JSON.stringify({
         method: 'SUBSCRIBE',
         params,
-        id: this.subscriptions[pair],
+        id: this.subscriptions[pair]
       })
     )
 
@@ -63,7 +63,7 @@ class Binance extends Exchange {
       JSON.stringify({
         method: 'UNSUBSCRIBE',
         params,
-        id: this.subscriptions[pair],
+        id: this.subscriptions[pair]
       })
     )
 
@@ -77,7 +77,9 @@ class Binance extends Exchange {
     const json = JSON.parse(event.data)
 
     if (json.E) {
-      return this.emitTrades(api.id, [this.formatTrade(json, json.s.toLowerCase())])
+      return this.emitTrades(api.id, [
+        this.formatTrade(json, json.s.toLowerCase())
+      ])
     }
   }
 
@@ -88,7 +90,7 @@ class Binance extends Exchange {
       timestamp: trade.E,
       price: +trade.p,
       size: +trade.q,
-      side: trade.m ? 'sell' : 'buy',
+      side: trade.m ? 'sell' : 'buy'
     }
   }
 
@@ -102,12 +104,12 @@ class Binance extends Exchange {
 
     return axios
       .get(endpoint)
-      .then((response) => {
+      .then(response => {
         if (response.data.length) {
-          const trades = response.data.map((trade) => ({
+          const trades = response.data.map(trade => ({
             ...this.formatTrade(trade, range.pair),
             count: trade.l - trade.f + 1,
-            timestamp: trade.T,
+            timestamp: trade.T
           }))
 
           this.emitTrades(null, trades)
@@ -118,17 +120,30 @@ class Binance extends Exchange {
           const remainingMissingTime = range.to - range.from
 
           if (remainingMissingTime > 1000) {
-            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... (${getHms(remainingMissingTime)} remaining)`)
-            return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered))
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } ... (${getHms(remainingMissingTime)} remaining)`
+            )
+            return this.waitBeforeContinueRecovery().then(() =>
+              this.getMissingTrades(range, totalRecovered)
+            )
           } else {
-            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } (${getHms(remainingMissingTime)} remaining)`
+            )
           }
         }
 
         return totalRecovered
       })
-      .catch((err) => {
-        console.error(`Failed to get historical trades on ${range.pair}`, err.message)
+      .catch(err => {
+        console.error(
+          `Failed to get historical trades on ${range.pair}`,
+          err.message
+        )
       })
   }
 }

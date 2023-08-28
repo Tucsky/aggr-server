@@ -15,16 +15,16 @@ class Bitget extends Exchange {
         'https://api.bitget.com/api/mix/v1/market/contracts?productType=umcbl',
         'https://api.bitget.com/api/mix/v1/market/contracts?productType=dmcbl',
         'https://api.bitget.com/api/mix/v1/market/contracts?productType=cmcbl'
-      ],
+      ]
     }
 
-    this.url = (pair) => {
+    this.url = pair => {
       if (this.types[pair] === 'spot') {
         return 'wss://ws.bitget.com/spot/v1/stream'
       }
-  
+
       return 'wss://ws.bitget.com/mix/v1/stream'
-    };
+    }
   }
 
   formatProducts(responses) {

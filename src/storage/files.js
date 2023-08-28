@@ -1,6 +1,11 @@
 const fs = require('fs')
 const zlib = require('zlib')
-const { groupTrades, ensureDirectoryExists, getHms, humanFileSize } = require('../helper')
+const {
+  groupTrades,
+  ensureDirectoryExists,
+  getHms,
+  humanFileSize
+} = require('../helper')
 const config = require('../config')
 
 class FilesStorage {
@@ -19,7 +24,9 @@ class FilesStorage {
       fs.mkdirSync(config.filesLocation)
     }
 
-    console.log(`[storage/${this.name}] destination folder: ${config.filesLocation}`)
+    console.log(
+      `[storage/${this.name}] destination folder: ${config.filesLocation}`
+    )
   }
 
   /**
@@ -37,7 +44,10 @@ class FilesStorage {
     pair = pair.replace(/[/:]/g, '-')
 
     const folderPart = `${config.filesLocation}/${exchange}/${pair}`
-    const datePart = `${date.getUTCFullYear()}-${('0' + (date.getUTCMonth() + 1)).slice(-2)}-${('0' + date.getUTCDate()).slice(-2)}`
+    const datePart = `${date.getUTCFullYear()}-${(
+      '0' +
+      (date.getUTCMonth() + 1)
+    ).slice(-2)}-${('0' + date.getUTCDate()).slice(-2)}`
 
     let file = `${folderPart}/${datePart}`
 
@@ -63,21 +73,30 @@ class FilesStorage {
     try {
       await ensureDirectoryExists(path)
     } catch (error) {
-      console.error(`[storage/${this.name}] failed to create target directory ${path}`, error)
+      console.error(
+        `[storage/${this.name}] failed to create target directory ${path}`,
+        error
+      )
     }
 
     const stream = fs.createWriteStream(path, { flags: 'a' })
 
     this.writableStreams[identifier + ts] = {
       timestamp: +ts,
-      stream,
+      stream
     }
 
-    stream.on('error', (err) => {
-      console.error(`[storage/${this.name}] ${path} stream encountered an error\n\t${err.message}`)
+    stream.on('error', err => {
+      console.error(
+        `[storage/${this.name}] ${path} stream encountered an error\n\t${err.message}`
+      )
     })
 
-    console.debug(`[storage/${this.name}] created writable stream ${date.toUTCString()} => ${path}`)
+    console.debug(
+      `[storage/${
+        this.name
+      }] created writable stream ${date.toUTCString()} => ${path}`
+    )
   }
 
   reviewStreams() {
@@ -85,7 +104,12 @@ class FilesStorage {
 
     for (let id in this.writableStreams) {
       // close 5 min (config.filesCloseAfter) after file expiration
-      if (now > this.writableStreams[id].timestamp + config.filesInterval + config.filesCloseAfter) {
+      if (
+        now >
+        this.writableStreams[id].timestamp +
+          config.filesInterval +
+          config.filesCloseAfter
+      ) {
         const path = this.writableStreams[id].stream.path
 
         console.debug(`[storage/${this.name}] close writable stream ${id}`)
@@ -93,7 +117,10 @@ class FilesStorage {
         try {
           this.writableStreams[id].stream.end()
         } catch (error) {
-          console.error(`[storage/${this.name}] failed to 'end' writable stream ${id}`, error)
+          console.error(
+            `[storage/${this.name}] failed to 'end' writable stream ${id}`,
+            error
+          )
         }
 
         delete this.writableStreams[id]
@@ -102,7 +129,10 @@ class FilesStorage {
           try {
             this.gzipFileAndRemoveRaw(path)
           } catch (error) {
-            console.error(`[storage/${this.name}] failed to gzip & remove original file "${path}"`, error)
+            console.error(
+              `[storage/${this.name}] failed to gzip & remove original file "${path}"`,
+              error
+            )
           }
         }
       }
@@ -116,22 +146,26 @@ class FilesStorage {
       rawPath = rawPath.replace(/\.gz$/, '')
     }
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       fs.createReadStream(rawPath)
         .pipe(zlib.createGzip())
         .pipe(fs.createWriteStream(`${rawPath}.gz`))
         .on('finish', () => {
           console.debug(`[storage/${this.name}] gziped ${rawPath}`)
-          fs.unlink(rawPath, (err) => {
+          fs.unlink(rawPath, err => {
             if (err) {
-              console.error(`[storage/${this.name}] failed to remove original file after gzip compression (${rawPath})`)
+              console.error(
+                `[storage/${this.name}] failed to remove original file after gzip compression (${rawPath})`
+              )
             }
 
             resolve()
           })
         })
-        .on('error', (err) => {
-          console.debug(`[storage/${this.name}] error while removing/compressing trade file ${rawPath}\n\t${err.message}`)
+        .on('error', err => {
+          console.debug(
+            `[storage/${this.name}] error while removing/compressing trade file ${rawPath}\n\t${err.message}`
+          )
         })
     })
   }
@@ -148,13 +182,14 @@ class FilesStorage {
       for (let i = 0; i < groups[identifier].length; i++) {
         const trade = groups[identifier][i]
 
-        const ts = Math.floor(trade[0] / config.filesInterval) * config.filesInterval
+        const ts =
+          Math.floor(trade[0] / config.filesInterval) * config.filesInterval
 
         if (!output[identifier][ts]) {
           output[identifier][ts] = {
             from: trade[0],
             to: trade[0],
-            data: '',
+            data: ''
           }
         }
 
@@ -167,15 +202,15 @@ class FilesStorage {
   }
 
   save(trades) {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const output = this.prepareTrades(trades)
-      
+
       const promises = []
 
       for (let identifier in output) {
         for (let ts in output[identifier]) {
           promises.push(
-            new Promise((resolve) => {
+            new Promise(resolve => {
               let promiseOfWritableStram = Promise.resolve()
 
               if (!this.writableStreams[identifier + ts]) {
@@ -186,23 +221,32 @@ class FilesStorage {
                 const stream = this.writableStreams[identifier + ts].stream
 
                 if (!stream) {
-                  console.error(`[storage/${this.name}] ${identifier}'s stream already closed`)
+                  console.error(
+                    `[storage/${this.name}] ${identifier}'s stream already closed`
+                  )
                   return resolve()
                 }
-                
-                const waitDrain = !stream.write(output[identifier][ts].data, (err) => {
-                  if (err) {
-                    console.error(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
-                  }
 
-                  if (!waitDrain) {
-                    resolve()
+                const waitDrain = !stream.write(
+                  output[identifier][ts].data,
+                  err => {
+                    if (err) {
+                      console.error(
+                        `[storage/${this.name}] stream.write encountered an error\n\t${err}`
+                      )
+                    }
+
+                    if (!waitDrain) {
+                      resolve()
+                    }
                   }
-                })
+                )
 
                 if (waitDrain) {
                   let drainTimeout = setTimeout(() => {
-                    console.log(`[storage/${this.name}] ${identifier}'s stream drain timeout fired`)
+                    console.log(
+                      `[storage/${this.name}] ${identifier}'s stream drain timeout fired`
+                    )
                     drainTimeout = null
                     resolve()
                   }, 5000)
@@ -212,7 +256,9 @@ class FilesStorage {
                       clearTimeout(drainTimeout)
                       resolve()
                     } else {
-                      console.log(`[storage/${this.name}] ${identifier}'s stream drain callback received`)
+                      console.log(
+                        `[storage/${this.name}] ${identifier}'s stream drain callback received`
+                      )
                     }
                   })
                 }
@@ -223,7 +269,7 @@ class FilesStorage {
       }
 
       Promise.all(promises).then(() => resolve())
-    }).then((success) => {
+    }).then(success => {
       this.reviewStreams()
 
       return success
@@ -231,7 +277,6 @@ class FilesStorage {
   }
 
   async insert(trades) {
-
     const output = this.prepareTrades(trades)
 
     for (const market in output) {
@@ -244,7 +289,10 @@ class FilesStorage {
         try {
           await ensureDirectoryExists(path)
         } catch (error) {
-          console.error(`[storage/${this.name}] failed to create target directory ${path}`, error)
+          console.error(
+            `[storage/${this.name}] failed to create target directory ${path}`,
+            error
+          )
         }
 
         let stat = await this.statFile(path)
@@ -254,7 +302,13 @@ class FilesStorage {
           stat = await this.statFile(path)
         }
 
-        console.log(`[storage/file] insert ${getHms(lastTradeTimestampInsert - firstTradeTimestampInsert)} of trades into ${path} (${stat ? 'file exists' : 'file doesn\'t exists'})`)
+        console.log(
+          `[storage/file] insert ${getHms(
+            lastTradeTimestampInsert - firstTradeTimestampInsert
+          )} of trades into ${path} (${
+            stat ? 'file exists' : "file doesn't exists"
+          })`
+        )
 
         if (stat) {
           // edit existing file
@@ -274,7 +328,9 @@ class FilesStorage {
           }
 
           const firstTradeTimestampFile = +tradesFile[0].replace(/ .*/, '')
-          const lastTradeTimestampFile = +tradesFile[tradesFile.length - 1].replace(/ .*/, '')
+          const lastTradeTimestampFile = +tradesFile[
+            tradesFile.length - 1
+          ].replace(/ .*/, '')
 
           if (firstTradeTimestampFile > lastTradeTimestampInsert) {
             // insert before
@@ -282,7 +338,9 @@ class FilesStorage {
             tradesFile = tradesInsert.concat(tradesFile)
           } else if (lastTradeTimestampFile < firstTradeTimestampInsert) {
             // insert after
-            console.log(`\t append ${tradesInsert.length} trades (index ${tradesFile.length})`)
+            console.log(
+              `\t append ${tradesInsert.length} trades (index ${tradesFile.length})`
+            )
             tradesFile = tradesFile.concat(tradesInsert)
           } else {
             // insert in the middle
@@ -292,12 +350,19 @@ class FilesStorage {
             for (let i = 0; i < tradesFile.length; i++) {
               const tradeTimestamp = +tradesFile[i].replace(/ .*/, '')
 
-              if (replaceRange === null && tradeTimestamp >= output[market][fileTimestamp].from) {
+              if (
+                replaceRange === null &&
+                tradeTimestamp >= output[market][fileTimestamp].from
+              ) {
                 replaceRange = {
                   start: i,
-                  end: i,
+                  end: i
                 }
-              } else if (replaceRange && (tradeTimestamp > output[market][fileTimestamp].to || i === tradesFile.length - 1)) {
+              } else if (
+                replaceRange &&
+                (tradeTimestamp > output[market][fileTimestamp].to ||
+                  i === tradesFile.length - 1)
+              ) {
                 replaceRange.end = i
                 break
               }
@@ -308,15 +373,26 @@ class FilesStorage {
             }
 
             console.log(
-              `\tinsert ${tradesInsert.length} trades at index ${replaceRange.start} (while splicing ${
+              `\tinsert ${tradesInsert.length} trades at index ${
+                replaceRange.start
+              } (while splicing ${
                 replaceRange.end - replaceRange.start + 1
               } trades from original)`
             )
-            
-            const change = (replaceRange.end - replaceRange.start) - tradesInsert.length
-            console.log(`\t merge ${tradesInsert.length} into original (net change ${change > 0 ? '+' : ''}${change} at index ${replaceRange.start})`)
 
-            tradesFile.splice(replaceRange.start, replaceRange.end - replaceRange.start, ...tradesInsert)
+            const change =
+              replaceRange.end - replaceRange.start - tradesInsert.length
+            console.log(
+              `\t merge ${tradesInsert.length} into original (net change ${
+                change > 0 ? '+' : ''
+              }${change} at index ${replaceRange.start})`
+            )
+
+            tradesFile.splice(
+              replaceRange.start,
+              replaceRange.end - replaceRange.start,
+              ...tradesInsert
+            )
           }
 
           await this.writeFile(path, tradesFile.join('\n') + '\n')
@@ -330,7 +406,7 @@ class FilesStorage {
   }
 
   statFile(path) {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       fs.stat(path, (err, stat) => {
         if (err) {
           err.code !== 'ENOENT' && console.log('failed to stat', path, err)
@@ -390,7 +466,9 @@ class FilesStorage {
 
   fetch() {
     // unsupported
-    console.error('[storage/file] historical data request not supported by this storage type (raw trade files)')
+    console.error(
+      '[storage/file] historical data request not supported by this storage type (raw trade files)'
+    )
     return Promise.resolve({
       format: this.format,
       results: []

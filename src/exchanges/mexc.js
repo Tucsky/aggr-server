@@ -10,10 +10,13 @@ class Mexc extends Exchange {
     this.maxConnectionsPerApi = 50
 
     this.endpoints = {
-      PRODUCTS: ['https://api.mexc.com/api/v3/defaultSymbols', 'https://contract.mexc.com/api/v1/contract/detail'],
+      PRODUCTS: [
+        'https://api.mexc.com/api/v3/defaultSymbols',
+        'https://contract.mexc.com/api/v1/contract/detail'
+      ]
     }
 
-    this.url = (pair) => {
+    this.url = pair => {
       if (typeof this.contractSizes[pair] === 'number') {
         return 'wss://contract.mexc.com/ws'
       }
@@ -44,7 +47,7 @@ class Mexc extends Exchange {
     return {
       products,
       contractSizes,
-      inversed,
+      inversed
     }
   }
 
@@ -63,15 +66,15 @@ class Mexc extends Exchange {
         JSON.stringify({
           method: 'sub.deal',
           param: {
-            symbol: pair,
-          },
+            symbol: pair
+          }
         })
       )
     } else {
       api.send(
         JSON.stringify({
           method: 'SUBSCRIPTION',
-          params: [`spot@public.deals.v3.api@${pair}`],
+          params: [`spot@public.deals.v3.api@${pair}`]
         })
       )
     }
@@ -95,15 +98,15 @@ class Mexc extends Exchange {
         JSON.stringify({
           method: 'unsub.deal',
           param: {
-            symbol: pair,
-          },
+            symbol: pair
+          }
         })
       )
     } else {
       api.send(
         JSON.stringify({
           method: 'UNSUBSCRIPTION',
-          params: [`spot@public.deals.v3.api@${pair}`],
+          params: [`spot@public.deals.v3.api@${pair}`]
         })
       )
     }
@@ -118,7 +121,7 @@ class Mexc extends Exchange {
       timestamp: trade.t,
       price: +trade.p,
       size: trade.v,
-      side: trade.S === 1 ? 'buy' : 'sell',
+      side: trade.S === 1 ? 'buy' : 'sell'
     }
   }
 
@@ -128,8 +131,10 @@ class Mexc extends Exchange {
       pair: pair,
       timestamp: trade.t,
       price: trade.p,
-      size: (trade.v * this.contractSizes[pair]) / (this.inversed[pair] ? 1 : trade.p),
-      side: trade.T === 1 ? 'buy' : 'sell',
+      size:
+        (trade.v * this.contractSizes[pair]) /
+        (this.inversed[pair] ? 1 : trade.p),
+      side: trade.T === 1 ? 'buy' : 'sell'
     }
   }
 
@@ -137,11 +142,13 @@ class Mexc extends Exchange {
     const json = JSON.parse(event.data)
 
     if (json.channel === 'push.deal') {
-      return this.emitTrades(api.id, [this.formatContractTrade(json.data, json.symbol)])
+      return this.emitTrades(api.id, [
+        this.formatContractTrade(json.data, json.symbol)
+      ])
     } else if (json.d && json.d.e === 'spot@public.deals.v3.api') {
       return this.emitTrades(
         api.id,
-        json.d.deals.map((trade) => this.formatSpotTrade(trade, json.s))
+        json.d.deals.map(trade => this.formatSpotTrade(trade, json.s))
       )
     }
   }
@@ -150,7 +157,7 @@ class Mexc extends Exchange {
     this.startKeepAlive(
       api,
       {
-        method: /contract/.test(api.url) ? 'ping' : 'PING',
+        method: /contract/.test(api.url) ? 'ping' : 'PING'
       },
       15000
     )

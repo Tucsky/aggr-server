@@ -8,14 +8,14 @@ class HitBtc extends Exchange {
     this.id = 'HITBTC'
 
     this.endpoints = {
-      PRODUCTS: 'https://api.hitbtc.com/api/2/public/symbol',
+      PRODUCTS: 'https://api.hitbtc.com/api/2/public/symbol'
     }
 
     this.url = 'wss://api.hitbtc.com/api/2/ws'
   }
 
   formatProducts(data) {
-    return data.map((product) => product.id)
+    return data.map(product => product.id)
   }
 
   /**
@@ -32,8 +32,8 @@ class HitBtc extends Exchange {
       JSON.stringify({
         method: 'subscribeTrades',
         params: {
-          symbol: pair,
-        },
+          symbol: pair
+        }
       })
     )
   }
@@ -52,8 +52,8 @@ class HitBtc extends Exchange {
       JSON.stringify({
         method: 'unsubscribeTrades',
         params: {
-          symbol: pair,
-        },
+          symbol: pair
+        }
       })
     )
   }
@@ -73,13 +73,13 @@ class HitBtc extends Exchange {
 
     return this.emitTrades(
       api.id,
-      json.params.data.map((trade) => ({
+      json.params.data.map(trade => ({
         exchange: this.id,
         pair: json.params.symbol,
         timestamp: +new Date(trade.timestamp),
         price: +trade.price,
         size: +trade.quantity,
-        side: trade.side,
+        side: trade.side
       }))
     )
   }

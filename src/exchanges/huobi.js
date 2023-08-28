@@ -17,7 +17,7 @@ class Huobi extends Exchange {
       this_week: 'CW',
       next_week: 'NW',
       quarter: 'CQ',
-      next_quarter: 'NQ',
+      next_quarter: 'NQ'
     }
 
     this.prices = {}
@@ -27,11 +27,11 @@ class Huobi extends Exchange {
         'https://api.huobi.pro/v1/common/symbols',
         'https://api.hbdm.com/api/v1/contract_contract_info',
         'https://api.hbdm.com/swap-api/v1/swap_contract_info',
-        'https://api.hbdm.com/linear-swap-api/v1/swap_contract_info',
-      ],
+        'https://api.hbdm.com/linear-swap-api/v1/swap_contract_info'
+      ]
     }
 
-    this.url = (pair) => {
+    this.url = pair => {
       if (this.types[pair] === 'futures') {
         return 'wss://www.hbdm.com/ws'
       } else if (this.types[pair] === 'swap') {
@@ -57,10 +57,15 @@ class Huobi extends Exchange {
 
         switch (type) {
           case 'spot':
-            pair = (product['base-currency'] + product['quote-currency']).toLowerCase()
+            pair = (
+              product['base-currency'] + product['quote-currency']
+            ).toLowerCase()
             break
           case 'futures':
-            pair = product.symbol + '_' + this.contractTypesAliases[product.contract_type]
+            pair =
+              product.symbol +
+              '_' +
+              this.contractTypesAliases[product.contract_type]
             specs[pair] = product.contract_size
             break
           case 'swap':
@@ -79,7 +84,7 @@ class Huobi extends Exchange {
     return {
       products,
       specs,
-      types,
+      types
     }
   }
 
@@ -98,7 +103,7 @@ class Huobi extends Exchange {
     api.send(
       JSON.stringify({
         sub: 'market.' + pair + '.trade.detail',
-        id: pair,
+        id: pair
       })
     )
 
@@ -118,7 +123,7 @@ class Huobi extends Exchange {
     api.send(
       JSON.stringify({
         unsub: 'market.' + pair + '.trade.detail',
-        id: pair,
+        id: pair
       })
     )
   }
@@ -146,7 +151,7 @@ class Huobi extends Exchange {
 
       this.emitTrades(
         api.id,
-        json.tick.data.map((trade) => this.formatTrade(trade, pair))
+        json.tick.data.map(trade => this.formatTrade(trade, pair))
       )
 
       return true
@@ -157,7 +162,9 @@ class Huobi extends Exchange {
     let size = +trade.amount
 
     if (typeof this.specs[pair] === 'number') {
-      size = (size * this.specs[pair]) / (this.types[pair] === 'linear' ? 1 : trade.price)
+      size =
+        (size * this.specs[pair]) /
+        (this.types[pair] === 'linear' ? 1 : trade.price)
     }
 
     this.prices[pair] = trade.price // used for liquidation amount in quote currency
@@ -168,7 +175,7 @@ class Huobi extends Exchange {
       timestamp: trade.ts,
       price: +trade.price,
       size: size,
-      side: trade.direction,
+      side: trade.direction
     }
   }
 
@@ -180,7 +187,7 @@ class Huobi extends Exchange {
       price: this.prices[pair] || trade.price,
       size: +trade.amount,
       side: trade.direction,
-      liquidation: true,
+      liquidation: true
     }
   }
 
@@ -188,23 +195,33 @@ class Huobi extends Exchange {
     if (api.url === 'wss://api.hbdm.com/swap-ws') {
       api._marketDataApi = new WebSocket('wss://api.hbdm.com/swap-notification') // coin margined
     } else if (api.url === 'wss://api.hbdm.com/linear-swap-ws') {
-      api._marketDataApi = new WebSocket('wss://api.hbdm.com/linear-swap-notification') // usdt margined
+      api._marketDataApi = new WebSocket(
+        'wss://api.hbdm.com/linear-swap-notification'
+      ) // usdt margined
     }
 
     if (api._marketDataApi) {
       // coin/linear swap
-      console.log(`[${this.id}] opened market data api ${api._marketDataApi.url}`)
-      api._marketDataApi.onmessage = (event) => {
+      console.log(
+        `[${this.id}] opened market data api ${api._marketDataApi.url}`
+      )
+      api._marketDataApi.onmessage = event => {
         const json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
 
-        if (json.op === 'ping' && api._marketDataApi.readyState === WebSocket.OPEN) {
+        if (
+          json.op === 'ping' &&
+          api._marketDataApi.readyState === WebSocket.OPEN
+        ) {
           api._marketDataApi.send(JSON.stringify({ op: 'pong', ts: json.ts }))
         } else if (json.data) {
-          const pair = json.topic.replace(/public.(.*).liquidation_orders/, '$1')
+          const pair = json.topic.replace(
+            /public.(.*).liquidation_orders/,
+            '$1'
+          )
 
           this.emitTrades(
             api.id,
-            json.data.map((trade) => this.formatLiquidation(trade, pair))
+            json.data.map(trade => this.formatLiquidation(trade, pair))
           )
         }
       }
@@ -215,11 +232,11 @@ class Huobi extends Exchange {
         }
       }
 
-      api._marketDataApi.onerror = (event) => {
+      api._marketDataApi.onerror = event => {
         console.error(`[${this.id}] market data api errored ${event.message}`)
       }
 
-      api._marketDataApi.onclose = (event) => {
+      api._marketDataApi.onclose = event => {
         if (!event.wasClean) {
           console.error(`[${this.id}] market data api closed unexpectedly`)
         }
@@ -253,14 +270,16 @@ class Huobi extends Exchange {
 
     return axios
       .get(endpoint)
-      .then((response) => {
+      .then(response => {
         if (response.data.data.length) {
           const trades = response.data.data
             .reduce((acc, batch) => {
               return acc.concat(batch.data)
             }, [])
-            .map((trade) => this.formatTrade(trade, range.pair))
-            .filter((a) => a.timestamp >= range.from + 1 && a.timestamp < range.to)
+            .map(trade => this.formatTrade(trade, range.pair))
+            .filter(
+              a => a.timestamp >= range.from + 1 && a.timestamp < range.to
+            )
 
           if (trades.length) {
             this.emitTrades(null, trades)
@@ -271,13 +290,20 @@ class Huobi extends Exchange {
 
           const remainingMissingTime = range.to - range.from
 
-          console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+          console.log(
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${
+              range.pair
+            } (${getHms(remainingMissingTime)} remaining)`
+          )
         }
 
         return totalRecovered
       })
-      .catch((err) => {
-        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+      .catch(err => {
+        console.error(
+          `[${this.id}] failed to get missing trades on ${range.pair}`,
+          err.message
+        )
 
         return totalRecovered
       })
@@ -287,14 +313,19 @@ class Huobi extends Exchange {
     if (
       api._marketDataApi &&
       api._marketDataApi.readyState === WebSocket.OPEN &&
-      (this.types[pair] === 'futures' || this.types[pair] === 'swap' || this.types[pair] === 'linear')
+      (this.types[pair] === 'futures' ||
+        this.types[pair] === 'swap' ||
+        this.types[pair] === 'linear')
     ) {
-      const symbol = this.types[pair] === 'futures' ? pair.replace(/\d+/, '').replace(/-.*/, '') : pair
+      const symbol =
+        this.types[pair] === 'futures'
+          ? pair.replace(/\d+/, '').replace(/-.*/, '')
+          : pair
 
       api._marketDataApi.send(
         JSON.stringify({
           op: unsubscribe ? 'unsub' : 'sub',
-          topic: 'public.' + symbol + '.liquidation_orders',
+          topic: 'public.' + symbol + '.liquidation_orders'
         })
       )
     }

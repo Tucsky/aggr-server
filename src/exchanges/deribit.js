@@ -11,8 +11,8 @@ class Deribit extends Exchange {
       PRODUCTS: [
         'https://www.deribit.com/api/v2/public/get_instruments?currency=BTC',
         'https://www.deribit.com/api/v2/public/get_instruments?currency=ETH',
-        'https://www.deribit.com/api/v2/public/get_instruments?currency=USDC',
-      ],
+        'https://www.deribit.com/api/v2/public/get_instruments?currency=USDC'
+      ]
     }
 
     this.url = `wss://www.deribit.com/ws/api/v2`
@@ -36,7 +36,7 @@ class Deribit extends Exchange {
 
     return {
       products,
-      types,
+      types
     }
   }
 
@@ -64,8 +64,8 @@ class Deribit extends Exchange {
           params: {
             grant_type: 'client_credentials',
             client_id: config.deribitClientId,
-            client_secret: config.deribitClientSecret,
-          },
+            client_secret: config.deribitClientSecret
+          }
         })
       )
     }
@@ -75,8 +75,8 @@ class Deribit extends Exchange {
         access_token: this.accessToken,
         method: 'public/subscribe',
         params: {
-          channels: ['trades.' + pair + '.raw'],
-        },
+          channels: ['trades.' + pair + '.raw']
+        }
       })
     )
   }
@@ -96,8 +96,8 @@ class Deribit extends Exchange {
         access_token: this.accessToken,
         method: 'public/unsubscribe',
         params: {
-          channels: ['trades.' + pair + '.raw'],
-        },
+          channels: ['trades.' + pair + '.raw']
+        }
       })
     )
   }
@@ -116,20 +116,25 @@ class Deribit extends Exchange {
       price: +trade.price,
       size: size,
       side: trade.direction,
-      liquidation: trade.liquidation,
+      liquidation: trade.liquidation
     }
   }
 
   onMessage(event, api) {
     const json = JSON.parse(event.data)
 
-    if (!json || !json.params || !json.params.data || !json.params.data.length) {
+    if (
+      !json ||
+      !json.params ||
+      !json.params.data ||
+      !json.params.data.length
+    ) {
       return
     }
 
     return this.emitTrades(
       api.id,
-      json.params.data.map((a) => this.formatTrade(a))
+      json.params.data.map(a => this.formatTrade(a))
     )
   }
 

@@ -9,14 +9,14 @@ class Poloniex extends Exchange {
     this.channels = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://api.poloniex.com/markets',
+      PRODUCTS: 'https://api.poloniex.com/markets'
     }
 
     this.url = 'wss://ws.poloniex.com/ws/public'
   }
 
   formatProducts(data) {
-    return data.map((product) => product.symbol)
+    return data.map(product => product.symbol)
   }
 
   /**
@@ -33,7 +33,7 @@ class Poloniex extends Exchange {
       JSON.stringify({
         event: 'subscribe',
         channel: ['trades'],
-        symbols: [pair],
+        symbols: [pair]
       })
     )
   }
@@ -52,7 +52,7 @@ class Poloniex extends Exchange {
       JSON.stringify({
         event: 'unsubscribe',
         channel: ['trades'],
-        symbols: [pair],
+        symbols: [pair]
       })
     )
   }
@@ -64,7 +64,7 @@ class Poloniex extends Exchange {
       timestamp: trade.createTime,
       price: +trade.price,
       size: trade.amount / trade.price,
-      side: trade.takerSide,
+      side: trade.takerSide
     }
   }
 
@@ -77,7 +77,7 @@ class Poloniex extends Exchange {
 
     return this.emitTrades(
       api.id,
-      json.data.map((trade) => this.formatTrade(trade))
+      json.data.map(trade => this.formatTrade(trade))
     )
   }
 

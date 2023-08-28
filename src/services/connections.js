@@ -37,7 +37,7 @@ const indexes = (module.exports.indexes = [])
     if (!cacheIndexes[product.local]) {
       cacheIndexes[product.local] = {
         id: product.local,
-        markets: [],
+        markets: []
       }
     }
 
@@ -56,10 +56,13 @@ const indexes = (module.exports.indexes = [])
 function getConnectionsPersistance() {
   const path = 'products/connections.json'
 
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     fs.readFile(path, 'utf8', (err, data) => {
       if (err && err.code !== 'ENOENT') {
-        console.error(`[connections] failed to persist connections timestamps to ${path}`, err)
+        console.error(
+          `[connections] failed to persist connections timestamps to ${path}`,
+          err
+        )
       }
 
       let json = {}
@@ -68,7 +71,10 @@ function getConnectionsPersistance() {
         try {
           json = JSON.parse(data)
         } catch (parseError) {
-          console.error(`[connections] connection.json is corrupted`, parseError.message)
+          console.error(
+            `[connections] connection.json is corrupted`,
+            parseError.message
+          )
           json = {}
         }
       }
@@ -86,7 +92,8 @@ function getConnectionsPersistance() {
  * @returns {Connection} clean connection
  */
 function cleanConnection(connection) {
-  let { exchange, pair, hit, startedAt, timestamp, restarts, close } = connection
+  let { exchange, pair, hit, startedAt, timestamp, restarts, close } =
+    connection
 
   if (!exchange) {
     throw new Error(`unknown connection's exchange`)
@@ -144,8 +151,15 @@ function cleanConnection(connection) {
 function getConnectionThreshold(connection) {
   let threshold = config.reconnectionThreshold
 
-  if (config.reconnectionThreshold && typeof config.reconnectionThreshold === 'string' && isNaN(config.reconnectionThreshold)) {
-    threshold = new Function('connection', `'use strict'; return ${config.reconnectionThreshold}`)(connection)
+  if (
+    config.reconnectionThreshold &&
+    typeof config.reconnectionThreshold === 'string' &&
+    isNaN(config.reconnectionThreshold)
+  ) {
+    threshold = new Function(
+      'connection',
+      `'use strict'; return ${config.reconnectionThreshold}`
+    )(connection)
   }
 
   if (!threshold || threshold < 0 || !isFinite(threshold)) {
@@ -162,7 +176,9 @@ function getConnectionThreshold(connection) {
  * @returns {number} average hits per 1min
  */
 function getConnectionHitAverage(connection) {
-  return connection.hit * (60000 / (connection.timestamp - connection.startedAt))
+  return (
+    connection.hit * (60000 / (connection.timestamp - connection.startedAt))
+  )
 }
 
 /**
@@ -171,7 +187,11 @@ function getConnectionHitAverage(connection) {
  * @returns {number} average hits per 1min
  */
 function getConnectionPing(connection) {
-  return Math.max(connection.startedAt, connection.timestamp, connection.lastReconnection || connection.startedAt)
+  return Math.max(
+    connection.startedAt,
+    connection.timestamp,
+    connection.lastReconnection || connection.startedAt
+  )
 }
 
 /**
@@ -198,7 +218,10 @@ module.exports.restoreConnections = async function () {
   const now = Date.now()
 
   for (const market in persistance) {
-    if (config.pairs.indexOf(market) === -1 || config.exchanges.indexOf(persistance[market].exchange) === -1) {
+    if (
+      config.pairs.indexOf(market) === -1 ||
+      config.exchanges.indexOf(persistance[market].exchange) === -1
+    ) {
       // filter out connection that doesn't concern this instance
       continue
     }
@@ -206,12 +229,17 @@ module.exports.restoreConnections = async function () {
     if (
       !persistance[market].forceRecovery &&
       (!persistance[market].timestamp ||
-        (config.staleConnectionThreshold > 0 && now - persistance[market].timestamp > config.staleConnectionThreshold))
+        (config.staleConnectionThreshold > 0 &&
+          now - persistance[market].timestamp >
+            config.staleConnectionThreshold))
     ) {
       console.log(
         `[connections] couldn't restore ${market}'s connection because ${
           persistance[market].timestamp
-            ? `last ping is too old (${getHms(now - persistance[market].timestamp, true)} ago)`
+            ? `last ping is too old (${getHms(
+                now - persistance[market].timestamp,
+                true
+              )} ago)`
             : `last ping is unknown`
         }`
       )
@@ -245,7 +273,12 @@ module.exports.restoreConnections = async function () {
 
     const ping = now - connections[market].timestamp
 
-    console.log(`[connections] restored ${market}'s connection state (last trade was ${getHms(ping, true)} ago)`)
+    console.log(
+      `[connections] restored ${market}'s connection state (last trade was ${getHms(
+        ping,
+        true
+      )} ago)`
+    )
 
     pings.push(now - connections[market].timestamp)
   }
@@ -296,10 +329,13 @@ module.exports.saveConnections = async function (immediate = false) {
 
   await ensureDirectoryExists(path)
 
-  return new Promise((resolve) => {
-    fs.writeFile(path, JSON.stringify(persistance), (err) => {
+  return new Promise(resolve => {
+    fs.writeFile(path, JSON.stringify(persistance), err => {
       if (err) {
-        console.error(`[connections] failed to persist connections to ${path}`, err)
+        console.error(
+          `[connections] failed to persist connections to ${path}`,
+          err
+        )
         resolve(false)
       }
 
@@ -328,7 +364,7 @@ module.exports.registerConnection = function (id, exchange, pair) {
       hit: 0,
       restarts: 0,
       startedAt: now,
-      timestamp: null,
+      timestamp: null
     }
 
     if (config.pairs.indexOf(id) === -1) {
@@ -341,9 +377,12 @@ module.exports.registerConnection = function (id, exchange, pair) {
 
     if (connections[id].timestamp) {
       // calculate estimated missing trade since last trade processed on that connection
-      const activeDuration = connections[id].timestamp - connections[id].startedAt
+      const activeDuration =
+        connections[id].timestamp - connections[id].startedAt
       const missDuration = now - connections[id].timestamp
-      connections[id].lastConnectionMissEstimate = Math.floor(connections[id].hit * (missDuration / activeDuration))
+      connections[id].lastConnectionMissEstimate = Math.floor(
+        connections[id].hit * (missDuration / activeDuration)
+      )
     }
 
     connections[id].lastReconnection = now
@@ -370,7 +409,11 @@ module.exports.updateIndexes = async function (ranges, callback) {
     let nbSources = 0
 
     for (const market of index.markets) {
-      if (!connections[market] || !connections[market].apiId || !connections[market].close) {
+      if (
+        !connections[market] ||
+        !connections[market].apiId ||
+        !connections[market].close
+      ) {
         continue
       }
 
@@ -396,7 +439,12 @@ module.exports.updateIndexes = async function (ranges, callback) {
 
     index.price = close / nbSources
 
-    await callback(index.id, high / nbSources, low / nbSources, index.price > open ? 1 : -1)
+    await callback(
+      index.id,
+      high / nbSources,
+      low / nbSources,
+      index.price > open ? 1 : -1
+    )
   }
 }
 
@@ -427,10 +475,13 @@ module.exports.dumpConnections = function (connections) {
       'avg hit': `${formatAmount(Math.floor(connections[id].avg))}/min`,
       'last hit': getHms(now - connections[id].ping),
       thrs: getHms(connections[id].thrs),
-      reco: connections[id].restarts,
+      reco: connections[id].restarts
     }
 
-    if (!module.exports.recovering[connections[id].exchange] && now - connections[id].ping > connections[id].thrs) {
+    if (
+      !module.exports.recovering[connections[id].exchange] &&
+      now - connections[id].ping > connections[id].thrs
+    ) {
       columns.thrs + ' ⚠️ (RECONNECT)'
     } else if (module.exports.recovering[connections[id].exchange]) {
       columns.ping + ' ⏬ (RECOVERING)'
@@ -444,7 +495,7 @@ module.exports.dumpConnections = function (connections) {
   }
 }
 
-module.exports.getActiveConnections = function() {
+module.exports.getActiveConnections = function () {
   const now = Date.now()
 
   return Object.keys(connections).reduce((acc, id) => {

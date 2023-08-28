@@ -13,10 +13,13 @@ class BinanceFutures extends Exchange {
 
     this.maxConnectionsPerApi = 100
     this.endpoints = {
-      PRODUCTS: ['https://fapi.binance.com/fapi/v1/exchangeInfo', 'https://dapi.binance.com/dapi/v1/exchangeInfo'],
+      PRODUCTS: [
+        'https://fapi.binance.com/fapi/v1/exchangeInfo',
+        'https://dapi.binance.com/dapi/v1/exchangeInfo'
+      ]
     }
 
-    this.url = (pair) => {
+    this.url = pair => {
       if (this.dapi[pair]) {
         return 'wss://dstream.binance.com/ws'
       } else {
@@ -34,7 +37,10 @@ class BinanceFutures extends Exchange {
       const type = ['fapi', 'dapi'][response.indexOf(data)]
 
       for (const product of data.symbols) {
-        if ((product.contractStatus && product.contractStatus !== 'TRADING') || (product.status && product.status !== 'TRADING')) {
+        if (
+          (product.contractStatus && product.contractStatus !== 'TRADING') ||
+          (product.status && product.status !== 'TRADING')
+        ) {
           continue
         }
 
@@ -55,7 +61,7 @@ class BinanceFutures extends Exchange {
     return {
       products,
       specs,
-      dapi,
+      dapi
     }
   }
 
@@ -77,7 +83,7 @@ class BinanceFutures extends Exchange {
       JSON.stringify({
         method: 'SUBSCRIBE',
         params,
-        id: this.subscriptions[pair],
+        id: this.subscriptions[pair]
       })
     )
 
@@ -88,7 +94,12 @@ class BinanceFutures extends Exchange {
     // trade stream might lag because of the amount of trades or even disconnect depending on network
     // trades can be recovered through REST api, liquidations doesn't
     // this is a test to see if liquidation stream remain stable as trades stream lag behind
-    console.log(`[${this.id}]`, 'call subscribeLiquidations ' + pair, '(after subscribe on main)', api.id)
+    console.log(
+      `[${this.id}]`,
+      'call subscribeLiquidations ' + pair,
+      '(after subscribe on main)',
+      api.id
+    )
     this.subscribeLiquidations(api, pair)
   }
 
@@ -108,7 +119,7 @@ class BinanceFutures extends Exchange {
       JSON.stringify({
         method: 'UNSUBSCRIBE',
         params,
-        id: this.subscriptions[pair],
+        id: this.subscriptions[pair]
       })
     )
 
@@ -117,7 +128,12 @@ class BinanceFutures extends Exchange {
     // this websocket api have a limit of about 5 messages per second.
     await sleep(500 * this.apis.length)
 
-    console.log(`[${this.id}]`, 'call UNsubscribeLiquidations ' + pair, '(after UNsubscribe on main)', api.id)
+    console.log(
+      `[${this.id}]`,
+      'call UNsubscribeLiquidations ' + pair,
+      '(after UNsubscribe on main)',
+      api.id
+    )
     this.subscribeLiquidations(api, pair, true)
   }
 
@@ -127,7 +143,9 @@ class BinanceFutures extends Exchange {
     if (!json) {
       return
     } else if (json.e === 'trade' && json.X !== 'INSURANCE_FUND') {
-      return this.emitTrades(api.id, [this.formatTrade(json, json.s.toLowerCase())])
+      return this.emitTrades(api.id, [
+        this.formatTrade(json, json.s.toLowerCase())
+      ])
     } else if (json.e === 'forceOrder') {
       return this.emitLiquidations(api.id, [this.formatLiquidation(json)])
     }
@@ -143,6 +161,12 @@ class BinanceFutures extends Exchange {
     return size
   }
 
+  /**
+   * 
+   * @param {} trade 
+   * @param {*} symbol 
+   * @return {Trade} 
+   */
   formatTrade(trade, symbol) {
     return {
       exchange: this.id,
@@ -150,7 +174,7 @@ class BinanceFutures extends Exchange {
       timestamp: trade.T,
       price: +trade.p,
       size: this.getSize(trade.q, trade.p, symbol),
-      side: trade.m ? 'sell' : 'buy',
+      side: trade.m ? 'sell' : 'buy'
     }
   }
 
@@ -164,13 +188,15 @@ class BinanceFutures extends Exchange {
       price: +trade.o.p,
       size: this.getSize(trade.o.q, trade.o.p, symbol),
       side: trade.o.S === 'BUY' ? 'buy' : 'sell',
-      liquidation: true,
+      liquidation: true
     }
   }
 
   getMissingTrades(range, totalRecovered = 0) {
     const startTime = range.from
-    let endpoint = `?symbol=${range.pair.toUpperCase()}&startTime=${startTime + 1}&endTime=${range.to}&limit=1000`
+    let endpoint = `?symbol=${range.pair.toUpperCase()}&startTime=${
+      startTime + 1
+    }&endTime=${range.to}&limit=1000`
     if (this.dapi[range.pair]) {
       endpoint = 'https://dapi.binance.com/dapi/v1/aggTrades' + endpoint
     } else {
@@ -179,11 +205,11 @@ class BinanceFutures extends Exchange {
 
     return axios
       .get(endpoint)
-      .then((response) => {
+      .then(response => {
         if (response.data.length) {
-          const trades = response.data.map((trade) => ({
+          const trades = response.data.map(trade => ({
             ...this.formatTrade(trade, range.pair),
-            count: trade.l - trade.f + 1,
+            count: trade.l - trade.f + 1
           }))
 
           this.emitTrades(null, trades)
@@ -195,21 +221,30 @@ class BinanceFutures extends Exchange {
 
           if (remainingMissingTime > 1000) {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(
-                remainingMissingTime
-              )} remaining)`
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } ... but theres more (${getHms(remainingMissingTime)} remaining)`
             )
 
-            return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered))
+            return this.waitBeforeContinueRecovery().then(() =>
+              this.getMissingTrades(range, totalRecovered)
+            )
           } else {
-            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } (${getHms(remainingMissingTime)} remaining)`
+            )
           }
         }
 
         return totalRecovered
       })
-      .catch((err) => {
-        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+      .catch(err => {
+        console.error(
+          `[${this.id}] failed to get missing trades on ${range.pair}`,
+          err.message
+        )
 
         return totalRecovered
       })
@@ -223,15 +258,27 @@ class BinanceFutures extends Exchange {
       console.log(`[${this.id}] liquidation api opened`, api.id)
 
       for (const pair of api._connected) {
-        console.log(`[${this.id}]`, 'call subscribeLiquidations ' + pair, api.id)
+        console.log(
+          `[${this.id}]`,
+          'call subscribeLiquidations ' + pair,
+          api.id
+        )
         this.subscribeLiquidations(api, pair)
       }
     }
-    api._liquidationApi.onmessage = (event) => this.onMessage(event, api)
+    api._liquidationApi.onmessage = event => this.onMessage(event, api)
     api._liquidationApi.onclose = () => {
-      console.log(`[${this.id}]`, 'liquidation stream closed', api.id, api.readyState, WebSocket.OPEN)
+      console.log(
+        `[${this.id}]`,
+        'liquidation stream closed',
+        api.id,
+        api.readyState,
+        WebSocket.OPEN
+      )
       if (api.readyState === WebSocket.OPEN) {
-        console.log(`[${this.id}] liquidation api closed unexpectedly, reopen now`)
+        console.log(
+          `[${this.id}] liquidation api closed unexpectedly, reopen now`
+        )
 
         // liquidation api closed unexpectedly
         // this.openLiquidationApi(api)
@@ -243,8 +290,17 @@ class BinanceFutures extends Exchange {
   }
 
   subscribeLiquidations(api, pair, unsubscribe = false) {
-    if (!api._liquidationApi || api._liquidationApi.readyState !== WebSocket.OPEN) {
-      console.log(`[${this.id}]`, api._liquidationApi ? 'no sub liq => do nothing' : 'sub clic !== OPEN => do nothing', pair)
+    if (
+      !api._liquidationApi ||
+      api._liquidationApi.readyState !== WebSocket.OPEN
+    ) {
+      console.log(
+        `[${this.id}]`,
+        api._liquidationApi
+          ? 'no sub liq => do nothing'
+          : 'sub clic !== OPEN => do nothing',
+        pair
+      )
       return
     }
 
@@ -254,13 +310,17 @@ class BinanceFutures extends Exchange {
       this.subscriptions[param] = ++this.lastSubscriptionId
     }
 
-    console.log(`[${this.id}.liquidationApi] ${unsubscribe ? 'un' : ''}subscribing ${unsubscribe ? 'from' : 'to'} ${pair}`)
+    console.log(
+      `[${this.id}.liquidationApi] ${unsubscribe ? 'un' : ''}subscribing ${
+        unsubscribe ? 'from' : 'to'
+      } ${pair}`
+    )
 
     api._liquidationApi.send(
       JSON.stringify({
         method: unsubscribe ? 'UNSUBSCRIBE' : 'SUBSCRIBE',
         params: [param],
-        id: this.subscriptions[param],
+        id: this.subscriptions[param]
       })
     )
   }

@@ -26,25 +26,35 @@ class Kucoin extends Exchange {
       }
 
       const timestamp = Date.now()
-      
-      if (this.token && this.token.timestamp + KUCOIN_TOKEN_EXPIRATION > timestamp) {
+
+      if (
+        this.token &&
+        this.token.timestamp + KUCOIN_TOKEN_EXPIRATION > timestamp
+      ) {
         return this.token.value
       }
 
-      this.promiseOfToken = axios.post('https://api.kucoin.com/api/v1/bullet-public').then(({data})=>{
-        this.endpoints.WS = 'wss://ws-api.kucoin.com/endpoint'
+      this.promiseOfToken = axios
+        .post('https://api.kucoin.com/api/v1/bullet-public')
+        .then(({ data }) => {
+          this.endpoints.WS = 'wss://ws-api.kucoin.com/endpoint'
 
-        this.token = {
-          timestamp,
-          value: data.data.instanceServers[0].endpoint + '?token=' + data.data.token
-        }
+          this.token = {
+            timestamp,
+            value:
+              data.data.instanceServers[0].endpoint +
+              '?token=' +
+              data.data.token
+          }
 
-        return this.token.value
-      }).catch(err => {
-        console.error(`[${this.id}] failed to get token`, err)
-      }).finally(() => {
-        this.promiseOfToken = null
-      })
+          return this.token.value
+        })
+        .catch(err => {
+          console.error(`[${this.id}] failed to get token`, err)
+        })
+        .finally(() => {
+          this.promiseOfToken = null
+        })
 
       return this.promiseOfToken
     }
@@ -94,7 +104,7 @@ class Kucoin extends Exchange {
     api.send(
       JSON.stringify({
         type: 'subscribe',
-        topic: topic,
+        topic: topic
       })
     )
   }
@@ -158,10 +168,7 @@ class Kucoin extends Exchange {
       return
     }
 
-    return this.emitTrades(
-      api.id,
-      [this.formatTrade(json.data)]
-    )
+    return this.emitTrades(api.id, [this.formatTrade(json.data)])
   }
 
   onApiCreated(api) {

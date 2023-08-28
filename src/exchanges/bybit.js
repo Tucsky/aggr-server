@@ -8,16 +8,21 @@ class Bybit extends Exchange {
     this.id = 'BYBIT'
 
     this.endpoints = {
-      PRODUCTS: ['https://api.bybit.com/spot/v1/symbols', 'https://api.bybit.com/v2/public/symbols'],
+      PRODUCTS: [
+        'https://api.bybit.com/spot/v1/symbols',
+        'https://api.bybit.com/v2/public/symbols'
+      ]
     }
 
-    this.url = (pair) => {
+    this.url = pair => {
       if (/-SPOT$/.test(pair)) {
         return 'wss://stream.bybit.com/spot/quote/ws/v2'
       }
 
-      return pair.indexOf('USDT') !== -1 ? 'wss://stream.bybit.com/realtime_public' : 'wss://stream.bybit.com/realtime'
-    };
+      return pair.indexOf('USDT') !== -1
+        ? 'wss://stream.bybit.com/realtime_public'
+        : 'wss://stream.bybit.com/realtime'
+    }
   }
 
   formatProducts(response) {
@@ -40,7 +45,7 @@ class Bybit extends Exchange {
     }
 
     return {
-      products,
+      products
     }
   }
   /**
@@ -54,12 +59,18 @@ class Bybit extends Exchange {
     }
 
     if (/-SPOT$/.test(pair)) {
-      api.send(JSON.stringify({ topic: 'trade', event: 'sub', params: { binary: false, symbol: pair.replace(/-SPOT$/, '') } }))
+      api.send(
+        JSON.stringify({
+          topic: 'trade',
+          event: 'sub',
+          params: { binary: false, symbol: pair.replace(/-SPOT$/, '') }
+        })
+      )
     } else {
       api.send(
         JSON.stringify({
           op: 'subscribe',
-          args: ['trade.' + pair, 'liquidation.' + pair],
+          args: ['trade.' + pair, 'liquidation.' + pair]
         })
       )
     }
@@ -76,12 +87,18 @@ class Bybit extends Exchange {
     }
 
     if (/-SPOT$/.test(pair)) {
-      api.send(JSON.stringify({ topic: 'trade', event: 'cancel', params: { binary: false, symbol: pair.replace(/-SPOT$/, '') } }))
+      api.send(
+        JSON.stringify({
+          topic: 'trade',
+          event: 'cancel',
+          params: { binary: false, symbol: pair.replace(/-SPOT$/, '') }
+        })
+      )
     } else {
       api.send(
         JSON.stringify({
           op: 'unsubscribe',
-          args: ['trade.' + pair, 'liquidation.' + pair],
+          args: ['trade.' + pair, 'liquidation.' + pair]
         })
       )
     }
@@ -98,7 +115,9 @@ class Bybit extends Exchange {
       return this.emitTrades(
         api.id,
         json.data.map(trade => {
-          const size = /USDT$/.test(trade.symbol) ? trade.size : trade.size / trade.price
+          const size = /USDT$/.test(trade.symbol)
+            ? trade.size
+            : trade.size / trade.price
 
           return {
             exchange: this.id,
@@ -122,7 +141,9 @@ class Bybit extends Exchange {
         }
       ])
     } else {
-      const size = /USDT$/.test(json.data.symbol) ? +json.data.qty : json.data.qty / json.data.price
+      const size = /USDT$/.test(json.data.symbol)
+        ? +json.data.qty
+        : json.data.qty / json.data.price
 
       return this.emitLiquidations(api.id, [
         {

@@ -44,9 +44,9 @@ const defaultConfig = {
     'KRAKEN:ETH/USD',
     'HUOBI:ethusdt',
     'HUOBI:ETH-USD',
-    'BINANCE_FUTURES:ethusd_perp',
+    'BINANCE_FUTURES:ethusd_perp'
   ],
-  
+
   // non standard products
   extraProducts: [],
 
@@ -143,7 +143,7 @@ const defaultConfig = {
     1000 * 60 * 60 * 2,
     1000 * 60 * 60 * 4,
     1000 * 60 * 60 * 6,
-    1000 * 60 * 60 * 24,
+    1000 * 60 * 60 * 24
   ],
 
   // trigger resample every minute
@@ -164,7 +164,7 @@ const defaultConfig = {
   // automatic compression of file once done working with it
   filesGzipAfterUse: true,
 
-  // close file stream after it's expired, allow for a delay before closing the file stream 
+  // close file stream after it's expired, allow for a delay before closing the file stream
   // which can be useful when exchanges trades are lagging (default 5m)
   filesCloseAfter: 300000,
 
@@ -200,7 +200,7 @@ const defaultConfig = {
   priceIndexesBlacklist: [],
 
   // verbose
-  debug: false,
+  debug: false
 }
 
 /* Merge default
@@ -210,11 +210,13 @@ const commandSettings = {}
 
 if (process.argv.length > 2) {
   let exchanges = []
-  process.argv.slice(2).forEach((arg) => {
+  process.argv.slice(2).forEach(arg => {
     const keyvalue = arg.split('=')
 
     if (keyvalue.length > 1) {
-      commandSettings[keyvalue[0]] = isNaN(+keyvalue[1]) ? keyvalue[1] : +keyvalue[1]
+      commandSettings[keyvalue[0]] = isNaN(+keyvalue[1])
+        ? keyvalue[1]
+        : +keyvalue[1]
     } else if (/^\w+$/.test(keyvalue[0])) {
       exchanges.push(keyvalue[0])
     }
@@ -245,7 +247,11 @@ try {
   configPath = path.resolve(__dirname, '../' + configPath)
   const configExamplePath = path.resolve(__dirname, '../config.json.example')
 
-  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath) && !specificConfigFile) {
+  if (
+    !fs.existsSync(configPath) &&
+    fs.existsSync(configExamplePath) &&
+    !specificConfigFile
+  ) {
     fs.copyFileSync(configExamplePath, configPath)
   }
 
@@ -253,7 +259,11 @@ try {
 
   userSettings = require(configPath) || {}
 } catch (error) {
-  throw new Error(`Unable to parse ${configPath !== '../config.json' ? 'specified ' : ''}configuration file\n\n${error.message}`)
+  throw new Error(
+    `Unable to parse ${
+      configPath !== '../config.json' ? 'specified ' : ''
+    }configuration file\n\n${error.message}`
+  )
 }
 
 /* Merge cmd & file configuration
@@ -265,12 +275,14 @@ const config = Object.assign(defaultConfig, userSettings, commandSettings)
   (e.g. influxPreheatRange -> INFLUX_PREHEAT_RANGE)
  */
 
-Object.keys(config).forEach((k) => {
+Object.keys(config).forEach(k => {
   config_to_env_key = decamelize(k, '_').toUpperCase()
   config_env_value = process.env[config_to_env_key]
   if (config_env_value) {
     config[k] = config_env_value
-    console.log(`overriding '${k}' to '${config_env_value}' via env '${config_to_env_key}'`)
+    console.log(
+      `overriding '${k}' to '${config_env_value}' via env '${config_to_env_key}'`
+    )
   }
 })
 
@@ -280,7 +292,7 @@ Object.keys(config).forEach((k) => {
 if (config.storage) {
   if (!Array.isArray(config.storage)) {
     if (config.storage.indexOf(',') !== -1) {
-      config.storage = config.storage.split(',').map((a) => a.trim())
+      config.storage = config.storage.split(',').map(a => a.trim())
     } else {
       config.storage = [config.storage.trim()]
     }
@@ -306,7 +318,9 @@ if (config.whitelist && config.whitelist === 'string') {
 }
 
 if (config.pair) {
-  config.pairs = Array.isArray(config.pair) ? config.pair : config.pair.split(',')
+  config.pairs = Array.isArray(config.pair)
+    ? config.pair
+    : config.pair.split(',')
   delete config.pair
 }
 
@@ -314,8 +328,8 @@ if (!Array.isArray(config.pairs)) {
   if (config.pairs) {
     config.pairs = config.pairs
       .split(',')
-      .map((a) => a.trim())
-      .filter((a) => a.length)
+      .map(a => a.trim())
+      .filter(a => a.length)
   } else {
     config.pairs = []
   }
@@ -332,8 +346,8 @@ if (!config.pairs.length) {
 if (config.exchanges && typeof config.exchanges === 'string') {
   config.exchanges = config.exchanges
     .split(',')
-    .map((a) => a.trim())
-    .filter((a) => a.length)
+    .map(a => a.trim())
+    .filter(a => a.length)
 }
 
 if (!config.api && config.broadcast) {
@@ -343,7 +357,9 @@ if (!config.api && config.broadcast) {
 }
 
 if (!config.storage && config.collect) {
-  console.warn(`[warning!] server will not persist any of the data it is receiving`)
+  console.warn(
+    `[warning!] server will not persist any of the data it is receiving`
+  )
 }
 
 if (!config.collect && !config.api) {
@@ -353,13 +369,19 @@ if (!config.collect && !config.api) {
 if (!config.storage && !config.collect && (config.broadcast || config.api)) {
   console.warn(
     `[warning!] ${
-      config.broadcast && config.api ? 'ws and api are' : config.broadcast ? 'ws is' : 'api is'
+      config.broadcast && config.api
+        ? 'ws and api are'
+        : config.broadcast
+        ? 'ws is'
+        : 'api is'
     } enabled but neither storage or collect is enabled (may be useless)`
   )
 }
 
 if (config.broadcast && !config.collect) {
-  console.warn(`[warning!] collect is disabled but broadcast is set to ${config.broadcast} (may be useless)`)
+  console.warn(
+    `[warning!] collect is disabled but broadcast is set to ${config.broadcast} (may be useless)`
+  )
 }
 
 if (!config.debug) {

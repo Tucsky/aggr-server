@@ -8,16 +8,16 @@ class Bitstamp extends Exchange {
     this.id = 'BITSTAMP'
 
     this.endpoints = {
-      PRODUCTS: 'https://www.bitstamp.net/api/v2/trading-pairs-info',
+      PRODUCTS: 'https://www.bitstamp.net/api/v2/trading-pairs-info'
     }
 
     this.url = () => {
-          return `wss://ws.bitstamp.net`
-        };
+      return `wss://ws.bitstamp.net`
+    }
   }
 
   formatProducts(data) {
-    return data.map((a) => a.url_symbol)
+    return data.map(a => a.url_symbol)
   }
 
   /**
@@ -34,8 +34,8 @@ class Bitstamp extends Exchange {
       JSON.stringify({
         event: 'bts:subscribe',
         data: {
-          channel: 'live_trades_' + pair,
-        },
+          channel: 'live_trades_' + pair
+        }
       })
     )
   }
@@ -54,8 +54,8 @@ class Bitstamp extends Exchange {
       JSON.stringify({
         event: 'bts:unsubscribe',
         data: {
-          channel: 'live_trades_' + pair,
-        },
+          channel: 'live_trades_' + pair
+        }
       })
     )
   }
@@ -77,8 +77,8 @@ class Bitstamp extends Exchange {
         timestamp: +new Date(trade.microtimestamp / 1000),
         price: trade.price,
         size: trade.amount,
-        side: trade.type === 0 ? 'buy' : 'sell',
-      },
+        side: trade.type === 0 ? 'buy' : 'sell'
+      }
     ])
   }
 }

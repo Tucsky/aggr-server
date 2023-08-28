@@ -7,6 +7,7 @@
     "start": "pm2-runtime ecosystem.config.js",
     "dev": "pm2-dev ecosystem.config.dev.yaml",
     "generateVapidKeys": "node scripts/web-push/generateVapidKeys",
+    "lint:fix": "npx prettier index.js ./src/* --write",
     "docker:server:build": "docker-compose build",
     "docker:server:up": "docker-compose up -d"
   },
@@ -40,6 +41,8 @@
   "volta": {
     "node": "20.5.0",
     "npm": "9.8.0"
+  },
+  "devDependencies": {
+    "prettier": "3.0.2"
   }
 }
-

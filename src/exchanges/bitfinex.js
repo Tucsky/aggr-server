@@ -13,14 +13,14 @@ class Bitfinex extends Exchange {
 
     this.maxConnectionsPerApi = 24
     this.endpoints = {
-      PRODUCTS: 'https://api.bitfinex.com/v1/symbols',
+      PRODUCTS: 'https://api.bitfinex.com/v1/symbols'
     }
 
     this.url = 'wss://api-pub.bitfinex.com/ws/2'
   }
 
   formatProducts(pairs) {
-    return pairs.map((product) => product.toUpperCase())
+    return pairs.map(product => product.toUpperCase())
   }
 
   /**
@@ -37,7 +37,7 @@ class Bitfinex extends Exchange {
       JSON.stringify({
         event: 'subscribe',
         channel: 'trades',
-        symbol: 't' + pair,
+        symbol: 't' + pair
       })
     )
 
@@ -46,7 +46,7 @@ class Bitfinex extends Exchange {
         JSON.stringify({
           event: 'subscribe',
           channel: 'status',
-          key: 'liq:global',
+          key: 'liq:global'
         })
       )
     }
@@ -63,13 +63,15 @@ class Bitfinex extends Exchange {
     }
 
     if (api._connected.length === 0) {
-      const chanId = Object.keys(this.channels).find((id) => this.channels[id].name === 'status')
+      const chanId = Object.keys(this.channels).find(
+        id => this.channels[id].name === 'status'
+      )
 
       if (chanId) {
         api.send(
           JSON.stringify({
             event: 'unsubscribe',
-            chanId: chanId,
+            chanId: chanId
           })
         )
 
@@ -78,11 +80,15 @@ class Bitfinex extends Exchange {
     }
 
     const channelsToUnsubscribe = Object.keys(this.channels).filter(
-      (id) => this.channels[id].pair === pair && this.channels[id].apiId === api.id
+      id =>
+        this.channels[id].pair === pair && this.channels[id].apiId === api.id
     )
 
     if (!channelsToUnsubscribe.length) {
-      console.warn(`[${this}.id}/unsubscribe] no channel to unsubscribe from`, this.channels)
+      console.warn(
+        `[${this}.id}/unsubscribe] no channel to unsubscribe from`,
+        this.channels
+      )
       return
     }
 
@@ -90,7 +96,7 @@ class Bitfinex extends Exchange {
       api.send(
         JSON.stringify({
           event: 'unsubscribe',
-          chanId: id,
+          chanId: id
         })
       )
       delete this.channels[id]
@@ -105,7 +111,7 @@ class Bitfinex extends Exchange {
       this.channels[json.chanId] = {
         name: json.channel,
         pair: json.pair,
-        apiId: api.id,
+        apiId: api.id
       }
       return
     }
@@ -124,10 +130,17 @@ class Bitfinex extends Exchange {
 
     if (channel.name === 'trades' && json[1] === 'te') {
       if (this.prices[channel.pair]) {
-        const percentChange = ((1 - +json[2][3] / this.prices[channel.pair]) * -1) * 100
+        const percentChange =
+          (1 - +json[2][3] / this.prices[channel.pair]) * -1 * 100
 
         if (Math.abs(percentChange) > 1) {
-          console.log(`[${this.id}] unusual price difference (${percentChange.toFixed(2)}%) for ${channel.pair} : ${this.prices[channel.pair]} -> ${json[2][3]}`)
+          console.log(
+            `[${this.id}] unusual price difference (${percentChange.toFixed(
+              2
+            )}%) for ${channel.pair} : ${this.prices[channel.pair]} -> ${
+              json[2][3]
+            }`
+          )
         }
       }
       this.prices[channel.pair] = +json[2][3]
@@ -137,10 +150,17 @@ class Bitfinex extends Exchange {
       return this.emitLiquidations(
         api.id,
         json[1]
-          .filter((liquidation) => {
-            return !liquidation[8] && !liquidation[10] && !liquidation[11] && api._connected.indexOf(liquidation[4].substring(1)) !== -1
+          .filter(liquidation => {
+            return (
+              !liquidation[8] &&
+              !liquidation[10] &&
+              !liquidation[11] &&
+              api._connected.indexOf(liquidation[4].substring(1)) !== -1
+            )
           })
-          .map((liquidation) => this.formatLiquidation(liquidation, liquidation[4].substring(1)))
+          .map(liquidation =>
+            this.formatLiquidation(liquidation, liquidation[4].substring(1))
+          )
       )
     }
   }
@@ -152,7 +172,7 @@ class Bitfinex extends Exchange {
       timestamp: parseInt(trade[1]),
       price: trade[3],
       size: Math.abs(trade[2]),
-      side: trade[2] < 0 ? 'sell' : 'buy',
+      side: trade[2] < 0 ? 'sell' : 'buy'
     }
   }
 
@@ -164,22 +184,24 @@ class Bitfinex extends Exchange {
       price: this.prices[pair],
       size: Math.abs(trade[5]),
       side: trade[5] > 1 ? 'sell' : 'buy',
-      liquidation: true,
+      liquidation: true
     }
   }
 
   getMissingTrades(range, totalRecovered = 0) {
     const startTime = range.from
 
-    const endpoint = `https://api-pub.bitfinex.com/v2/trades/Symbol/hist?symbol=${'t' + range.pair}&start=${startTime + 1}&end=${
-      range.to
-    }&limit=1000&sort=1`
+    const endpoint = `https://api-pub.bitfinex.com/v2/trades/Symbol/hist?symbol=${
+      't' + range.pair
+    }&start=${startTime + 1}&end=${range.to}&limit=1000&sort=1`
 
     return axios
       .get(endpoint)
-      .then((response) => {
+      .then(response => {
         if (response.data.length) {
-          const trades = response.data.map((trade) => this.formatTrade(trade, range.pair))
+          const trades = response.data.map(trade =>
+            this.formatTrade(trade, range.pair)
+          )
 
           this.emitTrades(null, trades)
 
@@ -190,29 +212,42 @@ class Bitfinex extends Exchange {
 
           if (remainingMissingTime > 1000 && trades.length >= 1000) {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} ... but theres more (${getHms(
-                remainingMissingTime
-              )} remaining)`
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } ... but theres more (${getHms(remainingMissingTime)} remaining)`
             )
-            return this.waitBeforeContinueRecovery().then(() => this.getMissingTrades(range, totalRecovered))
+            return this.waitBeforeContinueRecovery().then(() =>
+              this.getMissingTrades(range, totalRecovered)
+            )
           } else {
-            console.log(`[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair} (${getHms(remainingMissingTime)} remaining)`)
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } (${getHms(remainingMissingTime)} remaining)`
+            )
           }
         }
 
         return totalRecovered
       })
-      .catch((err) => {
-        console.error(`[${this.id}] failed to get missing trades on ${range.pair}`, err.message)
+      .catch(err => {
+        console.error(
+          `[${this.id}] failed to get missing trades on ${range.pair}`,
+          err.message
+        )
 
         return totalRecovered
       })
   }
 
   onApiRemoved(api) {
-    console.log(`[${this.id}] has ${Object.keys(this.channels).length} channels`)
+    console.log(
+      `[${this.id}] has ${Object.keys(this.channels).length} channels`
+    )
 
-    const apiChannels = Object.keys(this.channels).filter((id) => this.channels[id].apiId === api.id)
+    const apiChannels = Object.keys(this.channels).filter(
+      id => this.channels[id].apiId === api.id
+    )
 
     for (const id of apiChannels) {
       delete this.channels[id]
