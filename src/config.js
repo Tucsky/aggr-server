@@ -232,7 +232,7 @@ if (process.argv.length > 2) {
 
 let userSettings = {}
 
-const configPath =
+let configPath =
   commandSettings?.config ||
   commandSettings?.configFile ||
   commandSettings?.configPath ||
