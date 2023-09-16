@@ -249,13 +249,10 @@ class Server extends EventEmitter {
           this.dispatchAggregateTrade.bind(this, exchange.id)
         )
       } else {
-        exchange.on('trades', this.dispatchRawTrades.bind(this, exchange.id))
+        exchange.on('trades', this.dispatchRawTrades.bind(this))
       }
 
-      exchange.on(
-        'liquidations',
-        this.dispatchRawTrades.bind(this, exchange.id)
-      )
+      exchange.on('liquidations', this.dispatchRawTrades.bind(this))
 
       exchange.on('disconnected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
@@ -991,12 +988,16 @@ class Server extends EventEmitter {
     })
   }
 
-  dispatchRawTrades(exchange, data) {
-    for (let i = 0; i < data.length; i++) {
-      const trade = data[i]
+  /**
+   * @param {Trade[]} trades
+   */
+
+  dispatchRawTrades(trades) {
+    for (let i = 0; i < trades.length; i++) {
+      const trade = trades[i]
 
       if (!trade.liquidation) {
-        const identifier = exchange + ':' + trade.pair
+        const identifier = trade.exchange + ':' + trade.pair
 
         // ping connection
         connections[identifier].hit++
@@ -1011,9 +1012,9 @@ class Server extends EventEmitter {
 
     if (config.broadcast) {
       if (!config.broadcastAggr && !config.broadcastDebounce) {
-        this.broadcastTrades(data)
+        this.broadcastTrades(trades)
       } else {
-        Array.prototype.push.apply(this.delayedForBroadcast, data)
+        Array.prototype.push.apply(this.delayedForBroadcast, trades)
       }
     }
   }
