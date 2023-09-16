@@ -1,7 +1,13 @@
 /**
- * A trade
- * @typedef  Trade
- * @type {{exchange: string, pair: string, timestamp: number, price: number, size: number, side: number, liquidation: boolean?}}
+ * Represents a trade.
+ * @typedef {Object} Trade
+ * @property {string} exchange       - The exchange where the trade occurred.
+ * @property {string} pair           - The trading pair involved in the trade.
+ * @property {number} timestamp      - The timestamp of the trade.
+ * @property {number} price          - The price at which the trade occurred.
+ * @property {number} size           - The size or quantity of the trade.
+ * @property {number} side           - The side of the trade (1 for buy, 2 for sell, for example).
+ * @property {boolean} [liquidation] - Optional. Indicates whether the trade was a liquidation.
  */
 
 /**
