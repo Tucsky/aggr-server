@@ -5,6 +5,7 @@ const config = require('../config')
 const socketService = require('../services/socket')
 const alertService = require('../services/alert')
 const { connections, updateIndexes } = require('../services/connections')
+const { parseMarket } = require('../services/catalog')
 
 require('../typedef')
 
@@ -839,9 +840,26 @@ class InfluxStorage {
     let query = `SELECT * FROM "${config.influxDatabase}"."${config.influxRetentionPrefix}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
 
     if (markets.length) {
-      query += ` AND (${markets
-        .map(market => `market = '${market}'`)
-        .join(' OR ')})`
+      query += ` AND (${markets.map((marketOrIndex) => {
+        if (config.influxCollectors && marketOrIndex.indexOf(':') === -1 && socketService.serverSocket) {
+          const collector = socketService.getNodeByMarket(marketOrIndex)
+
+          if (collector) {
+            const markets = collector.markets.filter(market => {
+              const product = parseMarket(market)
+              if (product.local === marketOrIndex) {
+                return true
+              }
+            })
+
+            if (markets.length) {
+              return markets.map(a => `market = '${a}'`).join(' OR ')
+            }
+          }
+        }
+
+        return `market = '${marketOrIndex}'`
+      }).join(' OR ')})`
     }
 
     return this.influx
