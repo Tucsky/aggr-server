@@ -8,6 +8,7 @@ class Binance extends Exchange {
 
     this.id = 'BINANCE'
     this.lastSubscriptionId = 0
+    this.maxConnectionsPerApi = 16
     this.subscriptions = {}
 
     this.endpoints = {
