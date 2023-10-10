@@ -10,6 +10,7 @@ class Okex extends Exchange {
     this.id = 'OKEX'
 
     this.endpoints = {
+      LIQUIDATIONS: 'https://www.okx.com/api/v5/public/liquidation-orders',
       PRODUCTS: [
         'https://www.okex.com/api/v5/public/instruments?instType=SPOT',
         'https://www.okex.com/api/v5/public/instruments?instType=FUTURES',
@@ -35,11 +36,11 @@ class Okex extends Exchange {
         const type = product.instType
         const pair = product.instId
 
+
         if (type === 'FUTURES') {
           // futures
 
           specs[pair] = +product.ctVal
-          types[pair] = 'futures'
           aliases[pair] = product.alias
 
           if (product.ctType === 'inverse') {
@@ -49,15 +50,13 @@ class Okex extends Exchange {
           // swap
 
           specs[pair] = +product.ctVal
-          types[pair] = 'swap'
 
           if (product.ctType === 'inverse') {
             inversed[pair] = true
           }
-        } else {
-          types[pair] = 'spot'
         }
 
+        types[pair] = type
         products.push(pair)
       }
     }
@@ -81,19 +80,6 @@ class Okex extends Exchange {
       return
     }
 
-    const type = this.types[pair]
-
-    if (type !== 'spot') {
-      this.liquidationProducts.push(pair)
-      this.liquidationProductsReferences[pair] = Date.now()
-
-      if (this.liquidationProducts.length === 1) {
-        this.startLiquidationTimer()
-      }
-
-      console.debug(`[${this.id}] listen ${pair} for liquidations`)
-    }
-
     api.send(
       JSON.stringify({
         op: 'subscribe',
@@ -105,6 +91,20 @@ class Okex extends Exchange {
         ]
       })
     )
+
+    if (this.types[pair] !== 'SPOT') {
+      api.send(
+        JSON.stringify({
+          op: 'subscribe',
+          args: [
+            {
+              channel: 'liquidation-orders',
+              instType: this.types[pair]
+            }
+          ]
+        })
+      )
+    }
   }
 
   /**
@@ -115,18 +115,6 @@ class Okex extends Exchange {
   async unsubscribe(api, pair) {
     if (!(await super.unsubscribe.apply(this, arguments))) {
       return
-    }
-
-    const type = this.types[pair]
-
-    if (type !== 'spot' && this.liquidationProducts.indexOf(pair) !== -1) {
-      this.liquidationProducts.splice(this.liquidationProducts.indexOf(pair), 1)
-
-      console.debug(`[${this.id}] unsubscribe ${pair} from liquidations loop`)
-
-      if (this.liquidationProducts.length === 0) {
-        this.stopLiquidationTimer()
-      }
     }
 
     api.send(
@@ -140,6 +128,20 @@ class Okex extends Exchange {
         ]
       })
     )
+
+    if (this.types[pair] !== 'SPOT') {
+      api.send(
+        JSON.stringify({
+          op: 'subscribe',
+          args: [
+            {
+              channel: 'liquidation-orders',
+              instType: this.types[pair]
+            }
+          ]
+        })
+      )
+    }
   }
 
   onMessage(event, api) {
@@ -147,6 +149,25 @@ class Okex extends Exchange {
 
     if (!json || !json.data) {
       return
+    }
+
+    if (json.arg.channel === 'liquidation-orders') {
+      const liqs = json.data.reduce((acc, pairData) => {
+        if (api._connected.indexOf(pairData.instId) === -1) {
+          return acc
+        }
+
+        return acc.concat(
+          pairData.details.map(liquidation =>
+            this.formatLiquidation(liquidation, pairData.instId)
+          )
+        )
+      }, [])
+
+      return this.emitLiquidations(
+        api.id,
+        liqs
+      )
     }
 
     return this.emitTrades(
@@ -176,55 +197,90 @@ class Okex extends Exchange {
     }
   }
 
-  formatLiquidation(trade, pair) {
+  formatLiquidation(liquidation, pair) {
     const size =
-      (trade.sz * this.specs[pair]) / (this.inversed[pair] ? trade.bkPx : 1)
-    //console.debug(`[${this.id}] okex liquidation at ${new Date(+trade.ts).toISOString()}`)
+      (liquidation.sz * this.specs[pair]) /
+      (this.inversed[pair] ? liquidation.bkPx : 1)
 
     return {
       exchange: this.id,
       pair: pair,
-      timestamp: +trade.ts,
-      price: +trade.bkPx,
+      timestamp: +liquidation.ts,
+      price: +liquidation.bkPx,
       size: size,
-      side: trade.side,
+      side: liquidation.side,
       liquidation: true
     }
   }
 
-  startLiquidationTimer() {
-    if (this._liquidationInterval) {
-      return
-    }
-
-    console.debug(`[${this.id}] start liquidation timer`)
-
-    this._liquidationProductIndex = 0
-
-    this._liquidationInterval = setInterval(
-      this.fetchLatestLiquidations.bind(this),
-      2500
-    )
+  getLiquidationsUrl(range) {
+    // after query param = before
+    // (get the 100 trades prededing endTimestamp)
+    return `${this.endpoints.LIQUIDATIONS}?instId=${range.pair}&instType=SWAP&uly=${range.pair.replace('-SWAP', '')}&state=filled&after=${range.to}`
   }
 
-  stopLiquidationTimer() {
-    if (!this._liquidationInterval) {
-      return
+  /**
+   * Fetch pair liquidations before timestamp
+   * @param {*} range
+   * @returns
+   */
+  async fetchLiquidationOrders(range) {
+    const url = this.getLiquidationsUrl(range)
+    console.log(url)
+    try {
+      const response = await axios.get(url)
+      if (response.data.data && response.data.data.length) {
+        return response.data.data[0].details
+      }
+      return []
+    } catch (error) {
+      throw new Error(`Error fetching data: ${error}`)
     }
+  }
 
-    console.debug(`[${this.id}] stop liquidation timer`)
+  async fetchAllLiquidationOrders(range) {
+    const allLiquidations = []
 
-    clearInterval(this._liquidationInterval)
+    while (true) {
+      console.log(`[${this.id}] fetch all ${range.pair} liquidations in`, new Date(range.from).toISOString(), new Date(range.to).toISOString())
+      const liquidations = await this.fetchLiquidationOrders(range)
 
-    delete this._liquidationInterval
+      if (!liquidations || liquidations.length === 0) {
+        console.log('received', liquidations.length, 'liquidations -> break')
+        return allLiquidations
+      }
+      console.log('received', liquidations.length, 'liquidations -> process')
+
+      console.log('first liq @ ', new Date(+liquidations[0].ts).toISOString(), new Date(+liquidations[liquidations.length - 1].ts).toISOString())
+      for (const liquidation of liquidations) {
+        if (liquidation.ts < range.from) {
+          console.log(`liquidation ${liquidations.indexOf(liquidation) + 1}/${liquidations.length} is outside range -> break`)
+          return allLiquidations
+        }
+
+        allLiquidations.push(liquidation)
+      }
+
+      // new range
+      console.log(`[${this.id}] set new end date to last liquidation`, new Date(+liquidations[liquidations.length - 1].ts).toISOString())
+      range.to = +liquidations[liquidations.length - 1].ts
+    }
   }
 
   async getMissingTrades(range, totalRecovered = 0, beforeTradeId) {
+    if (this.types[range.pair] !== 'SPOT' && !beforeTradeId) {
+      const liquidations = await this.fetchAllLiquidationOrders({ ...range })
+      console.log(`[${this.id}.recoverMissingTrades] +${liquidations.length} liquidations for ${range.pair}`)
+
+      if (liquidations.length) {
+        this.emitLiquidations(null, liquidations)
+      }
+    }
+
     let endpoint
     if (beforeTradeId) {
-      endpoint = `https://www.okex.com/api/v5/market/history-trades?instId=${
-        range.pair
-      }&limit=500${beforeTradeId ? '&after=' + beforeTradeId : ''}`
+      endpoint = `https://www.okex.com/api/v5/market/history-trades?instId=${range.pair
+        }&limit=500${beforeTradeId ? '&after=' + beforeTradeId : ''}`
     } else {
       endpoint = `https://www.okex.com/api/v5/market/trades?instId=${range.pair}&limit=500`
     }
@@ -237,11 +293,12 @@ class Okex extends Exchange {
             response.data.data[response.data.data.length - 1].tradeId
           const earliestTradeTime =
             +response.data.data[response.data.data.length - 1].ts
-
           const trades = response.data.data
             .map(trade => this.formatTrade(trade))
             .filter(
-              a => a.timestamp >= range.from + 1 && a.timestamp < range.to
+              a => {
+                return a.timestamp >= range.from + 1 && a.timestamp <= range.to
+              }
             )
 
           if (trades.length) {
@@ -259,8 +316,7 @@ class Okex extends Exchange {
             earliestTradeTime >= range.from
           ) {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${
-                range.pair
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
               } ... but theres more (${getHms(remainingMissingTime)} remaining)`
             )
             return this.waitBeforeContinueRecovery().then(() =>
@@ -268,8 +324,7 @@ class Okex extends Exchange {
             )
           } else {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${
-                range.pair
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
               } (${getHms(remainingMissingTime)} remaining)`
             )
           }
@@ -284,87 +339,6 @@ class Okex extends Exchange {
         )
 
         return totalRecovered
-      })
-  }
-
-  getLiquidationEndpoint(productId) {
-    const productType = this.types[productId].toUpperCase()
-    let endpoint = `https://www.okex.com/api/v5/public/liquidation-orders?instId=${productId}&instType=${productType}&uly=${productId
-      .split('-')
-      .slice(0, 2)
-      .join('-')}&state=filled`
-
-    if (productType === 'FUTURES') {
-      endpoint += `&alias=${this.aliases[productId]}`
-    }
-
-    return endpoint
-  }
-
-  fetchLatestLiquidations() {
-    const productId =
-      this.liquidationProducts[
-        this._liquidationProductIndex++ % this.liquidationProducts.length
-      ]
-    const endpoint = this.getLiquidationEndpoint(productId)
-
-    this._liquidationAxiosHandler && this._liquidationAxiosHandler.cancel()
-    this._liquidationAxiosHandler = axios.CancelToken.source()
-
-    axios
-      .get(endpoint)
-      .then(response => {
-        if (
-          !this.apis.length ||
-          !response.data ||
-          response.data.msg ||
-          !response.data.data ||
-          !response.data.data.length ||
-          !response.data.data[0]
-        ) {
-          //throw new Error(response.data ? response.data.msg : 'empty REST /liquidation-order')
-          return
-        }
-
-        const liquidations = response.data.data[0].details.filter(
-          liquidation => {
-            return (
-              !this.liquidationProductsReferences[productId] ||
-              liquidation.ts > this.liquidationProductsReferences[productId]
-            )
-          }
-        )
-
-        if (!liquidations.length) {
-          return
-        }
-
-        this.liquidationProductsReferences[productId] = +liquidations[0].ts
-
-        this.emitLiquidations(
-          null,
-          liquidations.map(liquidation =>
-            this.formatLiquidation(liquidation, productId)
-          )
-        )
-      })
-      .catch(err => {
-        let message = `[okex.fetchLatestLiquidations] ${productId} ${err.message} at ${endpoint}`
-
-        if (err.response && err.response.data && err.response.data.msg) {
-          message += '\n\t' + err.response.data.msg
-        }
-
-        console.error(message, `(instId: ${productId}})`)
-
-        if (axios.isCancel(err)) {
-          return
-        }
-
-        return err
-      })
-      .then(() => {
-        delete this._liquidationAxiosHandler
       })
   }
 }

@@ -234,9 +234,9 @@ if (process.argv.length > 2) {
 let userSettings = {}
 
 let configPath =
-  commandSettings?.config ||
-  commandSettings?.configFile ||
-  commandSettings?.configPath ||
+  commandSettings.config ||
+  commandSettings.configFile ||
+  commandSettings.configPath ||
   'config.json'
 
 try {

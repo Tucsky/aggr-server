@@ -63,9 +63,7 @@ class Bitfinex extends Exchange {
     }
 
     if (api._connected.length === 0) {
-      const chanId = Object.keys(this.channels).find(
-        id => this.channels[id].name === 'status'
-      )
+      const chanId = Object.keys(this.channels[api.id]).find((chanId) => this.channels[api.id][chanId].name === 'status')
 
       if (chanId) {
         api.send(
@@ -75,13 +73,12 @@ class Bitfinex extends Exchange {
           })
         )
 
-        delete this.channels[chanId]
+        delete this.channels[api.id][chanId]
       }
     }
 
-    const channelsToUnsubscribe = Object.keys(this.channels).filter(
-      id =>
-        this.channels[id].pair === pair && this.channels[id].apiId === api.id
+    const channelsToUnsubscribe = Object.keys(this.channels[api.id]).filter(
+      (chanId) => this.channels[api.id][chanId].pair === pair
     )
 
     if (!channelsToUnsubscribe.length) {
@@ -92,14 +89,14 @@ class Bitfinex extends Exchange {
       return
     }
 
-    for (let id of channelsToUnsubscribe) {
+    for (let chanId of channelsToUnsubscribe) {
       api.send(
         JSON.stringify({
           event: 'unsubscribe',
-          chanId: id
+          chanId,
         })
       )
-      delete this.channels[id]
+      delete this.channels[api.id][chanId]
     }
   }
 
@@ -107,20 +104,21 @@ class Bitfinex extends Exchange {
     const json = JSON.parse(event.data)
 
     if (json.event === 'subscribed' && json.chanId) {
-      // console.debug(`[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
-      this.channels[json.chanId] = {
+      // console.debug(`[${this.id}.${api.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
+      this.channels[api.id][json.chanId] = {
         name: json.channel,
-        pair: json.pair,
-        apiId: api.id
+        pair: json.pair
       }
       return
     }
 
-    if (!this.channels[json[0]] || json[1] === 'hb') {
+    const chanId = json[0]
+
+    if (!this.channels[api.id][chanId] || json[1] === 'hb') {
       return
     }
 
-    const channel = this.channels[json[0]]
+    const channel = this.channels[api.id][chanId]
 
     if (!channel.hasSentInitialMessage) {
       // console.debug(`[${this.id}] skip first payload ${channel.name}:${channel.pair}`)
@@ -240,18 +238,12 @@ class Bitfinex extends Exchange {
       })
   }
 
+  onApiCreated(api) {
+    this.channels[api.id] = {}
+  }
+
   onApiRemoved(api) {
-    console.log(
-      `[${this.id}] has ${Object.keys(this.channels).length} channels`
-    )
-
-    const apiChannels = Object.keys(this.channels).filter(
-      id => this.channels[id].apiId === api.id
-    )
-
-    for (const id of apiChannels) {
-      delete this.channels[id]
-    }
+    delete this.channels[api.id]
   }
 }
 
