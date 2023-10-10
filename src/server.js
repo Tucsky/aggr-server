@@ -45,39 +45,11 @@ class Server extends EventEmitter {
      */
     this.chunk = []
 
-    /**
-     * delayedForBroadcast trades ready to be broadcasted next interval (see _broadcastDelayedTradesInterval)
-     * @type Trade[]
-     */
-    this.delayedForBroadcast = []
-
-    /**
-     * active trades aggregations
-     * @type {{[aggrIdentifier: string]: Trade}}
-     */
-    this.aggregating = {}
-
-    /**
-     * already aggregated trades ready to be broadcasted (see _broadcastAggregatedTradesInterval)
-     * @type Trade[]
-     */
-    this.aggregated = []
-
     this.BANNED_IPS = []
 
     if (config.collect) {
       console.log(
         `\n[server] collect is enabled`,
-        config.broadcast && config.broadcastAggr
-          ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)'
-          : '',
-        config.broadcast && config.broadcastDebounce && !config.broadcastAggr
-          ? `\n\twill broadcast trades every ${config.broadcastDebounce}ms`
-          : config.broadcast
-          ? `\n\twill broadcast ${
-              config.broadcastAggr ? 'aggregated ' : ''
-            }trades instantly`
-          : ''
       )
       console.log(`\tconnect to -> ${this.exchanges.map(a => a.id).join(', ')}`)
 
@@ -107,10 +79,10 @@ class Server extends EventEmitter {
         }
       }
 
-      if (config.api || config.broadcast) {
+      if (config.api) {
         if (!config.port) {
           console.error(
-            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API or broadcasting (value is ${config.port})\n\n`
+            `\n[server] critical error occured\n\t-> setting a network port is mandatory for API (value is ${config.port})\n\n`
           )
           process.exit()
         }
@@ -122,17 +94,6 @@ class Server extends EventEmitter {
           this.monitorUsage.bind(this),
           10000
         )
-      }
-
-      if (config.broadcast) {
-        this.createWSServer()
-
-        if (config.broadcastAggr) {
-          this._broadcastAggregatedTradesInterval = setInterval(
-            this.broadcastAggregatedTrades.bind(this),
-            50
-          )
-        }
       }
 
       // update banned users
@@ -243,17 +204,8 @@ class Server extends EventEmitter {
 
   handleExchangesEvents() {
     this.exchanges.forEach(exchange => {
-      if (config.broadcast && config.broadcastAggr) {
-        exchange.on(
-          'trades',
-          this.dispatchAggregateTrade.bind(this, exchange.id)
-        )
-      } else {
-        exchange.on('trades', this.dispatchRawTrades.bind(this))
-      }
-
+      exchange.on('trades', this.dispatchRawTrades.bind(this))
       exchange.on('liquidations', this.dispatchRawTrades.bind(this))
-
       exchange.on('disconnected', (pair, apiId, apiLength) => {
         const id = exchange.id + ':' + pair
 
@@ -302,21 +254,6 @@ class Server extends EventEmitter {
         socketService.syncMarkets()
       })
 
-      exchange.on('open', (apiId, pairs) => {
-        this.broadcastJson({
-          type: 'exchange_connected',
-          id: exchange.id
-        })
-      })
-
-      exchange.on('error', (apiId, message) => {
-        this.broadcastJson({
-          type: 'exchange_error',
-          id: exchange.id,
-          message: message
-        })
-      })
-
       exchange.on('close', (apiId, pairs, event) => {
         if (pairs.length) {
           console.error(
@@ -331,122 +268,6 @@ class Server extends EventEmitter {
             this.reconnectApis([apiId], 'unexpected close')
           }, 1000)
         }
-
-        this.broadcastJson({
-          type: 'exchange_disconnected',
-          id: exchange.id
-        })
-      })
-    })
-  }
-
-  createWSServer() {
-    if (!config.broadcast) {
-      return
-    }
-
-    this.wss = new WebSocket.Server({
-      server: this.server
-    })
-
-    this.wss.on('listening', () => {
-      console.log(
-        `[server] websocket server listening at localhost:${config.port}`
-      )
-    })
-
-    this.wss.on('connection', (ws, req) => {
-      const user = getIp(req)
-      const pairs = parsePairsFromWsRequest(req)
-
-      if (pairs && pairs.length) {
-        ws.pairs = pairs
-      }
-
-      const data = {
-        type: 'welcome',
-        supportedPairs: getActiveConnections(),
-        timestamp: Date.now(),
-        exchanges: this.exchanges.map(exchange => {
-          return {
-            id: exchange.id,
-            connected: exchange.apis.reduce((pairs, api) => {
-              pairs.concat(api._connected)
-              return pairs
-            }, [])
-          }
-        })
-      }
-
-      console.log(
-        `[${user}/ws/${ws.pairs.join('+')}] joined ${req.url} from ${
-          req.headers['origin']
-        }`
-      )
-
-      this.emit('connections', this.wss.clients.size)
-
-      ws.send(JSON.stringify(data))
-
-      ws.on('message', event => {
-        const message = event.trim()
-
-        const pairs = message.length
-          ? message
-              .split('+')
-              .map(a => a.trim())
-              .filter(a => a.length)
-          : []
-
-        console.log(`[${user}/ws] subscribe to ${pairs.join(' + ')}`)
-
-        ws.pairs = pairs
-      })
-
-      ws.on('close', event => {
-        let error = null
-
-        switch (event) {
-          case 1002:
-            error = 'Protocol Error'
-            break
-          case 1003:
-            error = 'Unsupported Data'
-            break
-          case 1007:
-            error = 'Invalid frame payload data'
-            break
-          case 1008:
-            error = 'Policy Violation'
-            break
-          case 1009:
-            error = 'Message too big'
-            break
-          case 1010:
-            error = 'Missing Extension'
-            break
-          case 1011:
-            error = 'Internal Error'
-            break
-          case 1012:
-            error = 'Service Restart'
-            break
-          case 1013:
-            error = 'Try Again Later'
-            break
-          case 1014:
-            error = 'Bad Gateway'
-            break
-          case 1015:
-            error = 'TLS Handshake'
-            break
-        }
-
-        if (error) {
-          console.log(`[${user}] unusual close "${error}"`)
-        }
-
-        setTimeout(() => this.emit('connections', this.wss.clients.size), 100)
       })
     })
   }
@@ -713,18 +534,6 @@ class Server extends EventEmitter {
 
       exchange.getProductsAndConnect(exchangePairs)
     }
-
-    if (config.broadcast && config.broadcastDebounce && !config.broadcastAggr) {
-      this._broadcastDelayedTradesInterval = setInterval(() => {
-        if (!this.delayedForBroadcast.length) {
-          return
-        }
-
-        this.broadcastTrades(this.delayedForBroadcast)
-
-        this.delayedForBroadcast = []
-      }, config.broadcastDebounce || 1000)
-    }
   }
 
   async connect(markets) {
@@ -883,38 +692,6 @@ class Server extends EventEmitter {
     })
   }
 
-  broadcastJson(data) {
-    if (!this.wss) {
-      return
-    }
-
-    this.wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(data))
-      }
-    })
-  }
-
-  broadcastTrades(trades) {
-    if (!this.wss) {
-      return
-    }
-
-    const groups = groupTrades(trades, true, config.broadcastThreshold)
-
-    this.wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        for (let i = 0; i < client.pairs.length; i++) {
-          if (groups[client.pairs[i]]) {
-            client.send(
-              JSON.stringify([client.pairs[i], groups[client.pairs[i]]])
-            )
-          }
-        }
-      }
-    })
-  }
-
   reconnectApis(apiIds, reason) {
     for (let exchange of this.exchanges) {
       for (let api of exchange.apis) {
@@ -1008,77 +785,6 @@ class Server extends EventEmitter {
       if (this.storages) {
         this.chunk.push(trade)
       }
-    }
-
-    if (config.broadcast) {
-      if (!config.broadcastAggr && !config.broadcastDebounce) {
-        this.broadcastTrades(trades)
-      } else {
-        Array.prototype.push.apply(this.delayedForBroadcast, trades)
-      }
-    }
-  }
-
-  dispatchAggregateTrade(exchange, data, apiId) {
-    const now = Date.now()
-    const length = data.length
-
-    for (let i = 0; i < length; i++) {
-      const trade = data[i]
-      const identifier = exchange + ':' + trade.pair
-
-      if (!trade.liquidation) {
-        // ping connection
-        connections[identifier].hit++
-        connections[identifier].timestamp = trade.timestamp
-      }
-
-      // save trade
-      if (this.storages) {
-        this.chunk.push(trade)
-      }
-
-      if (this.aggregating[identifier]) {
-        const queuedTrade = this.aggregating[identifier]
-
-        if (
-          queuedTrade.timestamp === trade.timestamp &&
-          queuedTrade.side === trade.side
-        ) {
-          queuedTrade.size += trade.size
-          queuedTrade.price += trade.price * trade.size
-          continue
-        } else {
-          queuedTrade.price /= queuedTrade.size
-          this.aggregated.push(queuedTrade)
-        }
-      }
-
-      this.aggregating[identifier] = Object.assign({}, trade)
-      this.aggregating[identifier].timeout = now + 50
-      this.aggregating[identifier].price *= this.aggregating[identifier].size
-    }
-  }
-
-  broadcastAggregatedTrades() {
-    const now = Date.now()
-
-    const onGoingAggregation = Object.keys(this.aggregating)
-
-    for (let i = 0; i < onGoingAggregation.length; i++) {
-      const trade = this.aggregating[onGoingAggregation[i]]
-      if (now > trade.timeout) {
-        trade.price /= trade.size
-        this.aggregated.push(trade)
-
-        delete this.aggregating[onGoingAggregation[i]]
-      }
-    }
-
-    if (this.aggregated.length) {
-      this.broadcastTrades(this.aggregated)
-
-      this.aggregated.splice(0, this.aggregated.length)
     }
   }
 

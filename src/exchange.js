@@ -74,22 +74,10 @@ class Exchange extends EventEmitter {
     this.maxConnectionsPerApi = 50
 
     /**
-     * Define if the incoming trades should be queued
-     * @type {boolean}
-     */
-    this.shouldQueueTrades = false
-
-    /**
      * Pending recovery ranges
      * @type {{pair: string, from: number, to: number}[]}
      */
     this.recoveryRanges = []
-
-    /**
-     * Trades goes theres while we wait for historical response
-     * @type {Trade[]}
-     */
-    this.queuedTrades = []
   }
 
   /**
@@ -262,7 +250,7 @@ class Exchange extends EventEmitter {
         return
       }
 
-      if (!/ping|pong/.test(data)) {
+      if (!/ping|pong/i.test(data)) {
         console.debug(
           `[${this.id}.createWs] sending ${data.substr(0, 64)}${
             data.length > 64 ? '...' : ''
@@ -547,12 +535,24 @@ class Exchange extends EventEmitter {
     this.recoveryRanges.push(range)
 
     if (!recovering[this.id]) {
+      console.log(`[${this.id}.registerRangeForRecovery] exchange isn't recovering yet -> start recovering`)
       this.recoverNextRange()
     }
   }
 
   async recoverNextRange(sequencial) {
     if (!this.recoveryRanges.length || (recovering[this.id] && !sequencial)) {
+      if (recovering[this.id] && !sequencial) {
+        console.log(`[${this.id}] attempted to start manual recovery while already recovering`)
+      } 
+      if (!this.recoveryRanges.length) {
+        console.log(`[${this.id}] no more range to recover`)
+        if (sequencial) {
+          console.log(`[${this.id}] set recovering[this.id] to false`)
+          delete recovering[this.id]
+          
+        }
+      }
       return
     }
 
@@ -609,7 +609,7 @@ class Exchange extends EventEmitter {
             +range.to
           ).toISOString()})`
         }
-        connection.timestamp = range.to
+        connection.timestamp = Math.max(connection.timestamp, range.to)
       }
 
       // in rare case of slow recovery and fast reconnection happening, propagate to pending ranges for that pair
@@ -637,31 +637,9 @@ class Exchange extends EventEmitter {
     }
 
     if (!this.recoveryRanges.length) {
-      console.log(`[${this.id}] no more ranges to recover`)
+      console.log(`[${this.id}] no more ranges to recover (delete recovering[this.id])`)
 
       delete recovering[this.id]
-
-      if (this.queuedTrades.length) {
-        const sortedQueuedTrades = this.queuedTrades.sort(
-          (a, b) => a.timestamp - b.timestamp
-        )
-
-        console.log(
-          `[${this.id}] release trades queue (${
-            sortedQueuedTrades.length
-          } trades, ${new Date(+sortedQueuedTrades[0].timestamp)
-            .toISOString()
-            .split('T')
-            .pop()} to ${new Date(
-            +sortedQueuedTrades[sortedQueuedTrades.length - 1].timestamp
-          )
-            .toISOString()
-            .split('T')
-            .pop()})`
-        )
-        this.emit('trades', sortedQueuedTrades)
-        this.queuedTrades = []
-      }
     } else {
       return this.waitBeforeContinueRecovery().then(() =>
         this.recoverNextRange(true)
@@ -830,8 +808,6 @@ class Exchange extends EventEmitter {
    * @param {string[]} pairs pairs attached to ws at opening
    */
   async onOpen(event, api) {
-    this.queueNextTrades()
-
     const pairs = [...api._pending, ...api._connected]
 
     console.debug(
@@ -956,11 +932,11 @@ class Exchange extends EventEmitter {
    * @param {Trade[]} trades
    */
   emitTrades(source, trades) {
-    if (source && this.promisesOfApiReconnections[source]) {
-      return
+    if (!trades || !trades.length) {
+      return null
     }
 
-    this.queueControl(source, trades, 'trades')
+    this.emit('trades', trades, source)
 
     return true
   }
@@ -971,26 +947,13 @@ class Exchange extends EventEmitter {
    * @param {Trade[]} trades
    */
   emitLiquidations(source, trades) {
-    if (source && this.promisesOfApiReconnections[source]) {
-      return
-    }
-
-    this.queueControl(source, trades, 'liquidations')
-
-    return true
-  }
-
-  queueControl(source, trades, type) {
     if (!trades || !trades.length) {
       return null
     }
 
-    if (this.shouldQueueTrades || recovering[this.id]) {
-      Array.prototype.push.apply(this.queuedTrades, trades)
-      return null
-    }
+    this.emit('liquidations', trades, source)
 
-    this.emit(type, trades, source)
+    return true
   }
 
   startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {
@@ -1108,20 +1071,6 @@ class Exchange extends EventEmitter {
     )
 
     return true
-  }
-
-  queueNextTrades(duration = 100) {
-    this.shouldQueueTrades = true
-
-    if (this._unlockTimeout) {
-      clearTimeout(this._unlockTimeout)
-    }
-
-    this._unlockTimeout = setTimeout(() => {
-      this._unlockTimeout = null
-
-      this.shouldQueueTrades = false
-    }, duration)
   }
 
   /**

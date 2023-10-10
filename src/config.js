@@ -85,27 +85,11 @@ const defaultConfig = {
   // bypass origin restriction for given ips (comma separated)
   whitelist: [],
 
-  // enable websocket server (if you only use this for storing trade data set to false)
-  broadcast: false,
-
-  // separate the broadcasts by n ms (0 = broadcast instantly)
-  broadcastDebounce: 0,
-
-  // aggregate trades that came within same millisecond before broadcast
-  // (note) saving to storage is NOT impacted
-  // (warning) will add +50ms delay for confirmation that trade actually came on same ms
-  broadcastAggr: true,
-
-  // will only broadcast trades >= broadcastThreshold
-  // expressed in base currency (ex: BTC)
-  // default 0
-  broadcastThreshold: 0,
-
   // enable api (historical/{from in ms}/{to in ms}/{timesfame in ms}/{markets separated by +})
   api: true,
 
   // storage solution, either
-  // false | null (no storage, everything is wiped out after broadcast)
+  // false | null (no storage)
   // "files" (periodical text file),
   // "influx" (timeserie database),
 
@@ -359,12 +343,6 @@ if (config.exchanges && typeof config.exchanges === 'string') {
     .filter(a => a.length)
 }
 
-if (!config.api && config.broadcast) {
-  console.warn(
-    `[warning!] websocket is enabled but api is set to ${config.api}\n\t(ws server require an http server for the initial upgrade handshake)`
-  )
-}
-
 if (!config.storage && config.collect) {
   console.warn(
     `[warning!] server will not persist any of the data it is receiving`
@@ -375,21 +353,9 @@ if (!config.collect && !config.api) {
   console.warn(`[warning!] server has no purpose`)
 }
 
-if (!config.storage && !config.collect && (config.broadcast || config.api)) {
+if (!config.storage && !config.collect && config.api) {
   console.warn(
-    `[warning!] ${
-      config.broadcast && config.api
-        ? 'ws and api are'
-        : config.broadcast
-        ? 'ws is'
-        : 'api is'
-    } enabled but neither storage or collect is enabled (may be useless)`
-  )
-}
-
-if (config.broadcast && !config.collect) {
-  console.warn(
-    `[warning!] collect is disabled but broadcast is set to ${config.broadcast} (may be useless)`
+    `[warning!] api is enabled but neither storage or collect is enabled (may be useless)`
   )
 }
 
