@@ -81,14 +81,10 @@ module.exports = {
     return output
   },
 
-  groupTrades(trades, includeMarket, threshold = 0) {
+  groupTrades(trades) {
     const groups = {}
 
     for (let i = 0; i < trades.length; i++) {
-      if (trades[i].size < threshold) {
-        continue
-      }
-
       const trade = trades[i]
       const identifier = trade.exchange + ':' + trade.pair
 
@@ -96,25 +92,12 @@ module.exports = {
         groups[identifier] = []
       }
 
-      let toPush
-
-      if (includeMarket) {
-        toPush = [
-          trade.exchange,
-          trade.pair,
-          trade.timestamp,
-          trade.price,
-          trade.size,
-          trade.side === 'buy' ? 1 : 0
-        ]
-      } else {
-        toPush = [
-          trade.timestamp,
-          trade.price,
-          trade.size,
-          trade.side === 'buy' ? 1 : 0
-        ]
-      }
+      const toPush = [
+        trade.timestamp,
+        trade.price,
+        trade.size,
+        trade.side === 'buy' ? 1 : 0
+      ]
 
       if (trade.liquidation) {
         toPush.push(1)

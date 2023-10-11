@@ -273,14 +273,16 @@ class Okex extends Exchange {
       console.log(`[${this.id}.recoverMissingTrades] +${liquidations.length} liquidations for ${range.pair}`)
 
       if (liquidations.length) {
-        this.emitLiquidations(null, liquidations)
+        this.emitLiquidations(null, liquidations.map(
+          liquidation => this.formatLiquidation(liquidation, range.pair)
+        ))
       }
     }
 
     let endpoint
     if (beforeTradeId) {
       endpoint = `https://www.okex.com/api/v5/market/history-trades?instId=${range.pair
-        }&limit=500${beforeTradeId ? '&after=' + beforeTradeId : ''}`
+        }&limit=100${beforeTradeId ? '&after=' + beforeTradeId : ''}`
     } else {
       endpoint = `https://www.okex.com/api/v5/market/trades?instId=${range.pair}&limit=500`
     }
@@ -294,12 +296,8 @@ class Okex extends Exchange {
           const earliestTradeTime =
             +response.data.data[response.data.data.length - 1].ts
           const trades = response.data.data
+            .filter(trade => Number(trade.ts) > range.from && (beforeTradeId || Number(trade.ts) < range.to))
             .map(trade => this.formatTrade(trade))
-            .filter(
-              a => {
-                return a.timestamp >= range.from + 1 && a.timestamp <= range.to
-              }
-            )
 
           if (trades.length) {
             this.emitTrades(null, trades)

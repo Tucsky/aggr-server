@@ -1,5 +1,4 @@
 const EventEmitter = require('events')
-const WebSocket = require('ws')
 const fs = require('fs')
 const {
   getIp,
@@ -24,7 +23,6 @@ const {
   recovering,
   updateConnectionStats,
   dumpConnections,
-  getActiveConnections
 } = require('./services/connections')
 
 class Server extends EventEmitter {
@@ -255,17 +253,19 @@ class Server extends EventEmitter {
       })
 
       exchange.on('close', (apiId, pairs, event) => {
+        const reason = event.reason || 'no reason'
+
         if (pairs.length) {
           console.error(
             `[${exchange.id}] api closed unexpectedly (${apiId}, ${
               event.code
-            }, ${event.reason || 'no reason'}) (was handling ${pairs.join(
+            }, ${reason}) (was handling ${pairs.join(
               ','
             )})`
           )
 
           setTimeout(() => {
-            this.reconnectApis([apiId], 'unexpected close')
+            this.reconnectApis([apiId], reason)
           }, 1000)
         }
       })
@@ -569,7 +569,7 @@ class Server extends EventEmitter {
 
         for (let market of exchangeMarkets) {
           try {
-            await exchange.link(market, true)
+            await exchange.link(market)
             config.pairs.push(market)
             results.push(`${market} ✅`)
           } catch (error) {
