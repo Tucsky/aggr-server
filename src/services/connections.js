@@ -23,32 +23,32 @@ module.exports.recovering = {}
  */
 const indexes = (module.exports.indexes = [])
 
-;(module.exports.registerIndexes = function () {
-  indexes.splice(0, indexes.length)
+  ; (module.exports.registerIndexes = function () {
+    indexes.splice(0, indexes.length)
 
-  const cacheIndexes = {}
+    const cacheIndexes = {}
 
-  for (const market of config.pairs) {
-    const product = parseMarket(market)
+    for (const market of config.pairs) {
+      const product = parseMarket(market)
 
-    if (config.indexExchangeBlacklist.indexOf(product.exchange) !== -1 || config.indexQuoteWhitelist.indexOf(product.quote) === -1) {
-      continue
-    }
-
-    if (!cacheIndexes[product.local]) {
-      cacheIndexes[product.local] = {
-        id: product.local,
-        markets: []
+      if (config.indexExchangeBlacklist.indexOf(product.exchange) !== -1 || config.indexQuoteWhitelist.indexOf(product.quote) === -1) {
+        continue
       }
+
+      if (!cacheIndexes[product.local]) {
+        cacheIndexes[product.local] = {
+          id: product.local,
+          markets: []
+        }
+      }
+
+      cacheIndexes[product.local].markets.push(market)
     }
 
-    cacheIndexes[product.local].markets.push(market)
-  }
-
-  for (const localPair in cacheIndexes) {
-    indexes.push(cacheIndexes[localPair])
-  }
-})()
+    for (const localPair in cacheIndexes) {
+      indexes.push(cacheIndexes[localPair])
+    }
+  })()
 
 /**
  * Read the connections file and return the content
@@ -228,20 +228,18 @@ module.exports.restoreConnections = async function () {
     }
 
     if (
-      !persistance[market].forceRecovery &&
-      (!persistance[market].timestamp ||
-        (config.staleConnectionThreshold > 0 &&
-          now - persistance[market].timestamp >
-            config.staleConnectionThreshold))
+      !persistance[market].timestamp ||
+      (config.staleConnectionThreshold > 0 &&
+        now - persistance[market].timestamp >
+        config.staleConnectionThreshold)
     ) {
       console.log(
-        `[connections] couldn't restore ${market}'s connection because ${
-          persistance[market].timestamp
-            ? `last ping is too old (${getHms(
-                now - persistance[market].timestamp,
-                true
-              )} ago)`
-            : `last ping is unknown`
+        `[connections] couldn't restore ${market}'s connection because ${persistance[market].timestamp
+          ? `last ping is too old (${getHms(
+            now - persistance[market].timestamp,
+            true
+          )} ago)`
+          : `last ping is unknown`
         }`
       )
       // connection is to old (too much data to recover)
@@ -370,8 +368,10 @@ module.exports.registerConnection = function (id, exchange, pair) {
 
     if (config.pairs.indexOf(id) === -1) {
       // force fetch last 1h30 of data through recent trades
-      connections[id].forceRecovery = true
-      connections[id].timestamp = now - 1000 * 60 * 60 * 1.5
+      const warmupDuration = 1000 * 60 * 60 * 1.5
+      connections[id].timestamp = now - warmupDuration
+      connections[id].startedAt = connections[id].timestamp - warmupDuration
+      connections[id].hit = 10
     }
   } else {
     connections[id].restarts++

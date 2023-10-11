@@ -4,7 +4,7 @@ const net = require('net')
 const config = require('../config')
 const socketService = require('../services/socket')
 const alertService = require('../services/alert')
-const { connections, updateIndexes } = require('../services/connections')
+const { updateIndexes } = require('../services/connections')
 const { parseMarket } = require('../services/catalog')
 
 require('../typedef')
@@ -30,6 +30,11 @@ class InfluxStorage {
      * @type {{[identifier: string]: {[timestamp: number]: Bar}}}
      */
     this.pendingBars = {}
+
+    /**
+     * @type {{[identifier: string]: {[timestamp: number]: Bar}}}
+     */
+    this.archivedBars = {}
 
     /**
      * @type {number}
@@ -214,7 +219,7 @@ class InfluxStorage {
 
     for (let timeframe of timeframes) {
       const rpDuration = timeframe * config.influxRetentionPerTimeframe
-      const rpDurationLitteral = getHms(rpDuration, true)
+      const rpDurationLitteral = getHms(rpDuration).replace(/[\s,]/g, '')
       const rpName = config.influxRetentionPrefix + getHms(timeframe)
 
       if (!retentionsPolicies[rpName]) {
@@ -416,15 +421,8 @@ class InfluxStorage {
           this.pendingBars[market][tradeFlooredTime]
         ) {
           bars[market] = this.pendingBars[market][tradeFlooredTime]
-          //console.log(`\tuse pending bar (time ${new Date(bars[market].time).toISOString().split('T').pop().replace(/\..*/, '')})`)
-        } else if (
-          connections[market].bar &&
-          connections[market].bar.time === tradeFlooredTime
-        ) {
-          // trades passed in save() contains some of the last batch (trade time = last bar time)
-          bars[market] = this.pendingBars[market][tradeFlooredTime] =
-            connections[market].bar
-          //console.log(`\tuse connection bar (time ${new Date(bars[market].time).toISOString().split('T').pop().replace(/\..*/, '')})`)
+        } else if (this.archivedBars[market] && this.archivedBars[market][tradeFlooredTime]) {
+          bars[market] = this.pendingBars[market][tradeFlooredTime] = this.archivedBars[market][tradeFlooredTime]
         } else {
           bars[market] = this.pendingBars[market][tradeFlooredTime] = {
             time: tradeFlooredTime,
@@ -465,22 +463,6 @@ class InfluxStorage {
       }
     }
 
-    for (const market in this.pendingBars) {
-      if (!connections[market]) {
-        continue
-      }
-
-      for (const timestamp in this.pendingBars[market]) {
-        connections[market].bar = this.pendingBars[market][timestamp]
-
-        if (this.pendingBars[market][timestamp].open === null) {
-          continue
-        }
-
-        connections[market].close = this.pendingBars[market][timestamp].close
-      }
-    }
-
     await updateIndexes(ranges, async (index, high, low, direction) => {
       await alertService.checkPriceCrossover(index, high, low, direction)
     })
@@ -494,6 +476,20 @@ class InfluxStorage {
 
     if (resampleRange.to - resampleRange.from >= 0) {
       await this.resample(resampleRange)
+    }
+
+    this.cleanArchivedBars()
+  }
+
+  cleanArchivedBars() {
+    const limit = Date.now() - config.influxTimeframe * 100
+    for (const identifier in this.archivedBars) {
+      for (const timestamp in this.archivedBars[identifier]) {
+        if (Number(timestamp) < limit) {
+          delete this.archivedBars[identifier][timestamp]
+          continue
+        }
+      }
     }
   }
 
@@ -533,13 +529,6 @@ class InfluxStorage {
 
       for (const timestamp in this.pendingBars[identifier]) {
         if (timestamp < now - this.influxTimeframeRetentionDuration) {
-          console.log(
-            `[storage/influx] ${new Date(
-              +timestamp
-            ).toISOString()} < ${new Date(
-              now - this.influxTimeframeRetentionDuration
-            ).toISOString()}`
-          )
           continue
         }
 
@@ -549,6 +538,12 @@ class InfluxStorage {
         importedRange.to = Math.max(bar.time, importedRange.to)
 
         barsToImport.push(bar)
+
+        if (!this.archivedBars[identifier]) {
+          this.archivedBars[identifier] = {}
+        }
+
+        this.archivedBars[identifier][timestamp] = this.pendingBars[identifier][timestamp]
       }
     }
 
