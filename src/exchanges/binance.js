@@ -12,7 +12,7 @@ class Binance extends Exchange {
     this.subscriptions = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://data-api.binance.vision/api/v3/exchangeInfo',
+      PRODUCTS: 'https://data-api.binance.vision/api/v3/exchangeInfo'
     }
 
     this.url = () => `wss://data-stream.binance.vision:9443/ws`

@@ -182,7 +182,7 @@ const defaultConfig = {
   alertExpiresAfter: 1000 * 60 * 60 * 24 * 7,
   alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 30,
   indexExchangeBlacklist: [],
-  indexQuoteWhitelist: ['USD','USDT','BUSD','USDC'],
+  indexQuoteWhitelist: ['USD', 'USDT', 'BUSD', 'USDC'],
 
   // verbose
   debug: false
@@ -298,14 +298,24 @@ if (config.whitelist && config.whitelist === 'string') {
   config.whitelist = []
 }
 
-if (typeof config.indexExchangeBlacklist === 'string' &&  config.indexExchangeBlacklist.trim().length) {
-  config.indexExchangeBlacklist = config.indexExchangeBlacklist.split(',').map(a => a.trim())
+if (
+  typeof config.indexExchangeBlacklist === 'string' &&
+  config.indexExchangeBlacklist.trim().length
+) {
+  config.indexExchangeBlacklist = config.indexExchangeBlacklist
+    .split(',')
+    .map(a => a.trim())
 } else if (!Array.isArray(config.indexExchangeBlacklist)) {
   config.indexExchangeBlacklist = []
 }
 
-if (typeof config.indexQuoteWhitelist === 'string' &&  config.indexQuoteWhitelist.trim().length) {
-  config.indexQuoteWhitelist = config.indexQuoteWhitelist.split(',').map(a => a.trim())
+if (
+  typeof config.indexQuoteWhitelist === 'string' &&
+  config.indexQuoteWhitelist.trim().length
+) {
+  config.indexQuoteWhitelist = config.indexQuoteWhitelist
+    .split(',')
+    .map(a => a.trim())
 } else if (!Array.isArray(config.indexQuoteWhitelist)) {
   config.indexQuoteWhitelist = []
 }
