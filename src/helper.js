@@ -191,7 +191,7 @@ module.exports = {
   },
   getMarkets() {
     return config.pairs.map(market => {
-      const [exchange, symbol] = market.match(/([^:]*):(.*)/).slice(1, 3)
+      const [exchange, pair] = market.match(/([^:]*):(.*)/).slice(1, 3)
 
       if (config.exchanges.indexOf(exchange) === -1) {
         console.warn(`${market} is not supported`)
@@ -200,7 +200,7 @@ module.exports = {
       return {
         market,
         exchange,
-        symbol
+        pair
       }
     })
   },

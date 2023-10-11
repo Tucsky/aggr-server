@@ -29,7 +29,12 @@ const indexes = (module.exports.indexes = [])
   const cacheIndexes = {}
 
   for (const market of config.pairs) {
-    const product = parseMarket(market)
+    const [exchange, pair] = market.match(/([^:]*):(.*)/).slice(1, 3)
+    const product = parseMarket(exchange, pair)
+
+    if (!product) {
+      continue
+    }
 
     if (
       config.indexExchangeBlacklist.indexOf(product.exchange) !== -1 ||

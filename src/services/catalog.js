@@ -2,24 +2,52 @@ const axios = require('axios')
 const fs = require('fs')
 const { ensureDirectoryExists } = require('../helper')
 
+
 const stablecoins = [
   'USDT',
   'USDC',
   'TUSD',
+  'FDUSD',
   'BUSD',
   'USDD',
   'USDK',
   'USDP',
   'UST'
 ]
-const currencies = ['EUR', 'USD', 'GBP', 'AUD', 'CAD', 'CHF']
+
+const normalStablecoinLookup = /^U/
+
+const normalStablecoins = stablecoins.filter(s =>
+  normalStablecoinLookup.test(s)
+)
+
+const reverseStablecoins = stablecoins.filter(
+  s => !normalStablecoinLookup.test(s)
+)
+
+const currencies = ['EUR', 'USD', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'CNH']
+
 const currencyPairLookup = new RegExp(
   `^([A-Z0-9]{2,})[-/:]?(${currencies.join('|')})$`
 )
+
+// use 2+ caracters symbol for normal stablecoins, and 3+ for reversed
+// not infallible but avoids coin with symbol finishing with T or B to be labeled as TUSD or BUSD quoted markets
 const stablecoinPairLookup = new RegExp(
-  `^([A-Z0-9]{2,})[-/:_]?(${stablecoins.join('|')})$`
+  `^([A-Z0-9]{2,})[-/:_]?(${normalStablecoins.join(
+    '|'
+  )})$|^([A-Z0-9]{3,})[-/:_]?(${reverseStablecoins.join('|')})$`
 )
 const simplePairLookup = new RegExp(`^([A-Z0-9]{2,})[-/_]?([A-Z0-9]{3,})$`)
+
+const reverseStablecoinPairLookup = new RegExp(
+  `(\\w{3,})(${reverseStablecoins.join('|')})$`,
+  'i'
+)
+const standardCurrencyPairLookup = new RegExp(
+  `(\\w{3})?(${currencies.join('|')})[a-z]?$`,
+  'i'
+)
 
 require('../typedef')
 
@@ -135,17 +163,18 @@ module.exports.fetchProducts = async function (exchangeId, endpoints) {
   return null
 }
 
-const formatStablecoin = (module.exports.formatStablecoin = function (pair) {
-  return pair.replace(/(\w{3})?b?usd?[a-z]?$/i, '$1USD')
-})
+function stripStablePair(pair) {
+  return pair
+    .replace(reverseStablecoinPairLookup, '$1USD')
+    .replace(standardCurrencyPairLookup, '$1$2')
+}
 
 /**
  *
  * @param {string} market
  * @returns {Product}
  */
-module.exports.parseMarket = function (market, noStable = true) {
-  const [exchangeId, symbol] = market.match(/([^:]*):(.*)/).slice(1, 3)
+module.exports.parseMarket = function (exchangeId, symbol, noStable = true) {
   const id = exchangeId + ':' + symbol
 
   let type = 'spot'
@@ -158,10 +187,16 @@ module.exports.parseMarket = function (market, noStable = true) {
     type = 'perp'
   } else if (exchangeId === 'HUOBI' && /_(CW|CQ|NW|NQ)$/.test(symbol)) {
     type = 'future'
+  } else if (exchangeId === 'BITMART' && !/_/.test(symbol)) {
+    type = 'perp'
   } else if (exchangeId === 'HUOBI' && /-/.test(symbol)) {
     type = 'perp'
   } else if (exchangeId === 'BYBIT' && !/-SPOT$/.test(symbol)) {
-    type = 'perp'
+    if (/.*[0-9]{2}$/.test(symbol)) {
+      type = 'future'
+    } else if (!/-SPOT$/.test(symbol)) {
+      type = 'perp'
+    }
   } else if (
     exchangeId === 'BITMEX' ||
     /(-|_)swap$|(-|_|:)perp/i.test(symbol)
@@ -175,7 +210,10 @@ module.exports.parseMarket = function (market, noStable = true) {
     type = 'perp'
   } else if (exchangeId === 'KRAKEN' && /_/.test(symbol) && type === 'spot') {
     type = 'perp'
-  } else if (exchangeId === 'BITGET' && symbol.indexOf('_') !== -1) {
+  } else if (
+    (exchangeId === 'BITGET' || exchangeId === 'MEXC') &&
+    symbol.indexOf('_') !== -1
+  ) {
     type = 'perp'
   } else if (exchangeId === 'KUCOIN' && symbol.indexOf('-') === -1) {
     type = 'perp'
@@ -187,8 +225,6 @@ module.exports.parseMarket = function (market, noStable = true) {
     localSymbol = localSymbol.replace(/-SPOT$/, '')
   } else if (exchangeId === 'KRAKEN') {
     localSymbol = localSymbol.replace(/PI_/, '').replace(/FI_/, '')
-  } else if (exchangeId === 'FTX' && type === 'future') {
-    localSymbol = localSymbol.replace(/(\w+)-\d+$/, '$1-USD')
   } else if (exchangeId === 'BITFINEX') {
     localSymbol = localSymbol
       .replace(/(.*)F0:(\w+)F0/, '$1-$2')
@@ -235,24 +271,25 @@ module.exports.parseMarket = function (market, noStable = true) {
       }
     }
   }
+  if (!match) {
+    return null
+  }
 
   let base
   let quote
 
-  if (match) {
-    if (match[1] === undefined && match[2] === undefined) {
-      base = match[3]
-      quote = match[4]
-    } else {
-      base = match[1]
-      quote = match[2]
-    }
+  if (match[1] === undefined && match[2] === undefined) {
+    base = match[3]
+    quote = match[4] || ''
+  } else {
+    base = match[1]
+    quote = match[2] || ''
+  }
 
-    if (noStable) {
-      localSymbolAlpha = base + formatStablecoin(quote)
-    } else {
-      localSymbolAlpha = base + quote
-    }
+  if (noStable) {
+    localSymbolAlpha = stripStablePair(base + quote)
+  } else {
+    localSymbolAlpha = base + quote
   }
 
   return {

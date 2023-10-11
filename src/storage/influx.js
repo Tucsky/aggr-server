@@ -851,7 +851,8 @@ class InfluxStorage {
 
             if (collector) {
               const markets = collector.markets.filter(market => {
-                const product = parseMarket(market)
+                const [exchange, pair] = market.match(/([^:]*):(.*)/).slice(1, 3)
+                const product = parseMarket(exchange, pair)
                 if (product.local === marketOrIndex) {
                   return true
                 }
