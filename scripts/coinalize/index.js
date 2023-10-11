@@ -32,7 +32,12 @@ async function program() {
       continue
     }
 
-    const market = parseMarket(pair.market, pair.exchange === 'POLONIEX')
+    const market = parseMarket(pair.exchange, pair.pair, pair.exchange === 'POLONIEX')
+
+    if (!market) {
+      console.warn(`${pair.market}`)
+      continue
+    }
     
     resampleRange.markets.push(market.id)
 
