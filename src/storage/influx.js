@@ -399,7 +399,7 @@ class InfluxStorage {
         if (!ranges[market]) {
           ranges[market] = {
             low: trade.price,
-            high: trade.price,
+            high: trade.price
           }
         } else {
           ranges[market].low = Math.min(ranges[market].low, trade.price)
@@ -421,8 +421,12 @@ class InfluxStorage {
           this.pendingBars[market][tradeFlooredTime]
         ) {
           bars[market] = this.pendingBars[market][tradeFlooredTime]
-        } else if (this.archivedBars[market] && this.archivedBars[market][tradeFlooredTime]) {
-          bars[market] = this.pendingBars[market][tradeFlooredTime] = this.archivedBars[market][tradeFlooredTime]
+        } else if (
+          this.archivedBars[market] &&
+          this.archivedBars[market][tradeFlooredTime]
+        ) {
+          bars[market] = this.pendingBars[market][tradeFlooredTime] =
+            this.archivedBars[market][tradeFlooredTime]
         } else {
           bars[market] = this.pendingBars[market][tradeFlooredTime] = {
             time: tradeFlooredTime,
@@ -543,7 +547,8 @@ class InfluxStorage {
           this.archivedBars[identifier] = {}
         }
 
-        this.archivedBars[identifier][timestamp] = this.pendingBars[identifier][timestamp]
+        this.archivedBars[identifier][timestamp] =
+          this.pendingBars[identifier][timestamp]
       }
     }
 
@@ -835,26 +840,32 @@ class InfluxStorage {
     let query = `SELECT * FROM "${config.influxDatabase}"."${config.influxRetentionPrefix}${timeframeLitteral}"."trades_${timeframeLitteral}" WHERE time >= ${from}ms AND time < ${to}ms`
 
     if (markets.length) {
-      query += ` AND (${markets.map((marketOrIndex) => {
-        if (config.influxCollectors && marketOrIndex.indexOf(':') === -1 && socketService.serverSocket) {
-          const collector = socketService.getNodeByMarket(marketOrIndex)
+      query += ` AND (${markets
+        .map(marketOrIndex => {
+          if (
+            config.influxCollectors &&
+            marketOrIndex.indexOf(':') === -1 &&
+            socketService.serverSocket
+          ) {
+            const collector = socketService.getNodeByMarket(marketOrIndex)
 
-          if (collector) {
-            const markets = collector.markets.filter(market => {
-              const product = parseMarket(market)
-              if (product.local === marketOrIndex) {
-                return true
+            if (collector) {
+              const markets = collector.markets.filter(market => {
+                const product = parseMarket(market)
+                if (product.local === marketOrIndex) {
+                  return true
+                }
+              })
+
+              if (markets.length) {
+                return markets.map(a => `market = '${a}'`).join(' OR ')
               }
-            })
-
-            if (markets.length) {
-              return markets.map(a => `market = '${a}'`).join(' OR ')
             }
           }
-        }
 
-        return `market = '${marketOrIndex}'`
-      }).join(' OR ')})`
+          return `market = '${marketOrIndex}'`
+        })
+        .join(' OR ')})`
     }
 
     return this.influx

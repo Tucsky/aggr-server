@@ -12,7 +12,8 @@ class Mexc extends Exchange {
     this.endpoints = {
       PRODUCTS: [
         'https://api.mexc.com/api/v3/exchangeInfo',
-        'https://contract.mexc.com/api/v1/contract/detail']
+        'https://contract.mexc.com/api/v1/contract/detail'
+      ]
     }
 
     this.url = pair => {

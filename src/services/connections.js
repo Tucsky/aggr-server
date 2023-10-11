@@ -23,32 +23,35 @@ module.exports.recovering = {}
  */
 const indexes = (module.exports.indexes = [])
 
-  ; (module.exports.registerIndexes = function () {
-    indexes.splice(0, indexes.length)
+;(module.exports.registerIndexes = function () {
+  indexes.splice(0, indexes.length)
 
-    const cacheIndexes = {}
+  const cacheIndexes = {}
 
-    for (const market of config.pairs) {
-      const product = parseMarket(market)
+  for (const market of config.pairs) {
+    const product = parseMarket(market)
 
-      if (config.indexExchangeBlacklist.indexOf(product.exchange) !== -1 || config.indexQuoteWhitelist.indexOf(product.quote) === -1) {
-        continue
-      }
-
-      if (!cacheIndexes[product.local]) {
-        cacheIndexes[product.local] = {
-          id: product.local,
-          markets: []
-        }
-      }
-
-      cacheIndexes[product.local].markets.push(market)
+    if (
+      config.indexExchangeBlacklist.indexOf(product.exchange) !== -1 ||
+      config.indexQuoteWhitelist.indexOf(product.quote) === -1
+    ) {
+      continue
     }
 
-    for (const localPair in cacheIndexes) {
-      indexes.push(cacheIndexes[localPair])
+    if (!cacheIndexes[product.local]) {
+      cacheIndexes[product.local] = {
+        id: product.local,
+        markets: []
+      }
     }
-  })()
+
+    cacheIndexes[product.local].markets.push(market)
+  }
+
+  for (const localPair in cacheIndexes) {
+    indexes.push(cacheIndexes[localPair])
+  }
+})()
 
 /**
  * Read the connections file and return the content
@@ -230,16 +233,16 @@ module.exports.restoreConnections = async function () {
     if (
       !persistance[market].timestamp ||
       (config.staleConnectionThreshold > 0 &&
-        now - persistance[market].timestamp >
-        config.staleConnectionThreshold)
+        now - persistance[market].timestamp > config.staleConnectionThreshold)
     ) {
       console.log(
-        `[connections] couldn't restore ${market}'s connection because ${persistance[market].timestamp
-          ? `last ping is too old (${getHms(
-            now - persistance[market].timestamp,
-            true
-          )} ago)`
-          : `last ping is unknown`
+        `[connections] couldn't restore ${market}'s connection because ${
+          persistance[market].timestamp
+            ? `last ping is too old (${getHms(
+                now - persistance[market].timestamp,
+                true
+              )} ago)`
+            : `last ping is unknown`
         }`
       )
       // connection is to old (too much data to recover)
@@ -423,13 +426,17 @@ module.exports.updateIndexes = async function (ranges, callback) {
       if (ranges[market]) {
         high += ranges[market].high
         low += ranges[market].low
-        debugIndexes[index.id].push(`${market}:rg:${ranges[market].low}-${ranges[market].high}`)
+        debugIndexes[index.id].push(
+          `${market}:rg:${ranges[market].low}-${ranges[market].high}`
+        )
         connections[market].low = ranges[market].low
         connections[market].high = ranges[market].high
       } else {
         high += connections[market].close
         low += connections[market].close
-        debugIndexes[index.id].push(`${market}:co:${connections[market].close}-${connections[market].close}`)
+        debugIndexes[index.id].push(
+          `${market}:co:${connections[market].close}-${connections[market].close}`
+        )
         connections[market].low = connections[market].close
         connections[market].high = connections[market].close
       }

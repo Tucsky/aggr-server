@@ -174,7 +174,11 @@ class AlertService extends EventEmitter {
 
     this.alertEndpoints[alert.endpoint].timestamp = now
 
-    console.log(`[alert/${alert.user}] create alert ${market} @${alert.price} (ajusted to ${alert.price - (priceOffset || 0)})`)
+    console.log(
+      `[alert/${alert.user}] create alert ${market} @${
+        alert.price
+      } (ajusted to ${alert.price - (priceOffset || 0)})`
+    )
 
     if (alert.message) {
       console.log(`\t 💬 ${alert.message}`)
@@ -262,7 +266,9 @@ class AlertService extends EventEmitter {
       this.alerts[activeAlert.market][rangePrice].splice(index, 1)
 
       console.log(
-        `[alert/${activeAlert.user}] move alert on ${activeAlert.market} @${activeAlert.price} -> ${newAlert.price} (ajusted to ${
+        `[alert/${activeAlert.user}] move alert on ${activeAlert.market} @${
+          activeAlert.price
+        } -> ${newAlert.price} (ajusted to ${
           activeAlert.price - (priceOffset || 0)
         })`
       )
@@ -626,12 +632,17 @@ class AlertService extends EventEmitter {
         continue
       }
 
-      const isTriggered = alert.priceCompare >= low && alert.priceCompare <= high
+      const isTriggered =
+        alert.priceCompare >= low && alert.priceCompare <= high
 
       if (isTriggered) {
-        console.log(`[alert/checkPriceCrossover] ${alert.price} (ajusted to ${alert.priceCompare}) ${market} ${low} <-> ${high}`)
+        console.log(
+          `[alert/checkPriceCrossover] ${alert.price} (ajusted to ${alert.priceCompare}) ${market} ${low} <-> ${high}`
+        )
         if (debugIndexes[market]) {
-          console.log(`debug index ${market}: ${debugIndexes[market].join(',')}`)
+          console.log(
+            `debug index ${market}: ${debugIndexes[market].join(',')}`
+          )
         }
         await this.sendAlert(alert, market, now, direction)
 
