@@ -111,20 +111,21 @@ module.exports = {
 
   formatAmount(amount, decimals) {
     const negative = amount < 0
-  
+
     amount = Math.abs(amount)
-  
+
     if (amount >= 1000000000) {
       amount =
         +(amount / 1000000000).toFixed(isNaN(decimals) ? 1 : decimals) + ' B'
     } else if (amount >= 1000000) {
-      amount = +(amount / 1000000).toFixed(isNaN(decimals) ? 1 : decimals) + ' M'
+      amount =
+        +(amount / 1000000).toFixed(isNaN(decimals) ? 1 : decimals) + ' M'
     } else if (amount >= 1000) {
       amount = +(amount / 1000).toFixed(isNaN(decimals) ? 1 : decimals) + ' K'
     } else {
       amount = +amount.toFixed(isNaN(decimals) ? 2 : decimals)
     }
-  
+
     if (negative) {
       return '-' + amount
     } else {

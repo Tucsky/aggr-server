@@ -2,10 +2,23 @@ const axios = require('axios')
 const fs = require('fs')
 const { ensureDirectoryExists } = require('../helper')
 
-const stablecoins = ['USDT', 'USDC', 'TUSD', 'BUSD', 'USDD', 'USDK', 'USDP', 'UST']
+const stablecoins = [
+  'USDT',
+  'USDC',
+  'TUSD',
+  'BUSD',
+  'USDD',
+  'USDK',
+  'USDP',
+  'UST'
+]
 const currencies = ['EUR', 'USD', 'GBP', 'AUD', 'CAD', 'CHF']
-const currencyPairLookup = new RegExp(`^([A-Z0-9]{2,})[-/:]?(${currencies.join('|')})$`)
-const stablecoinPairLookup = new RegExp(`^([A-Z0-9]{2,})[-/:_]?(${stablecoins.join('|')})$`)
+const currencyPairLookup = new RegExp(
+  `^([A-Z0-9]{2,})[-/:]?(${currencies.join('|')})$`
+)
+const stablecoinPairLookup = new RegExp(
+  `^([A-Z0-9]{2,})[-/:_]?(${stablecoins.join('|')})$`
+)
 const simplePairLookup = new RegExp(`^([A-Z0-9]{2,})[-/_]?([A-Z0-9]{3,})$`)
 
 require('../typedef')
@@ -185,7 +198,10 @@ module.exports.parseMarket = function (market, noStable = true) {
   } else if (exchangeId === 'DERIBIT') {
     localSymbol = localSymbol.replace(/_(\w+)-PERPETUAL/i, '$1')
   } else if (exchangeId === 'BITGET') {
-    localSymbol = localSymbol.replace('USD_DMCBL', 'USD').replace('PERP_CMCBL', 'USDC').replace(/_.*/, '')
+    localSymbol = localSymbol
+      .replace('USD_DMCBL', 'USD')
+      .replace('PERP_CMCBL', 'USDC')
+      .replace(/_.*/, '')
   } else if (exchangeId === 'KUCOIN') {
     localSymbol = localSymbol.replace(/M$/, '')
   }
@@ -246,6 +262,6 @@ module.exports.parseMarket = function (market, noStable = true) {
     pair: symbol,
     local: localSymbolAlpha,
     exchange: exchangeId,
-    type,
+    type
   }
 }

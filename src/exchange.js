@@ -255,7 +255,8 @@ class Exchange extends EventEmitter {
 
       if (!/ping|pong/i.test(data)) {
         console.debug(
-          `[${this.id}.createWs] sending ${data.substr(0, 64)}${data.length > 64 ? '...' : ''
+          `[${this.id}.createWs] sending ${data.substr(0, 64)}${
+            data.length > 64 ? '...' : ''
           } to ${api.url}`
         )
       }
@@ -301,7 +302,11 @@ class Exchange extends EventEmitter {
           this.onApiCreated(api)
           resolve(api)
         } else {
-          reject(new Error('Failed to establish a websocket connection with exchange'))
+          reject(
+            new Error(
+              'Failed to establish a websocket connection with exchange'
+            )
+          )
         }
       }
     })
@@ -311,7 +316,8 @@ class Exchange extends EventEmitter {
 
   async subscribePendingPairs(api) {
     console.debug(
-      `[${this.id}.subscribePendingPairs] subscribe to ${api._pending.length
+      `[${this.id}.subscribePendingPairs] subscribe to ${
+        api._pending.length
       } pairs of api ${api.url} (${api._pending.join(', ')})`
     )
 
@@ -352,7 +358,8 @@ class Exchange extends EventEmitter {
     }
 
     console.debug(
-      `[${this.id}.unlink] disconnecting ${pair} ${skipSending ? '(skip sending)' : ''
+      `[${this.id}.unlink] disconnecting ${pair} ${
+        skipSending ? '(skip sending)' : ''
       }`
     )
 
@@ -396,7 +403,7 @@ class Exchange extends EventEmitter {
         this.apis[i].url === url &&
         (!this.maxConnectionsPerApi ||
           this.apis[i]._connected.length + this.apis[i]._pending.length <
-          this.maxConnectionsPerApi)
+            this.maxConnectionsPerApi)
       ) {
         return this.apis[i]
       }
@@ -465,7 +472,8 @@ class Exchange extends EventEmitter {
     api.onmessage = null
 
     console.debug(
-      `[${this.id}.reconnectApi] reconnect api ${api.id}${reason ? ' reason: ' + reason : ''
+      `[${this.id}.reconnectApi] reconnect api ${api.id}${
+        reason ? ' reason: ' + reason : ''
       } (url: ${api.url}, _connected: ${api._connected.join(
         ', '
       )}, _pending: ${api._pending.join(', ')})`
@@ -490,7 +498,8 @@ class Exchange extends EventEmitter {
       pairsToReconnect
     ).then(() => {
       console.log(
-        `[${this.id}.reconnectApi] done reconnecting api (was ${api.id}${reason ? ' because of ' + reason : ''
+        `[${this.id}.reconnectApi] done reconnecting api (was ${api.id}${
+          reason ? ' because of ' + reason : ''
         })`
       )
       delete this.promisesOfApiReconnections[api.id]
@@ -525,7 +534,9 @@ class Exchange extends EventEmitter {
     this.recoveryRanges.push(range)
 
     if (!recovering[this.id]) {
-      console.log(`[${this.id}.registerRangeForRecovery] exchange isn't recovering yet -> start recovering`)
+      console.log(
+        `[${this.id}.registerRangeForRecovery] exchange isn't recovering yet -> start recovering`
+      )
       this.recoverNextRange()
     }
   }
@@ -535,7 +546,9 @@ class Exchange extends EventEmitter {
       if (!this.recoveryRanges.length) {
         console.log(`[${this.id}] no more range to recover`)
         if (sequencial) {
-          console.log(`[${this.id}] recoverNextRange was called sequentially yet no recoveryRanges are left to recover (impossible case)`)
+          console.log(
+            `[${this.id}] recoverNextRange was called sequentially yet no recoveryRanges are left to recover (impossible case)`
+          )
           delete recovering[this.id]
         }
       }
@@ -544,14 +557,15 @@ class Exchange extends EventEmitter {
 
     const range = this.recoveryRanges.shift()
 
-    const originalRange = { 
+    const originalRange = {
       from: range.from,
-      to: range.to,
+      to: range.to
     }
     const missingTime = range.to - range.from
 
     console.log(
-      `[${this.id}.recoverTrades] get missing trades for ${range.pair
+      `[${this.id}.recoverTrades] get missing trades for ${
+        range.pair
       } (expecting ${range.missEstimate} on a ${getHms(
         missingTime
       )} blackout going from ${new Date(range.from)
@@ -567,7 +581,8 @@ class Exchange extends EventEmitter {
 
       if (recoveredCount) {
         console.info(
-          `[${this.id}.recoverTrades] recovered ${recoveredCount} (expected ${range.missEstimate
+          `[${this.id}.recoverTrades] recovered ${recoveredCount} (expected ${
+            range.missEstimate
           }) trades on ${this.id}:${range.pair} (${getHms(
             missingTime - (range.to - range.from)
           )} recovered out of ${getHms(missingTime)} | ${getHms(
@@ -576,7 +591,8 @@ class Exchange extends EventEmitter {
         )
       } else {
         console.info(
-          `[${this.id}.recoverTrades] 0 trade recovered on ${range.pair
+          `[${this.id}.recoverTrades] 0 trade recovered on ${
+            range.pair
           } (expected ${range.missEstimate} for ${getHms(
             missingTime
           )} blackout)`
@@ -829,7 +845,8 @@ class Exchange extends EventEmitter {
       this.failedConnections++
       const delay = 1000 * this.failedConnections
       console.debug(
-        `[${this.id}] api refused connection, sleeping ${delay / 1000
+        `[${this.id}] api refused connection, sleeping ${
+          delay / 1000
         }s before trying again`
       )
       await sleep(delay)

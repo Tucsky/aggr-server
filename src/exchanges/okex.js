@@ -36,7 +36,6 @@ class Okex extends Exchange {
         const type = product.instType
         const pair = product.instId
 
-
         if (type === 'FUTURES') {
           // futures
 
@@ -164,10 +163,7 @@ class Okex extends Exchange {
         )
       }, [])
 
-      return this.emitLiquidations(
-        api.id,
-        liqs
-      )
+      return this.emitLiquidations(api.id, liqs)
     }
 
     return this.emitTrades(
@@ -216,7 +212,11 @@ class Okex extends Exchange {
   getLiquidationsUrl(range) {
     // after query param = before
     // (get the 100 trades prededing endTimestamp)
-    return `${this.endpoints.LIQUIDATIONS}?instId=${range.pair}&instType=SWAP&uly=${range.pair.replace('-SWAP', '')}&state=filled&after=${range.to}`
+    return `${this.endpoints.LIQUIDATIONS}?instId=${
+      range.pair
+    }&instType=SWAP&uly=${range.pair.replace('-SWAP', '')}&state=filled&after=${
+      range.to
+    }`
   }
 
   /**
@@ -242,7 +242,11 @@ class Okex extends Exchange {
     const allLiquidations = []
 
     while (true) {
-      console.log(`[${this.id}] fetch all ${range.pair} liquidations in`, new Date(range.from).toISOString(), new Date(range.to).toISOString())
+      console.log(
+        `[${this.id}] fetch all ${range.pair} liquidations in`,
+        new Date(range.from).toISOString(),
+        new Date(range.to).toISOString()
+      )
       const liquidations = await this.fetchLiquidationOrders(range)
 
       if (!liquidations || liquidations.length === 0) {
@@ -251,10 +255,18 @@ class Okex extends Exchange {
       }
       console.log('received', liquidations.length, 'liquidations -> process')
 
-      console.log('first liq @ ', new Date(+liquidations[0].ts).toISOString(), new Date(+liquidations[liquidations.length - 1].ts).toISOString())
+      console.log(
+        'first liq @ ',
+        new Date(+liquidations[0].ts).toISOString(),
+        new Date(+liquidations[liquidations.length - 1].ts).toISOString()
+      )
       for (const liquidation of liquidations) {
         if (liquidation.ts < range.from) {
-          console.log(`liquidation ${liquidations.indexOf(liquidation) + 1}/${liquidations.length} is outside range -> break`)
+          console.log(
+            `liquidation ${liquidations.indexOf(liquidation) + 1}/${
+              liquidations.length
+            } is outside range -> break`
+          )
           return allLiquidations
         }
 
@@ -262,7 +274,10 @@ class Okex extends Exchange {
       }
 
       // new range
-      console.log(`[${this.id}] set new end date to last liquidation`, new Date(+liquidations[liquidations.length - 1].ts).toISOString())
+      console.log(
+        `[${this.id}] set new end date to last liquidation`,
+        new Date(+liquidations[liquidations.length - 1].ts).toISOString()
+      )
       range.to = +liquidations[liquidations.length - 1].ts
     }
   }
@@ -270,19 +285,25 @@ class Okex extends Exchange {
   async getMissingTrades(range, totalRecovered = 0, beforeTradeId) {
     if (this.types[range.pair] !== 'SPOT' && !beforeTradeId) {
       const liquidations = await this.fetchAllLiquidationOrders({ ...range })
-      console.log(`[${this.id}.recoverMissingTrades] +${liquidations.length} liquidations for ${range.pair}`)
+      console.log(
+        `[${this.id}.recoverMissingTrades] +${liquidations.length} liquidations for ${range.pair}`
+      )
 
       if (liquidations.length) {
-        this.emitLiquidations(null, liquidations.map(
-          liquidation => this.formatLiquidation(liquidation, range.pair)
-        ))
+        this.emitLiquidations(
+          null,
+          liquidations.map(liquidation =>
+            this.formatLiquidation(liquidation, range.pair)
+          )
+        )
       }
     }
 
     let endpoint
     if (beforeTradeId) {
-      endpoint = `https://www.okex.com/api/v5/market/history-trades?instId=${range.pair
-        }&limit=100${beforeTradeId ? '&after=' + beforeTradeId : ''}`
+      endpoint = `https://www.okex.com/api/v5/market/history-trades?instId=${
+        range.pair
+      }&limit=100${beforeTradeId ? '&after=' + beforeTradeId : ''}`
     } else {
       endpoint = `https://www.okex.com/api/v5/market/trades?instId=${range.pair}&limit=500`
     }
@@ -296,7 +317,11 @@ class Okex extends Exchange {
           const earliestTradeTime =
             +response.data.data[response.data.data.length - 1].ts
           const trades = response.data.data
-            .filter(trade => Number(trade.ts) > range.from && (beforeTradeId || Number(trade.ts) < range.to))
+            .filter(
+              trade =>
+                Number(trade.ts) > range.from &&
+                (beforeTradeId || Number(trade.ts) < range.to)
+            )
             .map(trade => this.formatTrade(trade))
 
           if (trades.length) {
@@ -314,7 +339,8 @@ class Okex extends Exchange {
             earliestTradeTime >= range.from
           ) {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
               } ... but theres more (${getHms(remainingMissingTime)} remaining)`
             )
             return this.waitBeforeContinueRecovery().then(() =>
@@ -322,7 +348,8 @@ class Okex extends Exchange {
             )
           } else {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
               } (${getHms(remainingMissingTime)} remaining)`
             )
           }

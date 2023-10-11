@@ -22,7 +22,7 @@ const {
   restoreConnections,
   recovering,
   updateConnectionStats,
-  dumpConnections,
+  dumpConnections
 } = require('./services/connections')
 
 class Server extends EventEmitter {
@@ -46,9 +46,7 @@ class Server extends EventEmitter {
     this.BANNED_IPS = []
 
     if (config.collect) {
-      console.log(
-        `\n[server] collect is enabled`,
-      )
+      console.log(`\n[server] collect is enabled`)
       console.log(`\tconnect to -> ${this.exchanges.map(a => a.id).join(', ')}`)
 
       this.handleExchangesEvents()
@@ -259,9 +257,7 @@ class Server extends EventEmitter {
           console.error(
             `[${exchange.id}] api closed unexpectedly (${apiId}, ${
               event.code
-            }, ${reason}) (was handling ${pairs.join(
-              ','
-            )})`
+            }, ${reason}) (was handling ${pairs.join(',')})`
           )
 
           setTimeout(() => {
@@ -850,7 +846,10 @@ class Server extends EventEmitter {
     for (const market in alertService.alerts) {
       for (const range in alertService.alerts[market]) {
         for (const alert of alertService.alerts[market][range]) {
-          if (alertService.alertEndpoints[alert.endpoint] && alertService.alertEndpoints[alert.endpoint].user === user) {
+          if (
+            alertService.alertEndpoints[alert.endpoint] &&
+            alertService.alertEndpoints[alert.endpoint].user === user
+          ) {
             alertService.sendAlert(alert, alert.market, Date.now())
             return `${alert.market} @${alert.price}`
           }
