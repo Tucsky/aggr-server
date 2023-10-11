@@ -182,7 +182,7 @@ const defaultConfig = {
   alertExpiresAfter: 1000 * 60 * 60 * 24 * 7,
   alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 30,
   indexExchangeBlacklist: [],
-  indexQuoteWhitelist: ['USD', 'USDT', 'BUSD', 'USDC'],
+  indexQuoteWhitelist: ['USD', 'USDT', 'FDUSD', 'USDC'],
 
   // verbose
   debug: false
