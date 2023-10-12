@@ -628,7 +628,7 @@ class AlertService extends EventEmitter {
     for (let i = 0; i < this.alerts[market][rangePrice].length; i++) {
       const alert = this.alerts[market][rangePrice][i]
 
-      if (now - alert.timestamp < config.influxTimeframe) {
+      if (now - alert.timestamp < config.backupInterval) {
         continue
       }
 
