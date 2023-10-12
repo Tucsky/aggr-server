@@ -399,11 +399,13 @@ class InfluxStorage {
         if (!ranges[market]) {
           ranges[market] = {
             low: trade.price,
-            high: trade.price
+            high: trade.price,
+            close: trade.price
           }
         } else {
           ranges[market].low = Math.min(ranges[market].low, trade.price)
           ranges[market].high = Math.max(ranges[market].high, trade.price)
+          ranges[market].close = trade.price
         }
       }
 

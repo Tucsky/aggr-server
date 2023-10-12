@@ -423,7 +423,7 @@ module.exports.updateIndexes = async function (ranges, callback) {
       if (
         !connections[market] ||
         !connections[market].apiId ||
-        !connections[market].close
+        (!connections[market].close && !ranges[market])
       ) {
         continue
       }
@@ -434,16 +434,13 @@ module.exports.updateIndexes = async function (ranges, callback) {
         debugIndexes[index.id].push(
           `${market}:rg:${ranges[market].low}-${ranges[market].high}`
         )
-        connections[market].low = ranges[market].low
-        connections[market].high = ranges[market].high
+        connections[market].close = ranges[market].close
       } else {
         high += connections[market].close
         low += connections[market].close
         debugIndexes[index.id].push(
           `${market}:co:${connections[market].close}-${connections[market].close}`
         )
-        connections[market].low = connections[market].close
-        connections[market].high = connections[market].close
       }
       close += connections[market].close
 
