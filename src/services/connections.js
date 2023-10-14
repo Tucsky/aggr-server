@@ -11,6 +11,7 @@ let saveConnectionsTimeout = null
  * @type {{[id: string]: Connection}}
  */
 const connections = (module.exports.connections = {})
+const debugIndexes = (module.exports.debugIndexes = {})
 
 /**
  * @type {{[id: string]: Boolean}}
@@ -28,9 +29,17 @@ const indexes = (module.exports.indexes = [])
   const cacheIndexes = {}
 
   for (const market of config.pairs) {
-    const product = parseMarket(market)
+    const [exchange, pair] = market.match(/([^:]*):(.*)/).slice(1, 3)
+    const product = parseMarket(exchange, pair)
 
-    if (config.priceIndexesBlacklist.indexOf(product.exchange) !== -1) {
+    if (!product) {
+      continue
+    }
+
+    if (
+      config.indexExchangeBlacklist.indexOf(product.exchange) !== -1 ||
+      config.indexQuoteWhitelist.indexOf(product.quote) === -1
+    ) {
       continue
     }
 
@@ -227,11 +236,9 @@ module.exports.restoreConnections = async function () {
     }
 
     if (
-      !persistance[market].forceRecovery &&
-      (!persistance[market].timestamp ||
-        (config.staleConnectionThreshold > 0 &&
-          now - persistance[market].timestamp >
-            config.staleConnectionThreshold))
+      !persistance[market].timestamp ||
+      (config.staleConnectionThreshold > 0 &&
+        now - persistance[market].timestamp > config.staleConnectionThreshold)
     ) {
       console.log(
         `[connections] couldn't restore ${market}'s connection because ${
@@ -369,8 +376,10 @@ module.exports.registerConnection = function (id, exchange, pair) {
 
     if (config.pairs.indexOf(id) === -1) {
       // force fetch last 1h30 of data through recent trades
-      connections[id].forceRecovery = true
-      connections[id].timestamp = now - 1000 * 60 * 60 * 1.5
+      const warmupDuration = 1000 * 60 * 60 * 1.5
+      connections[id].timestamp = now - warmupDuration
+      connections[id].startedAt = connections[id].timestamp - warmupDuration
+      connections[id].hit = 10
     }
   } else {
     connections[id].restarts++
@@ -408,11 +417,13 @@ module.exports.updateIndexes = async function (ranges, callback) {
     let close = 0
     let nbSources = 0
 
+    debugIndexes[index.id] = []
+
     for (const market of index.markets) {
       if (
         !connections[market] ||
         !connections[market].apiId ||
-        !connections[market].close
+        (!connections[market].close && !ranges[market])
       ) {
         continue
       }
@@ -420,13 +431,16 @@ module.exports.updateIndexes = async function (ranges, callback) {
       if (ranges[market]) {
         high += ranges[market].high
         low += ranges[market].low
-        connections[market].low = ranges[market].low
-        connections[market].high = ranges[market].high
+        debugIndexes[index.id].push(
+          `${market}:rg:${ranges[market].low}-${ranges[market].high}`
+        )
+        connections[market].close = ranges[market].close
       } else {
         high += connections[market].close
         low += connections[market].close
-        connections[market].low = connections[market].close
-        connections[market].high = connections[market].close
+        debugIndexes[index.id].push(
+          `${market}:co:${connections[market].close}-${connections[market].close}`
+        )
       }
       close += connections[market].close
 
@@ -437,14 +451,20 @@ module.exports.updateIndexes = async function (ranges, callback) {
       continue
     }
 
-    index.price = close / nbSources
+    const direction = close / nbSources > index.price ? 1 : -1
 
-    await callback(
-      index.id,
-      high / nbSources,
-      low / nbSources,
-      index.price > open ? 1 : -1
-    )
+    if (direction > 0) {
+      high = high /= nbSources
+      low = Math.min(index.high || Infinity, low / nbSources)
+    } else {
+      high = Math.max(index.low || -Infinity, high / nbSources)
+      low = low / nbSources
+    }
+
+    index.price = close / nbSources
+    index.high = high
+    index.low = low
+    await callback(index.id, index.high, index.low, direction)
   }
 }
 

@@ -1,0 +1,172 @@
+openapi: 3.0.3
+info:
+  title: Aggr-server API
+  version: 1.0.0
+servers:
+  - url: https://api.aggr.trade/
+    description: AGGR Trade server
+  - url: http://localhost:3000/
+    description: Default local server url
+paths:
+  /alert:
+    post:
+      summary: Create or update an alert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertPayload'
+      responses:
+        '201':
+          description: Alert created or updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertResponse'
+        '400':
+          description: Invalid alert payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /products:
+    get:
+      summary: Get the list of products
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsResponse'
+
+  /historical/{from}/{to}/{timeframe}/{markets}:
+    get:
+      summary: Get historical data
+      parameters:
+        - in: path
+          name: from
+          schema:
+            type: integer
+          required: true
+          description: Start timestamp of the historical data
+        - in: path
+          name: to
+          schema:
+            type: integer
+          required: true
+          description: End timestamp of the historical data
+        - in: path
+          name: timeframe
+          schema:
+            type: string
+          required: true          
+          description: Timeframe of the historical data
+        - in: path
+          name: markets
+          schema:
+            type: string
+          description: Markets to fetch historical data for
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoricalDataResponse'
+        '400':
+          description: Invalid request or missing interval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No results found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    AlertPayload:
+      type: object
+      properties:
+        endpoint:
+          type: string
+        keys:
+          type: array
+          items:
+            type: string
+        market:
+          type: string
+        price:
+          type: number
+      required:
+        - endpoint
+        - keys
+        - market
+        - price
+    AlertResponse:
+      type: object
+        
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    ProductsResponse:
+      type: array
+      items:
+        type: string
+    HistoricalDataResponse:
+      type: object
+      properties:
+        format:
+          type: string
+        columns:
+          type: object
+          properties:
+            time:
+              type: integer
+            cbuy:
+              type: integer
+            close:
+              type: integer
+            csell:
+              type: integer
+            high:
+              type: integer
+            lbuy:
+              type: integer
+            low:
+              type: integer
+            lsell:
+              type: integer
+            market:
+              type: string
+            open:
+              type: integer
+            vbuy:
+              type: number
+            vsell:
+              type: number
+          nullable: true
+        results:
+          type: array
+          items:
+            type: array
+            items:
+              oneOf:
+                - type: integer
+                - type: number
+                - type: string
+            nullable: true
+              

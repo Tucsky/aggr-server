@@ -81,14 +81,10 @@ module.exports = {
     return output
   },
 
-  groupTrades(trades, includeMarket, threshold = 0) {
+  groupTrades(trades) {
     const groups = {}
 
     for (let i = 0; i < trades.length; i++) {
-      if (trades[i].size < threshold) {
-        continue
-      }
-
       const trade = trades[i]
       const identifier = trade.exchange + ':' + trade.pair
 
@@ -96,25 +92,12 @@ module.exports = {
         groups[identifier] = []
       }
 
-      let toPush
-
-      if (includeMarket) {
-        toPush = [
-          trade.exchange,
-          trade.pair,
-          trade.timestamp,
-          trade.price,
-          trade.size,
-          trade.side === 'buy' ? 1 : 0
-        ]
-      } else {
-        toPush = [
-          trade.timestamp,
-          trade.price,
-          trade.size,
-          trade.side === 'buy' ? 1 : 0
-        ]
-      }
+      const toPush = [
+        trade.timestamp,
+        trade.price,
+        trade.size,
+        trade.side === 'buy' ? 1 : 0
+      ]
 
       if (trade.liquidation) {
         toPush.push(1)
@@ -129,18 +112,18 @@ module.exports = {
   formatAmount(amount, decimals) {
     const negative = amount < 0
 
-    if (negative) {
-      amount = Math.abs(amount)
-    }
+    amount = Math.abs(amount)
 
-    if (amount >= 1000000) {
-      amount = +(amount / 1000000).toFixed(isNaN(decimals) ? 1 : decimals) + 'M'
-    } else if (amount >= 100000) {
-      amount = +(amount / 1000).toFixed(isNaN(decimals) ? 0 : decimals) + 'K'
+    if (amount >= 1000000000) {
+      amount =
+        +(amount / 1000000000).toFixed(isNaN(decimals) ? 1 : decimals) + ' B'
+    } else if (amount >= 1000000) {
+      amount =
+        +(amount / 1000000).toFixed(isNaN(decimals) ? 1 : decimals) + ' M'
     } else if (amount >= 1000) {
-      amount = +(amount / 1000).toFixed(isNaN(decimals) ? 1 : decimals) + 'K'
+      amount = +(amount / 1000).toFixed(isNaN(decimals) ? 1 : decimals) + ' K'
     } else {
-      amount = +amount.toFixed(4)
+      amount = +amount.toFixed(isNaN(decimals) ? 2 : decimals)
     }
 
     if (negative) {
@@ -208,7 +191,7 @@ module.exports = {
   },
   getMarkets() {
     return config.pairs.map(market => {
-      const [exchange, symbol] = market.match(/([^:]*):(.*)/).slice(1, 3)
+      const [exchange, pair] = market.match(/([^:]*):(.*)/).slice(1, 3)
 
       if (config.exchanges.indexOf(exchange) === -1) {
         console.warn(`${market} is not supported`)
@@ -217,7 +200,7 @@ module.exports = {
       return {
         market,
         exchange,
-        symbol
+        pair
       }
     })
   },

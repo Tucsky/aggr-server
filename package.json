@@ -1,6 +1,6 @@
 {
   "name": "aggr-server",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -8,6 +8,7 @@
     "dev": "pm2-dev ecosystem.config.dev.yaml",
     "generateVapidKeys": "node scripts/web-push/generateVapidKeys",
     "lint:fix": "npx prettier index.js ./src/* --write",
+    "clean": "rm -rf node-modules && npm clean cache --force",
     "docker:server:build": "docker-compose build",
     "docker:server:up": "docker-compose up -d"
   },

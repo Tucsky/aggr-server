@@ -8,13 +8,14 @@ class Binance extends Exchange {
 
     this.id = 'BINANCE'
     this.lastSubscriptionId = 0
+    this.maxConnectionsPerApi = 16
     this.subscriptions = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://data.binance.com/api/v3/exchangeInfo'
+      PRODUCTS: 'https://data-api.binance.vision/api/v3/exchangeInfo'
     }
 
-    this.url = () => `wss://stream.binance.com:9443/ws`
+    this.url = () => `wss://data-stream.binance.vision:9443/ws`
   }
 
   formatProducts(data) {
@@ -98,9 +99,11 @@ class Binance extends Exchange {
     const startTime = range.from
     const below1HEndTime = Math.min(range.to, startTime + 1000 * 60 * 60)
 
-    const endpoint = `https://data.binance.com/api/v3/aggTrades?symbol=${range.pair.toUpperCase()}&startTime=${
+    const endpoint = `https://data-api.binance.vision/api/v3/aggTrades?symbol=${range.pair.toUpperCase()}&startTime=${
       startTime + 1
     }&endTime=${below1HEndTime}&limit=1000`
+
+    console.log(endpoint)
 
     return axios
       .get(endpoint)

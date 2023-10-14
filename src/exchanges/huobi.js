@@ -183,8 +183,8 @@ class Huobi extends Exchange {
     return {
       exchange: this.id,
       pair: pair,
-      timestamp: +new Date(),
-      price: this.prices[pair] || trade.price,
+      timestamp: trade.created_at,
+      price: +trade.price || this.prices[pair],
       size: +trade.amount,
       side: trade.direction,
       liquidation: true

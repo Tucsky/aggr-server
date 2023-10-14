@@ -29,19 +29,21 @@ const COINALIZE_REQ_KEY_PATH = 'products/coinalize.key'
 const BARS_PER_REQUEST = 300
 
 const baseHeaders = {
-  accept: '*/*',
-  'accept-language': 'en-US,en;q=0.9,fr-FR;q=0.8,fr;q=0.7',
-  'cache-control': 'no-cache',
-  pragma: 'no-cache',
-  'sec-ch-ua': '" Not;A Brand";v="99", "Google Chrome";v="97", "Chromium";v="97"',
-  'sec-ch-ua-mobile': '?0',
-  'sec-ch-ua-platform': '"Windows"',
-  'sec-fetch-dest': 'empty',
-  'sec-fetch-mode': 'cors',
-  'sec-fetch-site': 'same-origin',
-  cookie: 'p_sid=s%3ARY_H7HfwdvenT8Pz2XjPjBq-mHVLMsmL.ONSYPlNqShlYwQoVZ4Ez8igcJZ1r1wAG6pw7HQ%2FJ2WE',
-  Referer: 'https://coinalyze.net/bitcoin/usd/binance/btcusd_perp/price-chart-live/',
-  'Referrer-Policy': 'strict-origin-when-cross-origin',
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "no-cache",
+    "content-type": "application/json",
+    "pragma": "no-cache",
+    "sec-ch-ua": "\"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"114\", \"Google Chrome\";v=\"114\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Windows\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "x-requested-with": "XMLHttpRequest",
+    "cookie": "cookies_accepted=1; p_sid=s%3A944WOtc4HxnJXvGuR5KtvuG1yIpHEYeT.r3vU6rPl3k4tjB4xGW472GoQPOjJi%2FbfMIyW0R1bRkM",
+    "Referer": "https://coinalyze.net/bitcoin/usd/binance/btcusd_perp/price-chart-live/",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
 }
 
 const baseJSONHeaders = {

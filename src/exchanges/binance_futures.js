@@ -162,10 +162,10 @@ class BinanceFutures extends Exchange {
   }
 
   /**
-   * 
-   * @param {} trade 
-   * @param {*} symbol 
-   * @return {Trade} 
+   *
+   * @param {} trade
+   * @param {*} symbol
+   * @return {Trade}
    */
   formatTrade(trade, symbol) {
     return {

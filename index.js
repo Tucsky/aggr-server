@@ -104,4 +104,13 @@ if (process.env.pmx) {
         reply(`FAILED to disconnect ${markets} (${err.message})`)
       })
   })
+  tx2.action('triggeralert', function (user, reply) {
+    // offline webpush testing
+    try {
+      const result = server.triggerAlert(user)
+      reply(result)
+    } catch (error) {
+      console.error('FAILED to trigger alert', user, error.message)
+    }
+  })
 }

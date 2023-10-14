@@ -85,27 +85,11 @@ const defaultConfig = {
   // bypass origin restriction for given ips (comma separated)
   whitelist: [],
 
-  // enable websocket server (if you only use this for storing trade data set to false)
-  broadcast: false,
-
-  // separate the broadcasts by n ms (0 = broadcast instantly)
-  broadcastDebounce: 0,
-
-  // aggregate trades that came within same millisecond before broadcast
-  // (note) saving to storage is NOT impacted
-  // (warning) will add +50ms delay for confirmation that trade actually came on same ms
-  broadcastAggr: true,
-
-  // will only broadcast trades >= broadcastThreshold
-  // expressed in base currency (ex: BTC)
-  // default 0
-  broadcastThreshold: 0,
-
   // enable api (historical/{from in ms}/{to in ms}/{timesfame in ms}/{markets separated by +})
   api: true,
 
   // storage solution, either
-  // false | null (no storage, everything is wiped out after broadcast)
+  // false | null (no storage)
   // "files" (periodical text file),
   // "influx" (timeserie database),
 
@@ -197,7 +181,8 @@ const defaultConfig = {
   privateVapidKey: null,
   alertExpiresAfter: 1000 * 60 * 60 * 24 * 7,
   alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 30,
-  priceIndexesBlacklist: [],
+  indexExchangeBlacklist: [],
+  indexQuoteWhitelist: ['USD', 'USDT', 'FDUSD', 'USDC'],
 
   // verbose
   debug: false
@@ -232,15 +217,11 @@ if (process.argv.length > 2) {
 
 let userSettings = {}
 
-const specificConfigFile = commandSettings.config
-  ? commandSettings.config
-  : commandSettings.configFile
-  ? commandSettings.configFile
-  : commandSettings.configPath
-  ? commandSettings.configPath
-  : null
-
-let configPath = specificConfigFile || 'config.json'
+let configPath =
+  commandSettings.config ||
+  commandSettings.configFile ||
+  commandSettings.configPath ||
+  'config.json'
 
 try {
   console.log('[init] using config file ' + configPath)
@@ -317,6 +298,28 @@ if (config.whitelist && config.whitelist === 'string') {
   config.whitelist = []
 }
 
+if (
+  typeof config.indexExchangeBlacklist === 'string' &&
+  config.indexExchangeBlacklist.trim().length
+) {
+  config.indexExchangeBlacklist = config.indexExchangeBlacklist
+    .split(',')
+    .map(a => a.trim())
+} else if (!Array.isArray(config.indexExchangeBlacklist)) {
+  config.indexExchangeBlacklist = []
+}
+
+if (
+  typeof config.indexQuoteWhitelist === 'string' &&
+  config.indexQuoteWhitelist.trim().length
+) {
+  config.indexQuoteWhitelist = config.indexQuoteWhitelist
+    .split(',')
+    .map(a => a.trim())
+} else if (!Array.isArray(config.indexQuoteWhitelist)) {
+  config.indexQuoteWhitelist = []
+}
+
 if (config.pair) {
   config.pairs = Array.isArray(config.pair)
     ? config.pair
@@ -350,12 +353,6 @@ if (config.exchanges && typeof config.exchanges === 'string') {
     .filter(a => a.length)
 }
 
-if (!config.api && config.broadcast) {
-  console.warn(
-    `[warning!] websocket is enabled but api is set to ${config.api}\n\t(ws server require an http server for the initial upgrade handshake)`
-  )
-}
-
 if (!config.storage && config.collect) {
   console.warn(
     `[warning!] server will not persist any of the data it is receiving`
@@ -366,21 +363,9 @@ if (!config.collect && !config.api) {
   console.warn(`[warning!] server has no purpose`)
 }
 
-if (!config.storage && !config.collect && (config.broadcast || config.api)) {
+if (!config.storage && !config.collect && config.api) {
   console.warn(
-    `[warning!] ${
-      config.broadcast && config.api
-        ? 'ws and api are'
-        : config.broadcast
-        ? 'ws is'
-        : 'api is'
-    } enabled but neither storage or collect is enabled (may be useless)`
-  )
-}
-
-if (config.broadcast && !config.collect) {
-  console.warn(
-    `[warning!] collect is disabled but broadcast is set to ${config.broadcast} (may be useless)`
+    `[warning!] api is enabled but neither storage or collect is enabled (may be useless)`
   )
 }
 

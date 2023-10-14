@@ -74,22 +74,10 @@ class Exchange extends EventEmitter {
     this.maxConnectionsPerApi = 50
 
     /**
-     * Define if the incoming trades should be queued
-     * @type {boolean}
-     */
-    this.shouldQueueTrades = false
-
-    /**
      * Pending recovery ranges
      * @type {{pair: string, from: number, to: number}[]}
      */
     this.recoveryRanges = []
-
-    /**
-     * Trades goes theres while we wait for historical response
-     * @type {Trade[]}
-     */
-    this.queuedTrades = []
   }
 
   /**
@@ -140,10 +128,10 @@ class Exchange extends EventEmitter {
 
   /**
    * Link exchange to a pair
-   * @param {*} pair
+   * @param {string} pair
    * @returns {Promise<WebSocket>}
    */
-  async link(pair, returnConnectedEvent) {
+  async link(pair) {
     pair = pair.replace(/[^:]*:/, '')
 
     if (!this.isMatching(pair)) {
@@ -156,41 +144,45 @@ class Exchange extends EventEmitter {
 
     const api = await this.resolveApi(pair)
 
-    if (returnConnectedEvent) {
-      let promiseOfApiOpen
+    let promiseOfApiOpen
 
-      if (api && this.connecting[api.id]) {
-        // need to init new ws connection
-        promiseOfApiOpen = this.connecting[api.id].promise
-      } else {
-        // api already opened
-        promiseOfApiOpen = Promise.resolve(true)
-      }
-
-      if (await promiseOfApiOpen) {
-        return new Promise(resolve => {
-          let timeout
-
-          const connectedEventHandler = connectedPair => {
-            if (connectedPair === pair) {
-              clearTimeout(timeout)
-              this.off('connected', connectedEventHandler)
-
-              resolve()
-            }
-          }
-
-          this.on('connected', connectedEventHandler)
-
-          timeout = setTimeout(() => {
-            console.error(
-              `[${this.id}/link] ${pair} connected event never fired, resolving returnConnectedEvent immediately`
-            )
-            connectedEventHandler(pair)
-          }, 10000)
-        })
-      }
+    if (api && this.connecting[api.id]) {
+      // need to init new ws connection
+      promiseOfApiOpen = this.connecting[api.id].promise
+    } else {
+      // api already opened
+      promiseOfApiOpen = Promise.resolve(true)
     }
+
+    try {
+      if (!(await promiseOfApiOpen)) {
+        return
+      }
+    } catch (error) {
+      console.log('error while linking', error)
+    }
+
+    return new Promise(resolve => {
+      let timeout
+
+      const connectedEventHandler = connectedPair => {
+        if (connectedPair === pair) {
+          clearTimeout(timeout)
+          this.off('connected', connectedEventHandler)
+
+          resolve()
+        }
+      }
+
+      this.on('connected', connectedEventHandler)
+
+      timeout = setTimeout(() => {
+        console.error(
+          `[${this.id}/link] ${pair} connected event never fired, resolving returnConnectedEvent immediately`
+        )
+        connectedEventHandler(pair)
+      }, 10000)
+    })
   }
 
   async resolveApi(pair) {
@@ -261,7 +253,7 @@ class Exchange extends EventEmitter {
         return
       }
 
-      if (!/ping|pong/.test(data)) {
+      if (!/ping|pong/i.test(data)) {
         console.debug(
           `[${this.id}.createWs] sending ${data.substr(0, 64)}${
             data.length > 64 ? '...' : ''
@@ -525,13 +517,9 @@ class Exchange extends EventEmitter {
       return
     }
 
-    if (
-      !connection.forceRecovery &&
-      connection.lastConnectionMissEstimate < 10
-    ) {
+    if (connection.lastConnectionMissEstimate < 10) {
+      // too much chance to be zero recovery so we skip to avoid being 429'd because of those
       return
-    } else if (connection.forceRecovery) {
-      delete connection.forceRecovery
     }
 
     const now = Date.now()
@@ -546,17 +534,33 @@ class Exchange extends EventEmitter {
     this.recoveryRanges.push(range)
 
     if (!recovering[this.id]) {
+      console.log(
+        `[${this.id}.registerRangeForRecovery] exchange isn't recovering yet -> start recovering`
+      )
       this.recoverNextRange()
     }
   }
 
   async recoverNextRange(sequencial) {
     if (!this.recoveryRanges.length || (recovering[this.id] && !sequencial)) {
+      if (!this.recoveryRanges.length) {
+        console.log(`[${this.id}] no more range to recover`)
+        if (sequencial) {
+          console.log(
+            `[${this.id}] recoverNextRange was called sequentially yet no recoveryRanges are left to recover (impossible case)`
+          )
+          delete recovering[this.id]
+        }
+      }
       return
     }
 
     const range = this.recoveryRanges.shift()
 
+    const originalRange = {
+      from: range.from,
+      to: range.to
+    }
     const missingTime = range.to - range.from
 
     console.log(
@@ -569,8 +573,6 @@ class Exchange extends EventEmitter {
         .split('T')
         .pop()} to ${new Date(range.to).toISOString().split('T').pop()})`
     )
-
-    const connection = connections[this.id + ':' + range.pair]
 
     recovering[this.id] = true
 
@@ -597,34 +599,19 @@ class Exchange extends EventEmitter {
         )
       }
 
-      if (connection) {
-        // save new timestamp to connection
-        if (connection.timestamp && connection.timestamp > range.to) {
-          ;`[${this.id}.recoverTrades] ${
-            range.pair
-          } trade recovery is late on the schedule (last emitted trade: ${new Date(
-            +connection.timestamp
-          ).toISOString()}, last recovered trade: ${new Date(
-            +range.to
-          ).toISOString()})`
-        }
-        connection.timestamp = range.to
-      }
-
-      // in rare case of slow recovery and fast reconnection happening, propagate to pending ranges for that pair
+      // shrink overlapping ranges
       for (let i = 0; i < this.recoveryRanges.length; i++) {
         const nextRange = this.recoveryRanges[i]
 
         if (nextRange.pair === range.pair) {
-          const newFrom = Math.max(nextRange.from, range.from)
+          // range might have been created while this one was recovering
+          // ensure no dupes
+          nextRange.from = Math.max(nextRange.from, originalRange.to)
+          nextRange.to = Math.max(nextRange.to, originalRange.to)
 
-          if (nextRange.from !== newFrom) {
-            nextRange.from = Math.max(nextRange.from, range.from)
-
-            if (nextRange.from > nextRange.to) {
-              this.recoveryRanges.splice(i--, 1)
-              continue
-            }
+          if (nextRange.from > nextRange.to) {
+            this.recoveryRanges.splice(i--, 1)
+            continue
           }
         }
       }
@@ -636,31 +623,9 @@ class Exchange extends EventEmitter {
     }
 
     if (!this.recoveryRanges.length) {
-      console.log(`[${this.id}] no more ranges to recover`)
+      console.log(`[${this.id}] no more range to recover`)
 
       delete recovering[this.id]
-
-      if (this.queuedTrades.length) {
-        const sortedQueuedTrades = this.queuedTrades.sort(
-          (a, b) => a.timestamp - b.timestamp
-        )
-
-        console.log(
-          `[${this.id}] release trades queue (${
-            sortedQueuedTrades.length
-          } trades, ${new Date(+sortedQueuedTrades[0].timestamp)
-            .toISOString()
-            .split('T')
-            .pop()} to ${new Date(
-            +sortedQueuedTrades[sortedQueuedTrades.length - 1].timestamp
-          )
-            .toISOString()
-            .split('T')
-            .pop()})`
-        )
-        this.emit('trades', sortedQueuedTrades)
-        this.queuedTrades = []
-      }
     } else {
       return this.waitBeforeContinueRecovery().then(() =>
         this.recoverNextRange(true)
@@ -829,8 +794,6 @@ class Exchange extends EventEmitter {
    * @param {string[]} pairs pairs attached to ws at opening
    */
   async onOpen(event, api) {
-    this.queueNextTrades()
-
     const pairs = [...api._pending, ...api._connected]
 
     console.debug(
@@ -863,8 +826,6 @@ class Exchange extends EventEmitter {
       `[${this.id}.onError] ${pairs.join(',')}'s api errored`,
       event.message
     )
-
-    this.emit('error', api.id, event.message)
   }
 
   /**
@@ -932,10 +893,11 @@ class Exchange extends EventEmitter {
   }
 
   /**
-   * Unsub
+   * Unsubscribe
    * @param {WebSocket} api
    * @param {string} pair
    * @param {boolean} skipSending skip sending unsusbribe message
+   * @returns {boolean}
    */
   async unsubscribe(api, pair, skipSending) {
     if (!this.markPairAsDisconnected(api, pair)) {
@@ -954,11 +916,11 @@ class Exchange extends EventEmitter {
    * @param {Trade[]} trades
    */
   emitTrades(source, trades) {
-    if (source && this.promisesOfApiReconnections[source]) {
-      return
+    if (!trades || !trades.length) {
+      return null
     }
 
-    this.queueControl(source, trades, 'trades')
+    this.emit('trades', trades, source)
 
     return true
   }
@@ -969,26 +931,13 @@ class Exchange extends EventEmitter {
    * @param {Trade[]} trades
    */
   emitLiquidations(source, trades) {
-    if (source && this.promisesOfApiReconnections[source]) {
-      return
-    }
-
-    this.queueControl(source, trades, 'liquidations')
-
-    return true
-  }
-
-  queueControl(source, trades, type) {
     if (!trades || !trades.length) {
       return null
     }
 
-    if (this.shouldQueueTrades || recovering[this.id]) {
-      Array.prototype.push.apply(this.queuedTrades, trades)
-      return null
-    }
+    this.emit('liquidations', trades, source)
 
-    this.emit(type, trades, source)
+    return true
   }
 
   startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {
@@ -1106,20 +1055,6 @@ class Exchange extends EventEmitter {
     )
 
     return true
-  }
-
-  queueNextTrades(duration = 100) {
-    this.shouldQueueTrades = true
-
-    if (this._unlockTimeout) {
-      clearTimeout(this._unlockTimeout)
-    }
-
-    this._unlockTimeout = setTimeout(() => {
-      this._unlockTimeout = null
-
-      this.shouldQueueTrades = false
-    }, duration)
   }
 
   /**
