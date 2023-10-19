@@ -2,7 +2,7 @@ const config = require('../config')
 const socketService = require('./socket')
 const persistenceService = require('./persistence')
 const EventEmitter = require('events')
-const { indexes, getIndex, debugIndexes } = require('./connections')
+const { indexes, getIndex } = require('./connections')
 const { getHms, sleep, ago } = require('../helper')
 const webPush = require('web-push')
 
@@ -639,11 +639,6 @@ class AlertService extends EventEmitter {
         console.log(
           `[alert/checkPriceCrossover] ${alert.price} (ajusted to ${alert.priceCompare}) ${market} ${low} <-> ${high}`
         )
-        if (debugIndexes[market]) {
-          console.log(
-            `debug index ${market}: ${debugIndexes[market].join(',')}`
-          )
-        }
         await this.sendAlert(alert, market, now, direction)
 
         if (this.unregisterAlert(alert, market, true)) {
