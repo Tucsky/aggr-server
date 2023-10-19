@@ -1,7 +1,13 @@
 const fs = require('fs')
 const config = require('../src/config')
 
+const { Request } = require('express')
+
 module.exports = {
+  /**
+   * @param {Request} req
+   * @returns {string}
+   */
   getIp(req) {
     let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
