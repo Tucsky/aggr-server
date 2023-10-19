@@ -11,7 +11,6 @@ let saveConnectionsTimeout = null
  * @type {{[id: string]: Connection}}
  */
 const connections = (module.exports.connections = {})
-const debugIndexes = (module.exports.debugIndexes = {})
 
 /**
  * @type {{[id: string]: Boolean}}
@@ -417,8 +416,6 @@ module.exports.updateIndexes = async function (ranges, callback) {
     let close = 0
     let nbSources = 0
 
-    debugIndexes[index.id] = []
-
     for (const market of index.markets) {
       if (
         !connections[market] ||
@@ -431,16 +428,10 @@ module.exports.updateIndexes = async function (ranges, callback) {
       if (ranges[market]) {
         high += ranges[market].high
         low += ranges[market].low
-        debugIndexes[index.id].push(
-          `${market}:rg:${ranges[market].low}-${ranges[market].high}`
-        )
         connections[market].close = ranges[market].close
       } else {
         high += connections[market].close
         low += connections[market].close
-        debugIndexes[index.id].push(
-          `${market}:co:${connections[market].close}-${connections[market].close}`
-        )
       }
       close += connections[market].close
 
