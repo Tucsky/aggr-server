@@ -103,8 +103,6 @@ class Binance extends Exchange {
       startTime + 1
     }&endTime=${below1HEndTime}&limit=1000`
 
-    console.log(endpoint)
-
     return axios
       .get(endpoint)
       .then(response => {
