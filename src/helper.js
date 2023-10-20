@@ -18,6 +18,12 @@ module.exports = {
     return ip
   },
 
+  /**
+   *
+   * @param {Request} req
+   * @param {string} defaultPair
+   * @returns  {string[] | []}
+   */
   parsePairsFromWsRequest(req, defaultPair) {
     let pairs = req.url.substr(1)
 
