@@ -255,7 +255,7 @@ class Exchange extends EventEmitter {
 
       if (!/ping|pong/i.test(data)) {
         console.debug(
-          `[${this.id}.createWs] sending ${data.substr(0, 64)}${
+          `[${this.id}.createWs] sending ${data.substring(0, 64)}${
             data.length > 64 ? '...' : ''
           } to ${api.url}`
         )

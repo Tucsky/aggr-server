@@ -12,7 +12,7 @@ module.exports = {
     let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
     if (ip.indexOf('::ffff:') === 0) {
-      ip = ip.substr('::ffff:'.length, ip.length)
+      ip = ip.substring('::ffff:'.length, ip.length)
     }
 
     return ip
@@ -25,7 +25,7 @@ module.exports = {
    * @returns  {string[] | []}
    */
   parsePairsFromWsRequest(req, defaultPair) {
-    let pairs = req.url.substr(1)
+    let pairs = req.url.substring(1)
 
     if (!pairs || !pairs.length) {
       if (defaultPair) {
@@ -41,7 +41,7 @@ module.exports = {
   },
 
   ID() {
-    return Math.random().toString(36).substr(2, 9)
+    return Math.random().toString(36).substring(2, 9)
   },
 
   getHms(timestamp, round, ms = true) {
