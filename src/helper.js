@@ -40,6 +40,12 @@ module.exports = {
     return pairs
   },
 
+  /**
+   * Generate a random numerical string of 8 characters long
+   *
+   * @returns {string}
+   */
+
   ID() {
     return Math.random().toString(36).substring(2, 9)
   },
