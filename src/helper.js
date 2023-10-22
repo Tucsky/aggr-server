@@ -44,12 +44,21 @@ module.exports = {
     return Math.random().toString(36).substring(2, 9)
   },
 
-  getHms(timestamp, round, ms = true) {
-    var d = Math.floor(timestamp / 1000 / 86400)
-    var h = Math.floor((timestamp / 1000 / 3600) % 24)
-    var m = Math.floor(((timestamp / 1000) % 3600) / 60)
-    var s = Math.floor(((timestamp / 1000) % 3600) % 60)
-    var output = ''
+  /**
+   * Convert timestamp to string. E.g.: 4160d, 17h, 28m, 25s
+   * Usually used after a timestamp diff to display elapsed time in long  format
+   *
+   * @param {number} timestamp
+   * @param {boolean} [round=false]
+   * @param {boolean} [ms=true]
+   * @returns {string}
+   */
+  getHms(timestamp, round = false, ms = true) {
+    const d = Math.floor(timestamp / 1000 / 86400)
+    const h = Math.floor((timestamp / 1000 / 3600) % 24)
+    const m = Math.floor(((timestamp / 1000) % 3600) / 60)
+    const s = Math.floor(((timestamp / 1000) % 3600) % 60)
+    let output = ''
 
     output +=
       (!round || !output.length) && d > 0
