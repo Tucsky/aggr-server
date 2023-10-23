@@ -300,7 +300,7 @@ module.exports = {
         continue
       }
 
-      console.log(`[storage] Using "${name}" storage solution`)
+      console.log(`[storage] using "${name}" storage solution`)
 
       storage = new (require(`../src/storage/${name}`))(config)
 

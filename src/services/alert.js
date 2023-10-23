@@ -34,7 +34,7 @@ class AlertService extends EventEmitter {
       )
     }
     console.log(
-      `[alert] Service is ${
+      `[alert] service is ${
         this.enabled
           ? 'enabled.'
           : 'disabled. \nPlease run: npm run generateVapidKeys and add the generated keys to config.json.'
@@ -624,7 +624,6 @@ class AlertService extends EventEmitter {
     }
 
     const now = Date.now()
-
     for (let i = 0; i < this.alerts[market][rangePrice].length; i++) {
       const alert = this.alerts[market][rangePrice][i]
 

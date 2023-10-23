@@ -107,7 +107,7 @@ class Server extends EventEmitter {
     const promises = []
 
     for (let name of config.storage) {
-      console.log(`[storage] Using "${name}" storage solution`)
+      console.log(`[storage] using "${name}" storage solution`)
 
       if (
         config.api &&
