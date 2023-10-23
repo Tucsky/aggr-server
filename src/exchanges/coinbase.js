@@ -40,7 +40,7 @@ class Coinbase extends Exchange {
   }
 
   /**
-   * Sub
+   * Unsub
    * @param {WebSocket} api
    * @param {string} pair
    */

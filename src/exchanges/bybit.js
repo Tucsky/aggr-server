@@ -1,5 +1,14 @@
 const Exchange = require('../exchange')
 const WebSocket = require('websocket').w3cwebsocket
+const axios = require('axios')
+const { getHms } = require('../helper')
+
+const SPOT_PAIR_REGEX = /-SPOT$/
+const TRADE_TOPIC_REGEX = /^publicTrade\./
+const SPOT_WS = 'wss://stream.bybit.com/v5/public/spot'
+const LINEAR_WS = 'wss://stream.bybit.com/v5/public/linear'
+const INVERSE_WS = 'wss://stream.bybit.com/v5/public/inverse'
+const RECENT_TRADE_REST = 'https://api.bybit.com/v5/market/recent-trade'
 
 class Bybit extends Exchange {
   constructor() {
@@ -9,43 +18,43 @@ class Bybit extends Exchange {
 
     this.endpoints = {
       PRODUCTS: [
-        'https://api.bybit.com/spot/v1/symbols',
-        'https://api.bybit.com/v2/public/symbols'
+        'https://api.bybit.com/v5/market/instruments-info?category=spot', // BTCUSDT -> BTCUSDT-SPOT
+        'https://api.bybit.com/v5/market/instruments-info?category=linear', // BTCUSDT, BTCPERP, BTC-03NOV23
+        'https://api.bybit.com/v5/market/instruments-info?category=inverse' // BTCUSD, BTCUSDH24
       ]
     }
 
     this.url = pair => {
-      if (/-SPOT$/.test(pair)) {
-        return 'wss://stream.bybit.com/spot/quote/ws/v2'
+      if (this.types[pair] === 'spot') {
+        return SPOT_WS
       }
 
-      return pair.indexOf('USDT') !== -1
-        ? 'wss://stream.bybit.com/realtime_public'
-        : 'wss://stream.bybit.com/realtime'
+      if (this.types[pair] === 'linear') {
+        return LINEAR_WS
+      }
+
+      return INVERSE_WS
     }
   }
 
   formatProducts(response) {
     const products = []
+    const types = {}
 
     for (let data of response) {
-      const type = ['spot', 'futures'][response.indexOf(data)]
+      const type = ['spot', 'linear', 'inverse'][response.indexOf(data)]
 
-      for (const product of data.result) {
-        if (type === 'spot') {
-          products.push(product.name + '-SPOT')
-        } else {
-          if (product.status !== 'Trading') {
-            continue
-          }
+      for (const product of data.result.list) {
+        const symbol = `${product.symbol}${type === 'spot' ? '-SPOT' : ''}`
 
-          products.push(product.name)
-        }
+        products.push(symbol)
+        types[symbol] = type
       }
     }
 
     return {
-      products
+      products,
+      types
     }
   }
   /**
@@ -58,26 +67,26 @@ class Bybit extends Exchange {
       return
     }
 
-    if (/-SPOT$/.test(pair)) {
-      api.send(
-        JSON.stringify({
-          topic: 'trade',
-          event: 'sub',
-          params: { binary: false, symbol: pair.replace(/-SPOT$/, '') }
-        })
-      )
-    } else {
-      api.send(
-        JSON.stringify({
-          op: 'subscribe',
-          args: ['trade.' + pair, 'liquidation.' + pair]
-        })
-      )
+    const isSpot = this.types[pair] === 'spot'
+    const realPair = isSpot ? pair.replace(SPOT_PAIR_REGEX, '') : pair
+    const topics = [
+      `publicTrade.${realPair}`,
+    ]
+
+    if (!isSpot) {
+      topics.push(`liquidation.${realPair}`)
     }
+
+    api.send(
+      JSON.stringify({
+        "op": "subscribe",
+        args: topics
+      })
+    )
   }
 
   /**
-   * Sub
+   * Unsub
    * @param {WebSocket} api
    * @param {string} pair
    */
@@ -86,21 +95,59 @@ class Bybit extends Exchange {
       return
     }
 
-    if (/-SPOT$/.test(pair)) {
-      api.send(
-        JSON.stringify({
-          topic: 'trade',
-          event: 'cancel',
-          params: { binary: false, symbol: pair.replace(/-SPOT$/, '') }
-        })
-      )
-    } else {
-      api.send(
-        JSON.stringify({
-          op: 'unsubscribe',
-          args: ['trade.' + pair, 'liquidation.' + pair]
-        })
-      )
+    const isSpot = this.types[pair] === 'spot'
+    const realPair = isSpot ? pair.replace(SPOT_PAIR_REGEX, '') : pair
+    const topics = [
+      `publicTrade.${realPair}`,
+    ]
+
+    if (!isSpot) {
+      topics.push(`liquidation.${realPair}`)
+    }
+
+    api.send(
+      JSON.stringify({
+        "op": "unsubscribe",
+        args: topics
+      })
+    )
+  }
+
+  formatTrade(trade, isSpot) {
+    let size = +trade.v
+    let pair = trade.s
+
+    if (!isSpot && this.types[trade.s] === 'inverse') {
+      size /= trade.p
+    } else if (isSpot) {
+      pair += '-SPOT'
+    }
+
+    return {
+      exchange: this.id,
+      pair,
+      timestamp: +trade.T,
+      price: +trade.p,
+      size,
+      side: trade.S === 'Buy' ? 'buy' : 'sell'
+    }
+  }
+
+  formatLiquidation(liquidation) {
+    let size = +liquidation.size
+
+    if (this.types[liquidation.symbol] === 'inverse') {
+      size /= liquidation.price
+    }
+
+    return {
+      exchange: this.id,
+      pair: liquidation.symbol,
+      timestamp: +liquidation.updateTime,
+      size,
+      price: +liquidation.price,
+      side: liquidation.side === 'Buy' ? 'sell' : 'buy',
+      liquidation: true
     }
   }
 
@@ -112,59 +159,94 @@ class Bybit extends Exchange {
     }
 
     if (json.data.length) {
-      return this.emitTrades(
-        api.id,
-        json.data.map(trade => {
-          const size = /USDT$/.test(trade.symbol)
-            ? trade.size
-            : trade.size / trade.price
+      if (TRADE_TOPIC_REGEX.test(json.topic)) {
+        const isSpot = api.url === SPOT_WS
 
-          return {
-            exchange: this.id,
-            pair: trade.symbol,
-            timestamp: +new Date(trade.timestamp),
-            price: +trade.price,
-            size: size,
-            side: trade.side === 'Buy' ? 'buy' : 'sell'
-          }
-        })
-      )
-    } else if (!json.data.symbol) {
-      return this.emitTrades(api.id, [
-        {
-          exchange: this.id,
-          pair: json.params.symbol + '-SPOT',
-          timestamp: +json.data.t,
-          price: +json.data.p,
-          size: +json.data.q,
-          side: json.data.m ? 'buy' : 'sell'
-        }
-      ])
-    } else {
-      const size = /USDT$/.test(json.data.symbol)
-        ? +json.data.qty
-        : json.data.qty / json.data.price
-
-      return this.emitLiquidations(api.id, [
-        {
-          exchange: this.id,
-          pair: json.data.symbol,
-          timestamp: +json.data.time,
-          price: +json.data.price,
-          size: size,
-          side: json.data.side === 'Buy' ? 'sell' : 'buy',
-          liquidation: true
-        }
-      ])
+        return this.emitTrades(
+          api.id,
+          json.data.map(trade => this.formatTrade(trade, isSpot))
+        )
+      } else {
+        return this.emitLiquidations(
+          api.id,
+          json.data.map(liquidation => this.formatLiquidation(liquidation))
+        )
+      }
     }
   }
 
+  async getMissingTrades(range, totalRecovered = 0) {
+    const type = this.types[range.pair]
+    const isSpot = type === 'spot'
+    const limit = isSpot ? 60 : 1000
+    const realPair = isSpot ? range.pair.replace(SPOT_PAIR_REGEX, '') : range.pair
+    const endpoint = `${RECENT_TRADE_REST}?category=${this.types[range.pair]}&symbol=${realPair}&limit=${limit}`
+
+    return axios
+      .get(endpoint)
+      .then(response => {
+        if (response.data.result.list.length) {
+          const trades = response.data.result.list
+            .filter(trade => trade.time > range.from && trade.time <= range.to)
+            .map(trade => this.formatTrade({
+              T: trade.time,
+              s: trade.symbol,
+              p: trade.price,
+              v: trade.size,
+              S: trade.side,
+            }, isSpot))
+
+          if (trades.length) {
+            this.emitTrades(null, trades)
+
+            totalRecovered += trades.length
+            range.to = trades[trades.length - 1].timestamp
+          }
+
+          const remainingMissingTime = range.to - range.from
+
+          if (
+            trades.length &&
+            remainingMissingTime > 500
+          ) {
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${
+                range.pair
+              } ... and should be more (${getHms(remainingMissingTime)} remaining)`
+            )
+          } else {
+            console.log(
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair}`
+            )
+          }
+        }
+
+        return totalRecovered
+      })
+      .catch(err => {
+        console.error(
+          `[${this.id}] failed to get missing trades on ${range.pair}`,
+          err.message
+        )
+
+        return totalRecovered
+      })
+  }
+
   onApiCreated(api) {
-    this.startKeepAlive(api, { op: 'ping' }, 45000)
+    this.startKeepAlive(api, { op: 'ping' }, 20000)
   }
 
   onApiRemoved(api) {
     this.stopKeepAlive(api)
+
+    if (api.freezeTimeout) {
+      clearTimeout(api.freezeTimeout)
+    }
+
+    if (api.downTimeout) {
+      clearTimeout(api.downTimeout)
+    }
   }
 }
 

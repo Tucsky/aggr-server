@@ -73,7 +73,10 @@ class InfluxStorage {
 
       if (config.collect) {
         await this.ensureRetentionPolicies()
-        await this.getPreviousBars()
+
+        if (config.pairs.length) {
+          await this.getPreviousBars()
+        }
       }
     } catch (error) {
       console.error(

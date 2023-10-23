@@ -111,7 +111,7 @@ class Huobi extends Exchange {
   }
 
   /**
-   * Sub
+   * Unsub
    * @param {WebSocket} api
    * @param {string} pair
    */
@@ -219,7 +219,7 @@ class Huobi extends Exchange {
             '$1'
           )
 
-          this.emitTrades(
+          this.emitLiquidations(
             api.id,
             json.data.map(trade => this.formatLiquidation(trade, pair))
           )
