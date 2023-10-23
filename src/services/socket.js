@@ -109,13 +109,11 @@ class SocketService extends EventEmitter {
       this._syncMarketsTimeout = null
     }
 
-    const markets = getActiveConnections()
-
     this.clusterSocket.write(
       JSON.stringify({
         opId: 'markets',
         data: {
-          markets,
+          markets: config.pairs,
           timeframes: [config.influxTimeframe, ...config.influxResampleTo],
           indexes: indexes.map(a => a.id)
         }

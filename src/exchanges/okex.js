@@ -107,7 +107,7 @@ class Okex extends Exchange {
   }
 
   /**
-   * Sub
+   * Unsub
    * @param {WebSocket} api
    * @param {string} pair
    */
@@ -226,7 +226,7 @@ class Okex extends Exchange {
    */
   async fetchLiquidationOrders(range) {
     const url = this.getLiquidationsUrl(range)
-    console.log(url)
+
     try {
       const response = await axios.get(url)
       if (response.data.data && response.data.data.length) {
@@ -242,42 +242,20 @@ class Okex extends Exchange {
     const allLiquidations = []
 
     while (true) {
-      console.log(
-        `[${this.id}] fetch all ${range.pair} liquidations in`,
-        new Date(range.from).toISOString(),
-        new Date(range.to).toISOString()
-      )
       const liquidations = await this.fetchLiquidationOrders(range)
 
       if (!liquidations || liquidations.length === 0) {
-        console.log('received', liquidations.length, 'liquidations -> break')
         return allLiquidations
       }
-      console.log('received', liquidations.length, 'liquidations -> process')
 
-      console.log(
-        'first liq @ ',
-        new Date(+liquidations[0].ts).toISOString(),
-        new Date(+liquidations[liquidations.length - 1].ts).toISOString()
-      )
       for (const liquidation of liquidations) {
         if (liquidation.ts < range.from) {
-          console.log(
-            `liquidation ${liquidations.indexOf(liquidation) + 1}/${
-              liquidations.length
-            } is outside range -> break`
-          )
           return allLiquidations
         }
 
         allLiquidations.push(liquidation)
       }
 
-      // new range
-      console.log(
-        `[${this.id}] set new end date to last liquidation`,
-        new Date(+liquidations[liquidations.length - 1].ts).toISOString()
-      )
       range.to = +liquidations[liquidations.length - 1].ts
     }
   }

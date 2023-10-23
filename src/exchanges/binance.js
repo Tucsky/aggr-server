@@ -49,7 +49,7 @@ class Binance extends Exchange {
   }
 
   /**
-   * Sub
+   * Unsub
    * @param {WebSocket} api
    * @param {string} pair
    */
