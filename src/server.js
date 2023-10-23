@@ -402,7 +402,8 @@ class Server extends EventEmitter {
           })
         }
 
-        const storage = this.storages[config.storage.indexOf('influx')]
+        //  TODO: either influx or timescale OR both, all of them
+        const storage = this.storages[config.storage.indexOf('timescale')]
 
         if (isNaN(from) || isNaN(to)) {
           return res.status(400).json({
