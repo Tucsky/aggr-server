@@ -120,7 +120,7 @@ class CryptoCom extends Exchange {
 
         if (data.length) {
           const { d: earliestTradeId, t: earliestTradeTime } =
-            data[(data.length - 1, 1)]
+            data[data.length - 1]
 
           const trades = []
 
