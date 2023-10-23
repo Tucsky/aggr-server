@@ -52,6 +52,29 @@ services:
           cpus: '0.3'
           memory: 2048M
 
+  timescale:
+    container_name: aggr-timescale
+    image: timescale/timescaledb:2.12.2-pg14
+    ports:
+      - ${TIMESCALE_PORT}:${TIMESCALE_PORT}
+    volumes:
+      - ../${FILES_LOCATION}/timescaledb:/var/lib/timescaledb/
+    networks:
+      - backend
+    restart: always
+    environment:
+      - POSTGRES_USER=${TIMESCALE_USER}
+      - POSTGRES_PASSWORD=${TIMESCALE_PASSWORD}
+      # - POSTGRES_HOST_AUTH_METHOD=trust
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 4096M
+        reservations:
+          cpus: '0.3'
+          memory: 2048M
+
   chronograf:
     container_name: aggr-chronograf
     image: chronograf:latest
