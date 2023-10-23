@@ -8,6 +8,11 @@ const { updateIndexes } = require('../services/connections')
 
 const DAY = 1000 * 60 * 60 * 24
 
+/**
+ * Official implementation example for Node.JS:
+ * https://docs.timescale.com/quick-start/latest/node/#nodejs-quick-start
+ */
+
 class TimescaleStorage {
   constructor() {
     this.name = this.constructor.name
@@ -41,43 +46,45 @@ class TimescaleStorage {
 
   async connect() {
     if (/\-/.test(config.timescaleDatabase)) {
-      throw new Error('dashes not allowed inside timescale database name');
+      throw new Error('dashes not allowed inside timescale database name')
     }
 
-    let host = config.timescaleHost;
-    let port = config.timescalePort;
+    let host = config.timescaleHost
+    let port = config.timescalePort
 
     if (typeof config.timescaleUrl === 'string' && config.timescaleUrl.length) {
-      [host, port] = config.timescaleUrl.split(':');
+      ;[host, port] = config.timescaleUrl.split(':')
     }
 
     console.log(
       `[storage/timescale] connecting to ${host}:${port} on db "${config.timescaleDatabase}"`
-    );
+    )
 
     this.client = new Client({
       host: host || 'localhost',
       port: port || '5432',
       database: config.timescaleDatabase,
-      user: config.timescaleUser,   // Assuming you have a username in config
-      password: config.timescalePassword, // Assuming you have a password in config
-    });
+      user: config.timescaleUser, // Assuming you have a username in config
+      password: config.timescalePassword // Assuming you have a password in config
+    })
 
     try {
-      await this.client.connect();
+      await this.client.connect()
 
       // Check if the database exists
-      const res = await this.client.query("SELECT 1 FROM pg_database WHERE datname=$1", [config.timescaleDatabase]);
+      const res = await this.client.query(
+        'SELECT 1 FROM pg_database WHERE datname=$1',
+        [config.timescaleDatabase]
+      )
       if (res.rows.length === 0) {
         // Create the database - Note: You might need a superuser to create a new database
-        await this.client.query(`CREATE DATABASE ${config.timescaleDatabase}`);
+        await this.client.query(`CREATE DATABASE ${config.timescaleDatabase}`)
       }
 
       if (config.collect) {
-        await this.ensureRetentionPolicies();
-        await this.getPreviousBars();
+        await this.ensureRetentionPolicies()
+        await this.getPreviousBars()
       }
-
     } catch (error) {
       console.error(
         [
@@ -85,18 +92,17 @@ class TimescaleStorage {
           `Please ensure that the environment variable TIMESCALE_HOST is correctly set or that TimescaleDB is running.`,
           `Refer to the README.md file for more instructions.`
         ].join('\n')
-      );
+      )
 
-      await sleep();
+      await sleep()
 
-      return this.connect();
-
+      return this.connect()
     } finally {
       // Rest of your logic...
       // ...
 
       if (alertService) {
-        this.bindAlertsEvents();
+        this.bindAlertsEvents()
       }
     }
   }
@@ -198,43 +204,57 @@ class TimescaleStorage {
    */
   async ensureRetentionPolicies() {
     // 1. Ensure the Hypertable
-    let res = await this.client.query("SELECT * FROM timescaledb_information.hypertables WHERE table_name=$1", ['base_hypertable_name']);
-    
+    let res = await this.client.query(
+      'SELECT * FROM timescaledb_information.hypertables WHERE table_name=$1',
+      ['base_hypertable_name']
+    )
+
     if (res.rows.length === 0) {
-        await this.client.query(`CREATE TABLE base_hypertable_name ( /* column definitions here */ );
-                                 SELECT create_hypertable('base_hypertable_name', 'time_column_name');`);
+      await this.client
+        .query(`CREATE TABLE base_hypertable_name ( /* column definitions here */ );
+                                 SELECT create_hypertable('base_hypertable_name', 'time_column_name');`)
     }
 
     // 2. Continuous Aggregates
-    const baseTimeframe = config.influxTimeframe;
-    const derivedTimeframes = config.influxResampleTo;
+    const baseTimeframe = config.influxTimeframe
+    const derivedTimeframes = config.influxResampleTo
 
     for (let timeframe of derivedTimeframes) {
-        // construct the name of the view based on your naming convention
-        const caggName = `cagg_${getHms(timeframe).replace(/[\s,]/g, '')}`; 
-        let caggRes = await this.client.query("SELECT * FROM timescaledb_information.continuous_aggregates WHERE view_name=$1", [caggName]);
+      // construct the name of the view based on your naming convention
+      const caggName = `cagg_${getHms(timeframe).replace(/[\s,]/g, '')}`
+      let caggRes = await this.client.query(
+        'SELECT * FROM timescaledb_information.continuous_aggregates WHERE view_name=$1',
+        [caggName]
+      )
 
-        if (caggRes.rows.length === 0) {
-            await this.client.query(`CREATE VIEW ${caggName} WITH (timescaledb.continuous)
+      if (caggRes.rows.length === 0) {
+        await this.client
+          .query(`CREATE VIEW ${caggName} WITH (timescaledb.continuous)
                                      AS
                                      SELECT /* your aggregation logic here based on baseTimeframe and timeframe */
                                      FROM base_hypertable_name
-                                     GROUP BY time_bucket(INTERVAL 'baseTimeframe', time_column_name), /* other group by columns */;`);
-        }
+                                     GROUP BY time_bucket(INTERVAL 'baseTimeframe', time_column_name), /* other group by columns */;`)
+      }
     }
 
     // 3. Data Retention - for base hypertable and continuous aggregates
-    const retentionInterval = getHms(baseTimeframe * config.influxRetentionPerTimeframe).replace(/[\s,]/g, ''); 
-    await this.client.query(`SELECT drop_chunks(interval '${retentionInterval}', 'base_hypertable_name');`);
+    const retentionInterval = getHms(
+      baseTimeframe * config.influxRetentionPerTimeframe
+    ).replace(/[\s,]/g, '')
+    await this.client.query(
+      `SELECT drop_chunks(interval '${retentionInterval}', 'base_hypertable_name');`
+    )
     for (let timeframe of derivedTimeframes) {
-        const caggName = `cagg_${getHms(timeframe).replace(/[\s,]/g, '')}`;
-        await this.client.query(`SELECT drop_chunks(interval '${retentionInterval}', '${caggName}');`);
+      const caggName = `cagg_${getHms(timeframe).replace(/[\s,]/g, '')}`
+      await this.client.query(
+        `SELECT drop_chunks(interval '${retentionInterval}', '${caggName}');`
+      )
     }
   }
 
   async getPreviousBars() {
-    const timeframeLitteral = getHms(config.influxTimeframe); // this will still be used for filtering
-    const now = +new Date();
+    const timeframeLitteral = getHms(config.influxTimeframe) // this will still be used for filtering
+    const now = +new Date()
 
     // Use parameterized query for better safety against SQL injections
     let query = `
@@ -245,35 +265,38 @@ class TimescaleStorage {
         GROUP BY market 
         ORDER BY time DESC 
         LIMIT 1
-    `;
+    `
 
     try {
-        // Assuming you have a client named 'timescale' or some appropriate name
-        const data = await timescale.query(query, [config.pairs]);
+      // Assuming you have a client named 'timescale' or some appropriate name
+      const data = await timescale.query(query, [config.pairs])
 
-        for (let bar of data.rows) {
-            if (now - Date.parse(bar.time) > config.influxResampleInterval) {
-                // can't use lastBar because it is too old anyway
-                continue;
-            }
-
-            let originalBar;
-
-            if (!this.pendingBars[bar.market]) {
-                this.pendingBars[bar.market] = {};
-            }
-
-            if (
-                this.pendingBars[bar.market] &&
-                (originalBar = this.pendingBars[bar.market][Date.parse(bar.time)])
-            ) {
-                this.sumBar(originalBar, bar);
-            } else {
-                this.pendingBars[bar.market][Date.parse(bar.time)] = this.sumBar({}, bar);
-            }
+      for (let bar of data.rows) {
+        if (now - Date.parse(bar.time) > config.influxResampleInterval) {
+          // can't use lastBar because it is too old anyway
+          continue
         }
+
+        let originalBar
+
+        if (!this.pendingBars[bar.market]) {
+          this.pendingBars[bar.market] = {}
+        }
+
+        if (
+          this.pendingBars[bar.market] &&
+          (originalBar = this.pendingBars[bar.market][Date.parse(bar.time)])
+        ) {
+          this.sumBar(originalBar, bar)
+        } else {
+          this.pendingBars[bar.market][Date.parse(bar.time)] = this.sumBar(
+            {},
+            bar
+          )
+        }
+      }
     } catch (error) {
-        console.error(`Error while fetching previous bars: ${error.message}`);
+      console.error(`Error while fetching previous bars: ${error.message}`)
     }
   }
 
@@ -527,7 +550,7 @@ class TimescaleStorage {
       // console.log(`[storage/influx] importing ${barsToImport.length} bars`)
 
       // Write the bars to TimescaleDB hypertable
-      await this.writeBarsToTimescaleDB(barsToImport);
+      await this.writeBarsToTimescaleDB(barsToImport)
     }
 
     return importedRange
@@ -549,13 +572,26 @@ class TimescaleStorage {
             csell = EXCLUDED.csell,
             lbuy = EXCLUDED.lbuy,
             lsell = EXCLUDED.lsell;
-    `;
+    `
 
     for (let bar of bars) {
-        const values = [bar.time, bar.market, bar.open, bar.high, bar.low, bar.close, bar.vbuy, bar.vsell, bar.cbuy, bar.csell, bar.lbuy, bar.lsell];
-        
-        // Assuming you have a client set up to interact with TimescaleDB
-        await timescale.query(query, values);
+      const values = [
+        bar.time,
+        bar.market,
+        bar.open,
+        bar.high,
+        bar.low,
+        bar.close,
+        bar.vbuy,
+        bar.vsell,
+        bar.cbuy,
+        bar.csell,
+        bar.lbuy,
+        bar.lsell
+      ]
+
+      // Assuming you have a client set up to interact with TimescaleDB
+      await timescale.query(query, values)
     }
   }
 
@@ -564,21 +600,43 @@ class TimescaleStorage {
     const baseQuery = `
         INSERT INTO ohlcv_base (time, market, open, high, low, close, vbuy, vsell, cbuy, csell, lbuy, lsell)
         VALUES 
-    `;
+    `
 
     // Placeholder for all bar values
-    const allValues = [];
-    
+    const allValues = []
+
     // Placeholder for the parameterized query parts for each bar
-    const barsQueryParts = [];
+    const barsQueryParts = []
 
     bars.forEach((bar, index) => {
-        const offset = index * 12;  // 12 because there are 12 fields for each bar
-        barsQueryParts.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12})`);
-        allValues.push(bar.time, bar.market, bar.open, bar.high, bar.low, bar.close, bar.vbuy, bar.vsell, bar.cbuy, bar.csell, bar.lbuy, bar.lsell);
-    });
+      const offset = index * 12 // 12 because there are 12 fields for each bar
+      barsQueryParts.push(
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${
+          offset + 5
+        }, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${
+          offset + 10
+        }, $${offset + 11}, $${offset + 12})`
+      )
+      allValues.push(
+        bar.time,
+        bar.market,
+        bar.open,
+        bar.high,
+        bar.low,
+        bar.close,
+        bar.vbuy,
+        bar.vsell,
+        bar.cbuy,
+        bar.csell,
+        bar.lbuy,
+        bar.lsell
+      )
+    })
 
-    const query = baseQuery + barsQueryParts.join(', ') + `
+    const query =
+      baseQuery +
+      barsQueryParts.join(', ') +
+      `
         ON CONFLICT (time, market) 
         DO UPDATE SET 
             open = EXCLUDED.open,
@@ -591,9 +649,9 @@ class TimescaleStorage {
             csell = EXCLUDED.csell,
             lbuy = EXCLUDED.lbuy,
             lsell = EXCLUDED.lsell;
-    `;
+    `
 
-    await timescale.query(query, allValues);
+    await timescale.query(query, allValues)
   }
 
   /**
@@ -832,43 +890,53 @@ class TimescaleStorage {
    */
   async fetch({ from, to, timeframe = 60000, markets = [] }) {
     // Determine if you should use the base hypertable or a continuous aggregate view
-    const isBaseTimeframe = timeframe === 10000; // 10s in ms
-    const tableName = isBaseTimeframe ? "base_hypertable_name" : `"${config.timescaleRetentionPrefix}${getHms(timeframe)}"`;
-    
-    const marketConditions = markets.length ? 
-        `AND market IN (${markets.map((_, index) => `$${index + 3}`).join(', ')})` : 
-        "";
+    const isBaseTimeframe = timeframe === 10000 // 10s in ms
+    const tableName = isBaseTimeframe
+      ? 'base_hypertable_name'
+      : `"${config.timescaleRetentionPrefix}${getHms(timeframe)}"`
+
+    const marketConditions = markets.length
+      ? `AND market IN (${markets
+          .map((_, index) => `$${index + 3}`)
+          .join(', ')})`
+      : ''
 
     const query = `
         SELECT * 
         FROM ${tableName}
         WHERE time >= $1 AND time < $2 ${marketConditions};
-    `;
+    `
 
     try {
-        const values = [from, to, ...markets];
-        const result = await this.pgClient.query(query, values);
+      const values = [from, to, ...markets]
+      const result = await this.pgClient.query(query, values)
 
-        // Process the results and return the appropriate structure
-        const output = {
-            format: this.format,
-            columns: Object.keys(result.rows[0]),
-            results: result.rows
-        };
+      // Process the results and return the appropriate structure
+      const output = {
+        format: this.format,
+        columns: Object.keys(result.rows[0]),
+        results: result.rows
+      }
 
-        // If there might be pending bars in the application's memory, merge them
-        if (to > Date.now() - config.influxResampleInterval) {
-            const bars = await this.appendPendingBarsToResponse(output.results, markets, from, to, timeframe);
-            output.results = bars;
-        }
+      // If there might be pending bars in the application's memory, merge them
+      if (to > Date.now() - config.influxResampleInterval) {
+        const bars = await this.appendPendingBarsToResponse(
+          output.results,
+          markets,
+          from,
+          to,
+          timeframe
+        )
+        output.results = bars
+      }
 
-        return output;
+      return output
     } catch (err) {
-        console.error(
-            `[storage/timescale] failed to retrieve bars between ${from} and ${to} with timeframe ${timeframe}\n\t`,
-            err.message
-        );
-        throw err;
+      console.error(
+        `[storage/timescale] failed to retrieve bars between ${from} and ${to} with timeframe ${timeframe}\n\t`,
+        err.message
+      )
+      throw err
     }
   }
 
