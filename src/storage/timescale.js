@@ -1,5 +1,4 @@
-const Influx = require('influx')
-const { getHms, sleep, ID, ago } = require('../helper')
+const { getHms, sleep, ID } = require('../helper')
 const net = require('net')
 const config = require('../config')
 const socketService = require('../services/socket')
@@ -204,15 +203,18 @@ class TimescaleStorage {
    */
   async ensureRetentionPolicies() {
     // 1. Ensure the Hypertable
-    let res = await this.client.query(
-      'SELECT * FROM timescaledb_information.hypertables WHERE table_name=$1',
-      ['base_hypertable_name']
-    )
-
+    let res = await this.client.query("SELECT * FROM timescaledb_information.hypertables WHERE table_name=$1", [config.timescaleTable]);
+    
     if (res.rows.length === 0) {
-      await this.client
-        .query(`CREATE TABLE base_hypertable_name ( /* column definitions here */ );
-                                 SELECT create_hypertable('base_hypertable_name', 'time_column_name');`)
+        await this.client.query(`CREATE TABLE ${config.timescaleTable} (
+          timestamp TIMESTAMPTZ NOT NULL,
+          market TEXT NOT NULL,
+          open DOUBLE PRECISION,
+          high DOUBLE PRECISION,
+          low DOUBLE PRECISION,
+          close DOUBLE PRECISION
+        );
+                                 SELECT create_hypertable('${config.timescaleTable}', 'timestamp', 'market');`);
     }
 
     // 2. Continuous Aggregates
@@ -232,18 +234,14 @@ class TimescaleStorage {
           .query(`CREATE VIEW ${caggName} WITH (timescaledb.continuous)
                                      AS
                                      SELECT /* your aggregation logic here based on baseTimeframe and timeframe */
-                                     FROM base_hypertable_name
-                                     GROUP BY time_bucket(INTERVAL 'baseTimeframe', time_column_name), /* other group by columns */;`)
-      }
+                                     FROM ${config.timescaleTable}
+                                     GROUP BY time_bucket(INTERVAL 'baseTimeframe', time_column_name), /* other group by columns */;`);
+        }
     }
 
     // 3. Data Retention - for base hypertable and continuous aggregates
-    const retentionInterval = getHms(
-      baseTimeframe * config.influxRetentionPerTimeframe
-    ).replace(/[\s,]/g, '')
-    await this.client.query(
-      `SELECT drop_chunks(interval '${retentionInterval}', 'base_hypertable_name');`
-    )
+    const retentionInterval = getHms(baseTimeframe * config.influxRetentionPerTimeframe).replace(/[\s,]/g, ''); 
+    await this.client.query(`SELECT drop_chunks(interval '${retentionInterval}', '${config.timescaleTable}');`);
     for (let timeframe of derivedTimeframes) {
       const caggName = `cagg_${getHms(timeframe).replace(/[\s,]/g, '')}`
       await this.client.query(
@@ -259,11 +257,11 @@ class TimescaleStorage {
     // Use parameterized query for better safety against SQL injections
     let query = `
         SELECT * 
-        FROM ohlcv_base
+        FROM ${config.timescaleTable}
         WHERE market = ANY($1) 
-        AND time >= NOW() - INTERVAL '${timeframeLitteral}'
+        AND timestamp >= NOW() - INTERVAL '${timeframeLitteral}'
         GROUP BY market 
-        ORDER BY time DESC 
+        ORDER BY timestamp DESC 
         LIMIT 1
     `
 
@@ -272,9 +270,9 @@ class TimescaleStorage {
       const data = await timescale.query(query, [config.pairs])
 
       for (let bar of data.rows) {
-        if (now - Date.parse(bar.time) > config.influxResampleInterval) {
-          // can't use lastBar because it is too old anyway
-          continue
+        if (now - Date.parse(bar.timestamp) > config.influxResampleInterval) {
+            // can't use lastBar because it is too old anyway
+            continue;
         }
 
         let originalBar
@@ -423,8 +421,8 @@ class TimescaleStorage {
         }
       }
 
-      if (!bars[market] || bars[market].time !== tradeFlooredTime) {
-        //bars[market] && console.log(`${market} time is !==, resolve bar or create`)
+      if (!bars[market] || bars[market].timestamp !== tradeFlooredTime) {
+        //bars[market] && console.log(`${market} timestamp is !==, resolve bar or create`)
         // need to create bar OR recover bar either from pending bar / last saved bar
 
         if (!this.pendingBars[market]) {
@@ -445,7 +443,7 @@ class TimescaleStorage {
             this.archivedBars[market][tradeFlooredTime]
         } else {
           bars[market] = this.pendingBars[market][tradeFlooredTime] = {
-            time: tradeFlooredTime,
+            timestamp: tradeFlooredTime,
             market: market,
             cbuy: 0,
             csell: 0,
@@ -458,7 +456,7 @@ class TimescaleStorage {
             low: null,
             close: null
           }
-          //console.log(`\tcreate new bar (time ${new Date(bars[market].time).toISOString().split('T').pop().replace(/\..*/, '')})`)
+          //console.log(`\tcreate new bar (timestamp ${new Date(bars[market].timestamp).toISOString().split('T').pop().replace(/\..*/, '')})`)
         }
       }
 
@@ -529,8 +527,8 @@ class TimescaleStorage {
 
         const bar = this.pendingBars[identifier][timestamp]
 
-        importedRange.from = Math.min(bar.time, importedRange.from)
-        importedRange.to = Math.max(bar.time, importedRange.to)
+        importedRange.from = Math.min(bar.timestamp, importedRange.from)
+        importedRange.to = Math.max(bar.timestamp, importedRange.to)
 
         barsToImport.push(bar)
 
@@ -890,16 +888,12 @@ class TimescaleStorage {
    */
   async fetch({ from, to, timeframe = 60000, markets = [] }) {
     // Determine if you should use the base hypertable or a continuous aggregate view
-    const isBaseTimeframe = timeframe === 10000 // 10s in ms
-    const tableName = isBaseTimeframe
-      ? 'base_hypertable_name'
-      : `"${config.timescaleRetentionPrefix}${getHms(timeframe)}"`
-
-    const marketConditions = markets.length
-      ? `AND market IN (${markets
-          .map((_, index) => `$${index + 3}`)
-          .join(', ')})`
-      : ''
+    const isBaseTimeframe = timeframe === 10000; // 10s in ms
+    const tableName = isBaseTimeframe ? config.timescaleTable : `"${config.timescaleRetentionPrefix}${getHms(timeframe)}"`;
+    
+    const marketConditions = markets.length ? 
+        `AND market IN (${markets.map((_, index) => `$${index + 3}`).join(', ')})` : 
+        "";
 
     const query = `
         SELECT * 
@@ -1021,4 +1015,4 @@ class TimescaleStorage {
   }
 }
 
-module.exports = InfluxStorage
+module.exports = TimescaleStorage
