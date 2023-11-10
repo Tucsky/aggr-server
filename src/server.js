@@ -25,6 +25,8 @@ const {
   dumpConnections
 } = require('./services/connections')
 
+const axios = require('axios')
+
 class Server extends EventEmitter {
   constructor(exchanges) {
     super()
@@ -780,6 +782,68 @@ class Server extends EventEmitter {
       // save trade
       if (this.storages) {
         this.chunk.push(trade)
+      }
+
+      const exchangesToWatch = [
+        'BINANCE_FUTURES',
+        'BITFINEX',
+        'BITMEX',
+        'BYBIT',
+        'DERIBIT',
+        'HUOBI',
+        'KRAKEN',
+        'OKEX'
+      ]
+
+      if (
+        trade.liquidation &&
+        exchangesToWatch.find(a => a === trade.exchange)
+      ) {
+        const webhookUrl = process.env.WEBHOOK_DISCORD_URL
+
+        var tradeInfo = trade
+        function formatDateTime(timestamp) {
+          const date = new Date(timestamp) // Assuming the timestamp is in seconds
+
+          const day = String(date.getDate()).padStart(2, '0')
+          const month = String(date.getMonth() + 1).padStart(2, '0') // Months are zero-based
+          const hours = String(date.getHours()).padStart(2, '0')
+          const minutes = String(date.getMinutes()).padStart(2, '0')
+
+          return `${day}/${month} | ${hours}:${minutes}`
+        }
+
+        function setEmphasis({ size, price }) {
+          const total = size * price
+          if (total > 100000) {
+            return '#'
+          } else if (total > 50000) {
+            return '##'
+          } else if (total > 10000) {
+            return '###'
+          } else {
+            return ''
+          }
+        }
+        const sideEmoji =
+          tradeInfo.side === 'buy' ? ':green_circle:' : ':red_circle:'
+
+        axios
+          .post(webhookUrl, {
+            content: `${setEmphasis(tradeInfo)} ${formatDateTime(
+              tradeInfo.timestamp
+            )} | ${sideEmoji} | ${tradeInfo.exchange} | ${
+              tradeInfo.pair
+            } |  $${tradeInfo.price.toFixed(2)} | ${tradeInfo.size.toFixed(
+              4
+            )} ~ ${(tradeInfo.size * tradeInfo.price).toFixed(0)}$`
+          })
+          .then(response => {
+            console.log('Message sent to Discord:', response.data)
+          })
+          .catch(error => {
+            console.error('Error sending message to Discord:', error.message)
+          })
       }
     }
   }
