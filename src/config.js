@@ -1,6 +1,10 @@
 const fs = require('fs')
 const path = require('path')
 const decamelize = require('decamelize')
+require('dotenv').config({
+  override: true
+})
+
 
 console.log(`[init] reading config.json...`)
 
@@ -230,8 +234,7 @@ try {
 
   if (
     !fs.existsSync(configPath) &&
-    fs.existsSync(configExamplePath) &&
-    !specificConfigFile
+    fs.existsSync(configExamplePath)
   ) {
     fs.copyFileSync(configExamplePath, configPath)
   }
@@ -266,6 +269,20 @@ Object.keys(config).forEach(k => {
     )
   }
 })
+
+/**
+ * Set Alert service Vapid keys from ENV to config file
+ */
+
+if (process.env.PUBLIC_VAPID_KEY && process.env.PRIVATE_VAPID_KEY) {
+  if (!config.publicVapidKey) {
+    config.publicVapidKey = process.env.PUBLIC_VAPID_KEY
+  }
+  
+  if (!config.privateVapidKey) {
+    config.privateVapidKey = process.env.PRIVATE_VAPID_KEY
+  }
+} 
 
 /* Validate storage
  */
