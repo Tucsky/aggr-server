@@ -28,7 +28,7 @@ class AlertService extends EventEmitter {
     if (config.publicVapidKey && config.privateVapidKey) {
       this.enabled = true
       webPush.setVapidDetails(
-        'mailto: contact@aggr.trade',
+        'mailto:contact@aggr.trade',
         config.publicVapidKey,
         config.privateVapidKey
       )
@@ -572,7 +572,7 @@ class AlertService extends EventEmitter {
     return webPush
       .sendNotification(this.alertEndpoints[alert.endpoint], payload, {
         vapidDetails: {
-          subject: 'mailto: contact@aggr.trade',
+          subject: 'mailto:contact@aggr.trade',
           publicKey: config.publicVapidKey,
           privateKey: config.privateVapidKey
         },
@@ -582,10 +582,23 @@ class AlertService extends EventEmitter {
         return sleep(100)
       })
       .catch(err => {
-        console.error(
-          `[alert/send] failed to send push notification`,
-          err.message
-        )
+        if (
+          err instanceof webPush.WebPushError
+        ) {
+          console.error(
+            `[alert/send] ${err.statusCode}: \n${err.body}`
+          )
+
+          if (err.statusCode > 400 && err.statusCode < 499) {
+            // delete user
+          }
+
+        } else {
+          console.error(
+            `[alert/send] failed to send push notification`,
+            err.message
+          )
+        }
       })
   }
 
