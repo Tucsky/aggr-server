@@ -143,7 +143,7 @@ class Bybit extends Exchange {
     return {
       exchange: this.id,
       pair: liquidation.symbol,
-      timestamp: +liquidation.updateTime,
+      timestamp: +liquidation.updatedTime || +liquidation.updateTime,
       size,
       price: +liquidation.price,
       side: liquidation.side === 'Buy' ? 'sell' : 'buy',
@@ -158,20 +158,18 @@ class Bybit extends Exchange {
       return
     }
 
-    if (json.data.length) {
-      if (TRADE_TOPIC_REGEX.test(json.topic)) {
-        const isSpot = api.url === SPOT_WS
+    if (TRADE_TOPIC_REGEX.test(json.topic)) {
+      const isSpot = api.url === SPOT_WS
 
-        return this.emitTrades(
-          api.id,
-          json.data.map(trade => this.formatTrade(trade, isSpot))
-        )
-      } else {
-        return this.emitLiquidations(
-          api.id,
-          json.data.map(liquidation => this.formatLiquidation(liquidation))
-        )
-      }
+      return this.emitTrades(
+        api.id,
+        json.data.map(trade => this.formatTrade(trade, isSpot))
+      )
+    } else {
+      return this.emitLiquidations(
+        api.id,
+        [this.formatLiquidation(json.data)]
+      )
     }
   }
 

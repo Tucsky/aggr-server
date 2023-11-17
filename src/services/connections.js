@@ -44,8 +44,6 @@ const indexes = (module.exports.indexes = [])
       continue
     }
 
-    console.log(market, product.local, product.type)
-
     if (!cacheIndexes[product.local]) {
       cacheIndexes[product.local] = {
         id: product.local,
