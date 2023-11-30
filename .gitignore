@@ -1,15 +1,28 @@
+# system
+.DS_Store
+.vscode
+!**/.gitkeep
+
+# env files
+.env
+.env.local
+
+# app config
+*.config.json
+
+# local files
 node_modules/
 config.json
+
+# storage
+
 clients.txt
 banned.txt
 /products
 /symbols
 data/*
-.DS_Store
-.vscode
-!**/.gitkeep
-*.config.json
 persistence.json
-coinalize.key
 events.log
-.env
+
+#  3rd party
+coinalize.key
