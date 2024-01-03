@@ -255,20 +255,22 @@ try {
 
 const config = Object.assign(defaultConfig, userSettings, commandSettings)
 
-/* Override config with ENV variables using decamelize + uppercase 
-  (e.g. influxPreheatRange -> INFLUX_PREHEAT_RANGE)
- */
+if (process.env.RUNNING_IN_DOCKER) {
+  /* Override config with ENV variables using decamelize + uppercase 
+    (e.g. influxPreheatRange -> INFLUX_PREHEAT_RANGE)
+  */
 
-Object.keys(config).forEach(k => {
-  config_to_env_key = decamelize(k, '_').toUpperCase()
-  config_env_value = process.env[config_to_env_key]
-  if (config_env_value) {
-    config[k] = config_env_value
-    console.log(
-      `overriding '${k}' to '${config_env_value}' via env '${config_to_env_key}'`
-    )
-  }
-})
+  Object.keys(config).forEach(k => {
+    config_to_env_key = decamelize(k, '_').toUpperCase()
+    config_env_value = process.env[config_to_env_key]
+    if (config_env_value) {
+      config[k] = config_env_value
+      console.log(
+        `overriding '${k}' to '${config_env_value}' via env '${config_to_env_key}'`
+      )
+    }
+  })
+}
 
 /**
  * Set Alert service Vapid keys from ENV to config file

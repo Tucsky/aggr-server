@@ -336,11 +336,11 @@ class AlertService extends EventEmitter {
         now - this.alertEndpoints[endpoint].timestamp >
           config.alertEndpointExpiresAfter
       ) {
-        console.warn(
+        /* console.warn(
           `[alert/get] removed expired endpoint (last updated ${ago(
             this.alertEndpoints[endpoint].timestamp
           )} ago)`
-        )
+        ) */
         delete this.alertEndpoints[endpoint]
       }
     }

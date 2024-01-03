@@ -16,4 +16,6 @@ COPY  --from=builder ./ecosystem.config.dev.yaml ${WORKDIR}/
 
 EXPOSE ${PORT}
 
+ENV RUNNING_IN_DOCKER true
+
 CMD [ "pm2-dev", "ecosystem.config.dev.yaml"]

@@ -24,5 +24,7 @@ COPY  ecosystem.config.js ${WORKDIR}
 
 EXPOSE ${PORT}
 
+ENV RUNNING_IN_DOCKER true
+
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD [ "pm2-runtime", "ecosystem.config.js"]
