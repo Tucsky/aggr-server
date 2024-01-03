@@ -216,9 +216,13 @@ class Exchange extends EventEmitter {
     api._pending.push(pair)
 
     if (api.readyState === WebSocket.OPEN) {
-      setTimeout(() => {
-        this.subscribePendingPairs(api)
-      })
+      this.schedule(
+        () => {
+          this.subscribePendingPairs(api)
+        },
+        'subscribe-' + api.url,
+        1000
+      )
     }
 
     return api

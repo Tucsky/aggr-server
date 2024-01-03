@@ -237,14 +237,6 @@ class Bybit extends Exchange {
 
   onApiRemoved(api) {
     this.stopKeepAlive(api)
-
-    if (api.freezeTimeout) {
-      clearTimeout(api.freezeTimeout)
-    }
-
-    if (api.downTimeout) {
-      clearTimeout(api.downTimeout)
-    }
   }
 }
 

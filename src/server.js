@@ -850,7 +850,7 @@ class Server extends EventEmitter {
             alertService.alertEndpoints[alert.endpoint] &&
             alertService.alertEndpoints[alert.endpoint].user === user
           ) {
-            alertService.sendAlert(alert, alert.market, Date.now())
+            alertService.queueAlert(alert, alert.market, Date.now())
             return `${alert.market} @${alert.price}`
           }
         }
