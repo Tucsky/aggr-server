@@ -261,16 +261,20 @@ class Exchange extends EventEmitter {
     }
 
     api.onmessage = event => {
-      const wasBadData = !this.onMessage(event, api)
+      try {
+        const wasBadData = !this.onMessage(event, api)
 
-      if (
-        wasBadData &&
-        event.data &&
-        /\b(unrecognized|failure|invalid|error|expired|cannot|exceeded|error|alert|bad|please|warning)\b/.test(
-          event.data
-        )
-      ) {
-        console.error(`[${this.id}] error message intercepted\n`, event.data)
+        if (
+          wasBadData &&
+          event.data &&
+          /\b(unrecognized|failure|invalid|error|expired|cannot|exceeded|error|alert|bad|please|warning)\b/.test(
+            event.data
+          )
+        ) {
+          console.error(`[${this.id}] error message intercepted\n`, event.data)
+        }
+      } catch (error) {
+        console.error(`[${this.id}] failed to parse ws message\n`, error.message)
       }
     }
 
