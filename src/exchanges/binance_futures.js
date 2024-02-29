@@ -94,12 +94,6 @@ class BinanceFutures extends Exchange {
     // trade stream might lag because of the amount of trades or even disconnect depending on network
     // trades can be recovered through REST api, liquidations doesn't
     // this is a test to see if liquidation stream remain stable as trades stream lag behind
-    console.log(
-      `[${this.id}]`,
-      'call subscribeLiquidations ' + pair,
-      '(after subscribe on main)',
-      api.id
-    )
     this.subscribeLiquidations(api, pair)
   }
 
@@ -258,11 +252,6 @@ class BinanceFutures extends Exchange {
       console.log(`[${this.id}] liquidation api opened`, api.id)
 
       for (const pair of api._connected) {
-        console.log(
-          `[${this.id}]`,
-          'call subscribeLiquidations ' + pair,
-          api.id
-        )
         this.subscribeLiquidations(api, pair)
       }
     }
@@ -294,13 +283,6 @@ class BinanceFutures extends Exchange {
       !api._liquidationApi ||
       api._liquidationApi.readyState !== WebSocket.OPEN
     ) {
-      console.log(
-        `[${this.id}]`,
-        api._liquidationApi
-          ? 'no sub liq => do nothing'
-          : 'sub clic !== OPEN => do nothing',
-        pair
-      )
       return
     }
 

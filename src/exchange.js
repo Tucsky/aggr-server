@@ -159,7 +159,7 @@ class Exchange extends EventEmitter {
         return
       }
     } catch (error) {
-      console.log('error while linking', error)
+      console.log(`[${this.id}.link] error before api opened`, error.message)
     }
 
     return new Promise(resolve => {
@@ -178,7 +178,7 @@ class Exchange extends EventEmitter {
 
       timeout = setTimeout(() => {
         console.error(
-          `[${this.id}/link] ${pair} connected event never fired, resolving returnConnectedEvent immediately`
+          `[${this.id}/link] ${pair} connected event never fired`
         )
         connectedEventHandler(pair)
       }, 10000)
@@ -246,7 +246,7 @@ class Exchange extends EventEmitter {
     api._send = api.send
     api.send = data => {
       if (api.readyState !== WebSocket.OPEN) {
-        console.error(
+        console.debug(
           `[${this.id}.createWs] attempted to send data to an non-OPEN websocket api`,
           data
         )
@@ -701,7 +701,7 @@ class Exchange extends EventEmitter {
 
     for (let pair of pairs) {
       try {
-        await this.link(pair)
+        this.link(pair)
       } catch (error) {
         console.error(error.message)
         // pair mismatch
