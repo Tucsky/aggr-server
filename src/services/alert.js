@@ -610,6 +610,7 @@ class AlertService extends EventEmitter {
         )
 
         if (error.statusCode > 400 && error.statusCode < 499) {
+          queuedAlert.attempts = 5
           // delete user
         }
       } else {
