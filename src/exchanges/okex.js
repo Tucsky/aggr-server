@@ -12,16 +12,16 @@ class Okex extends Exchange {
     this.endpoints = {
       LIQUIDATIONS: 'https://www.okx.com/api/v5/public/liquidation-orders',
       PRODUCTS: [
-        'https://www.okex.com/api/v5/public/instruments?instType=SPOT',
-        'https://www.okex.com/api/v5/public/instruments?instType=FUTURES',
-        'https://www.okex.com/api/v5/public/instruments?instType=SWAP'
+        'https://www.okx.com/api/v5/public/instruments?instType=SPOT',
+        'https://www.okx.com/api/v5/public/instruments?instType=FUTURES',
+        'https://www.okx.com/api/v5/public/instruments?instType=SWAP'
       ]
     }
 
     this.liquidationProducts = []
     this.liquidationProductsReferences = {}
 
-    this.url = 'wss://ws.okex.com:8443/ws/v5/public'
+    this.url = 'wss://ws.okx.com:8443/ws/v5/public'
   }
 
   formatProducts(response) {
