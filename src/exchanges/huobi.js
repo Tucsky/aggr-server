@@ -24,7 +24,7 @@ class Huobi extends Exchange {
 
     this.endpoints = {
       PRODUCTS: [
-        'https://api.huobi.pro/v1/common/symbols',
+        'https://api.htx.com/v1/settings/common/symbols',
         'https://api.hbdm.com/api/v1/contract_contract_info',
         'https://api.hbdm.com/swap-api/v1/swap_contract_info',
         'https://api.hbdm.com/linear-swap-api/v1/swap_contract_info'
@@ -39,7 +39,7 @@ class Huobi extends Exchange {
       } else if (this.types[pair] === 'linear') {
         return 'wss://api.hbdm.com/linear-swap-ws'
       } else {
-        return 'wss://api.huobi.pro/ws'
+        return 'wss://api.htx.com/ws'
       }
     }
   }
@@ -57,9 +57,7 @@ class Huobi extends Exchange {
 
         switch (type) {
           case 'spot':
-            pair = (
-              product['base-currency'] + product['quote-currency']
-            ).toLowerCase()
+            pair = product.symbol
             break
           case 'futures':
             pair =
