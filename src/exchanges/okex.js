@@ -279,11 +279,11 @@ class Okex extends Exchange {
 
     let endpoint
     if (beforeTradeId) {
-      endpoint = `https://www.okex.com/api/v5/market/history-trades?instId=${
+      endpoint = `https://www.okx.com/api/v5/market/history-trades?instId=${
         range.pair
       }&limit=100${beforeTradeId ? '&after=' + beforeTradeId : ''}`
     } else {
-      endpoint = `https://www.okex.com/api/v5/market/trades?instId=${range.pair}&limit=500`
+      endpoint = `https://www.okx.com/api/v5/market/trades?instId=${range.pair}&limit=500`
     }
 
     return axios
