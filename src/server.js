@@ -769,6 +769,10 @@ class Server extends EventEmitter {
     for (let i = 0; i < trades.length; i++) {
       const trade = trades[i]
 
+      if (!trade.size) {
+        continue
+      }
+
       if (!trade.liquidation) {
         const identifier = trade.exchange + ':' + trade.pair
 
