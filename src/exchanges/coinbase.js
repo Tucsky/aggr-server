@@ -11,7 +11,7 @@ class Coinbase extends Exchange {
 
     this.endpoints = {
       PRODUCTS: [
-        'https://api.pro.coinbase.com/products',
+        'https://api.coinbase.com/api/v3/brokerage/market/products?product_type=SPOT',
         'https://api.coinbase.com/api/v3/brokerage/market/products?product_type=FUTURE&contract_expiry_type=PERPETUAL'
       ]
     }
@@ -30,13 +30,13 @@ class Coinbase extends Exchange {
 
     const [spotResponse, perpResponse] = response
 
-    if (spotResponse && spotResponse.length) {
-      for (const product of spotResponse) {
+    if (spotResponse && spotResponse.products && spotResponse.products.length) {
+      for (const product of spotResponse.products) {
         if (product.status !== 'online') {
           continue
         }
 
-        products.push(product.id)
+        products.push(product.product_id)
       }
     }
 
@@ -118,7 +118,11 @@ class Coinbase extends Exchange {
           api.id,
           json.events.reduce((acc, event) => {
             if (event.type === 'update') {
-              acc.push(...event.trades.map(trade => this.formatTrade(trade, trade.product_id)))
+              acc.push(
+                ...event.trades.map(trade =>
+                  this.formatTrade(trade, trade.product_id)
+                )
+              )
             }
 
             return acc
@@ -139,22 +143,12 @@ class Coinbase extends Exchange {
     }
   }
 
-  async getMissingTrades(range, totalRecovered = 0, fromTradeId) {
-    let endpoint
-
-    const isIntx = INTX_PAIR_REGEX.test(range.pair)
-
-    if (isIntx) {
-      endpoint = `https://api.coinbase.com/api/v3/brokerage/market/products/${
-        range.pair
-      }/ticker?limit=100&end=${Math.round(range.to / 1000)}&start=${Math.round(
-        range.from / 1000
-      )}`
-    } else {
-      endpoint = `https://api.exchange.coinbase.com/products/${
-        range.pair
-      }/trades?limit=1000${fromTradeId ? '&after=' + fromTradeId : ''}`
-    }
+  async getMissingTrades(range, totalRecovered = 0) {
+    const endpoint = `https://api.coinbase.com/api/v3/brokerage/market/products/${
+      range.pair
+    }/ticker?limit=100&end=${Math.round(range.to / 1000)}&start=${Math.round(
+      range.from / 1000
+    )}`
 
     if (+new Date() - range.to < 10000) {
       // coinbase api lags a lot
@@ -165,19 +159,12 @@ class Coinbase extends Exchange {
     return axios
       .get(endpoint)
       .then(response => {
-        if (isIntx) {
-          return response.data.trades
-        }
-
-        return response.data
+        return response.data.trades
       })
       .then(data => {
         if (data.length) {
-          const earliestTradeId =
-            data[data.length - 1].trade_id
-          const earliestTradeTime = +new Date(
-            data[data.length - 1].time
-          )
+          const earliestTradeId = data[data.length - 1].trade_id
+          const earliestTradeTime = +new Date(data[data.length - 1].time)
 
           const trades = data
             .map(trade => this.formatTrade(trade, range.pair))
@@ -205,7 +192,7 @@ class Coinbase extends Exchange {
               } ... but theres more (${getHms(remainingMissingTime)} remaining)`
             )
             return this.waitBeforeContinueRecovery().then(() =>
-              this.getMissingTrades(range, totalRecovered, earliestTradeId)
+              this.getMissingTrades(range, totalRecovered)
             )
           } else {
             console.log(
