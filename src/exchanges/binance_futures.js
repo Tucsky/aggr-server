@@ -136,7 +136,7 @@ class BinanceFutures extends Exchange {
 
     if (!json) {
       return
-    } else if (json.e === 'trade' && json.X !== 'INSURANCE_FUND') {
+    } else if (json.T && (!json.X || json.X === 'MARKET')) {
       return this.emitTrades(api.id, [
         this.formatTrade(json, json.s.toLowerCase())
       ])
