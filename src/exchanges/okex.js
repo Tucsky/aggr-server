@@ -211,12 +211,10 @@ class Okex extends Exchange {
 
   getLiquidationsUrl(range) {
     // after query param = before
-    // (get the 100 trades prededing endTimestamp)
-    return `${this.endpoints.LIQUIDATIONS}?instId=${
-      range.pair
-    }&instType=SWAP&uly=${range.pair.replace('-SWAP', '')}&state=filled&after=${
-      range.to
-    }`
+    // (get the 100 trades preceding endTimestamp)
+    return `${this.endpoints.LIQUIDATIONS}?instId=${range.pair
+      }&instType=SWAP&uly=${range.pair.replace('-SWAP', '')}&state=filled&after=${range.to
+      }`
   }
 
   /**
@@ -260,8 +258,8 @@ class Okex extends Exchange {
     }
   }
 
-  async getMissingTrades(range, totalRecovered = 0, beforeTradeId) {
-    if (this.types[range.pair] !== 'SPOT' && !beforeTradeId) {
+  async getMissingTrades(range, totalRecovered = 0, first = true) {
+    if (this.types[range.pair] !== 'SPOT' && first) {
       const liquidations = await this.fetchAllLiquidationOrders({ ...range })
       console.log(
         `[${this.id}.recoverMissingTrades] +${liquidations.length} liquidations for ${range.pair}`
@@ -277,31 +275,19 @@ class Okex extends Exchange {
       }
     }
 
-    let endpoint
-    if (beforeTradeId) {
-      endpoint = `https://www.okx.com/api/v5/market/history-trades?instId=${
-        range.pair
-      }&limit=100${beforeTradeId ? '&after=' + beforeTradeId : ''}`
-    } else {
-      endpoint = `https://www.okx.com/api/v5/market/trades?instId=${range.pair}&limit=500`
-    }
+    const endpoint = `https://www.okx.com/api/v5/market/history-trades?instId=${range.pair}&type=2&limit=100&after=${range.to}`
 
     return axios
       .get(endpoint)
       .then(response => {
         if (response.data.data.length) {
-          const lastTradeId =
-            response.data.data[response.data.data.length - 1].tradeId
-          const earliestTradeTime =
-            +response.data.data[response.data.data.length - 1].ts
           const trades = response.data.data
             .filter(
               trade =>
                 Number(trade.ts) > range.from &&
-                (beforeTradeId || Number(trade.ts) < range.to)
+                Number(trade.ts) < range.to
             )
             .map(trade => this.formatTrade(trade))
-
           if (trades.length) {
             this.emitTrades(null, trades)
 
@@ -312,22 +298,18 @@ class Okex extends Exchange {
           const remainingMissingTime = range.to - range.from
 
           if (
-            trades.length &&
-            remainingMissingTime > 500 &&
-            earliestTradeTime >= range.from
+            trades.length
           ) {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${
-                range.pair
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
               } ... but theres more (${getHms(remainingMissingTime)} remaining)`
             )
             return this.waitBeforeContinueRecovery().then(() =>
-              this.getMissingTrades(range, totalRecovered, lastTradeId)
+              this.getMissingTrades(range, totalRecovered, false)
             )
           } else {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${
-                range.pair
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
               } (${getHms(remainingMissingTime)} remaining)`
             )
           }
