@@ -778,7 +778,10 @@ class Server extends EventEmitter {
 
         // ping connection
         connections[identifier].hit++
-        connections[identifier].timestamp = trade.timestamp
+
+        if (trade.timestamp > connections[identifier].timestamp) {
+          connections[identifier].timestamp = trade.timestamp
+        }
       }
 
       // save trade

@@ -535,6 +535,10 @@ class Exchange extends EventEmitter {
       missEstimate: connection.lastConnectionMissEstimate
     }
 
+    console.log(
+      `[${this.id}.registerRangeForRecovery] register range (${range.pair}: ${new Date(+range.from).toISOString()}, ${new Date(+range.to).toISOString()}, ${getHms(range.from - range.to)}, ${range.missEstimate} estimated miss)`
+    )
+
     this.recoveryRanges.push(range)
 
     if (!recovering[this.id]) {
@@ -614,8 +618,15 @@ class Exchange extends EventEmitter {
           nextRange.to = Math.max(nextRange.to, originalRange.to)
 
           if (nextRange.from > nextRange.to) {
+            console.log(
+              `[${this.id}.registerRangeForRecovery] splice range (${nextRange.pair}, #${i})`
+            )
             this.recoveryRanges.splice(i--, 1)
             continue
+          } else {
+            console.log(
+              `[${this.id}.registerRangeForRecovery] shrinked range (${nextRange.pair}, #${i}: ${new Date(+nextRange.from).toISOString()}, ${new Date(+nextRange.to).toISOString()})`
+            )
           }
         }
       }
