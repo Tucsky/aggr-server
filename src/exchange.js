@@ -1073,15 +1073,17 @@ class Exchange extends EventEmitter {
   }
 
   /**
-   * Wait between requests to prevent 429 HTTP errors
+   * Wait between requests to prevent 429 HTTP errors, with optional backoff
+   * @param {number} multiplier Multiplier for retry backoff (default: 1)
    * @returns {Promise<void>}
    */
-  waitBeforeContinueRecovery() {
-    if (!config.recoveryRequestDelay) {
-      return Promise.resolve()
+  waitBeforeContinueRecovery(multiplier = 1) {
+    const delay = config.recoveryRequestDelay * multiplier;
+    if (!delay) {
+      return Promise.resolve();
     }
 
-    return sleep(config.recoveryRequestDelay)
+    return sleep(delay);
   }
 }
 
