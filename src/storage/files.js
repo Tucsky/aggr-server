@@ -464,6 +464,64 @@ class FilesStorage {
     })
   }
 
+  async clearRange(identifier, from, to) {
+    const startInterval =
+      Math.floor(from / config.filesInterval) * config.filesInterval
+    const endInterval =
+      Math.floor(to / config.filesInterval) * config.filesInterval
+
+    for (
+      let ts = startInterval;
+      ts <= endInterval;
+      ts += config.filesInterval
+    ) {
+      const basePath = this.getBackupFilename(identifier, new Date(ts))
+
+      let stat = await this.statFile(basePath)
+      let finalPath = basePath
+      if (!stat) {
+        // Try gz
+        stat = await this.statFile(basePath + '.gz')
+        if (stat) {
+          finalPath = basePath + '.gz'
+        } else {
+          // No file at all, skip
+          continue
+        }
+      }
+
+      let fileContent = await this.readFile(finalPath)
+      if (!fileContent) {
+        continue
+      }
+
+      let lines = fileContent.split('\n')
+      if (lines[lines.length - 1] === '') {
+        // Remove trailing empty line if any
+        lines.pop()
+      }
+
+      // Parse and sort by timestamp (just in case, though they are likely already sorted)
+      // Format: "timestamp price volume side"
+      lines = lines.map(line => line.trim()).filter(line => line !== '')
+      lines.sort((a, b) => {
+        const aTs = Number(a.split(' ')[0])
+        const bTs = Number(b.split(' ')[0])
+        return aTs - bTs
+      })
+
+      // Filter out trades that intersect with [from, to]
+      lines = lines.filter(line => {
+        const tradeTs = Number(line.split(' ')[0])
+        return tradeTs < from || tradeTs > to
+      })
+
+      // Write the updated content back to the file
+      const newContent = lines.length ? lines.join('\n') + '\n' : ''
+      await this.writeFile(finalPath, newContent)
+    }
+  }
+
   fetch() {
     // unsupported
     console.error(

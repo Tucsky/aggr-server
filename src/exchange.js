@@ -512,11 +512,23 @@ class Exchange extends EventEmitter {
     return this.promisesOfApiReconnections[api.id]
   }
 
+  registerRangeForRecovery(range) {
+    console.log(
+      `[${this.id}.registerRangeForRecovery] register range (${range.pair}: ${new Date(+range.from).toISOString()}, ${new Date(+range.to).toISOString()}, ${getHms(range.from - range.to)}, ${range.missEstimate} estimated miss)`
+    )
+
+    this.recoveryRanges.push(range)
+
+    if (!recovering[this.id]) {
+      this.recoverNextRange()
+    }
+  }
+
   /**
    * Register a range for async recovery
    * @param {Connection} connection to recover
    */
-  registerRangeForRecovery(connection) {
+  recoverSinceLastTrade(connection) {
     if (!connection.timestamp) {
       return
     }
@@ -535,18 +547,7 @@ class Exchange extends EventEmitter {
       missEstimate: connection.lastConnectionMissEstimate
     }
 
-    console.log(
-      `[${this.id}.registerRangeForRecovery] register range (${range.pair}: ${new Date(+range.from).toISOString()}, ${new Date(+range.to).toISOString()}, ${getHms(range.from - range.to)}, ${range.missEstimate} estimated miss)`
-    )
-
-    this.recoveryRanges.push(range)
-
-    if (!recovering[this.id]) {
-      console.log(
-        `[${this.id}.registerRangeForRecovery] exchange isn't recovering yet -> start recovering`
-      )
-      this.recoverNextRange()
-    }
+    this.registerRangeForRecovery(range)
   }
 
   async recoverNextRange(sequencial) {

@@ -227,7 +227,7 @@ class Server extends EventEmitter {
         registerConnection(id, exchange.id, pair, apiLength)
 
         if (typeof exchange.getMissingTrades === 'function') {
-          exchange.registerRangeForRecovery(connections[id])
+          exchange.recoverSinceLastTrade(connections[id])
         }
 
         let lastPing = ''

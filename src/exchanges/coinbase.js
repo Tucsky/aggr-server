@@ -142,77 +142,103 @@ class Coinbase extends Exchange {
       side: trade.side === 'buy' || trade.side === 'BUY' ? 'sell' : 'buy'
     }
   }
-
   async getMissingTrades(range, totalRecovered = 0) {
-    const endpoint = `https://api.coinbase.com/api/v3/brokerage/market/products/${
-      range.pair
-    }/ticker?limit=100&end=${Math.round(range.to / 1000)}&start=${Math.round(
-      range.from / 1000
-    )}`
+    let endpoint
+    if (!range.earliestTradeId) {
+      endpoint = `https://api.coinbase.com/api/v3/brokerage/market/products/${
+        range.pair
+      }/ticker?limit=100&end=${Math.round(range.to / 1000)}&start=${Math.round(
+        range.from / 1000
+      )}`
 
-    if (+new Date() - range.to < 10000) {
-      // coinbase api lags a lot
-      // wait 10s before fetching initial results
-      await sleep(10000)
+      // If close to current time, wait to allow trades to accumulate
+      if (+new Date() - range.to < 10000) {
+        await sleep(10000)
+      }
+    } else {
+      endpoint = `https://api.exchange.coinbase.com/products/${range.pair}/trades?limit=1000&after=${range.earliestTradeId}`
     }
 
-    return axios
-      .get(endpoint)
-      .then(response => {
-        return response.data.trades
-      })
-      .then(data => {
-        if (data.length) {
-          const earliestTradeId = data[data.length - 1].trade_id
-          const earliestTradeTime = +new Date(data[data.length - 1].time)
-
-          const trades = data
-            .map(trade => this.formatTrade(trade, range.pair))
-            .filter(
-              a => a.timestamp >= range.from + 1 && a.timestamp < range.to
-            )
-
-          if (trades.length) {
-            this.emitTrades(null, trades)
-
-            totalRecovered += trades.length
-            range.to = trades[trades.length - 1].timestamp
-          }
-
-          const remainingMissingTime = range.to - range.from
-
-          if (
-            trades.length &&
-            remainingMissingTime > 1000 &&
-            earliestTradeTime >= range.from
-          ) {
-            console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${
-                range.pair
-              } ... but theres more (${getHms(remainingMissingTime)} remaining)`
-            )
-            return this.waitBeforeContinueRecovery().then(() =>
-              this.getMissingTrades(range, totalRecovered)
-            )
-          } else {
-            console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${
-                range.pair
-              } (${getHms(remainingMissingTime)} remaining)`
-            )
-          }
-        }
-
-        return totalRecovered
-      })
-      .catch(err => {
-        console.error(
-          `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+    try {
+      const response = await axios.get(endpoint)
+      const rawData = Array.isArray(response.data)
+        ? response.data
+        : response.data.trades || []
+      if (!rawData.length) {
+        console.log(
+          `[${this.id}.recoverMissingTrades] no more trades for ${range.pair}`
         )
-
         return totalRecovered
-      })
+      }
+
+      const trades = rawData
+        .map(trade => this.formatTrade(trade, range.pair))
+        .filter(a => a.timestamp >= range.from + 1 && a.timestamp < range.to)
+
+      if (trades.length) {
+        this.emitTrades(null, trades)
+        totalRecovered += trades.length
+        range.to = trades[trades.length - 1].timestamp
+      }
+
+      const remainingMissingTime = range.to - range.from
+
+      const earliestRawTrade = rawData[rawData.length - 1]
+      const earliestTradeTime = +new Date(earliestRawTrade.time)
+
+      if (!range.earliestTradeId) {
+        if (
+          trades.length &&
+          remainingMissingTime > 1000 &&
+          earliestTradeTime >= range.from
+        ) {
+          range.earliestTradeId = parseInt(earliestRawTrade.trade_id, 10)
+          console.log(
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${
+              range.pair
+            } ... switching to Exchange API (${getHms(
+              remainingMissingTime
+            )} remaining)`
+          )
+          await this.waitBeforeContinueRecovery()
+          return this.getMissingTrades(range, totalRecovered)
+        } else {
+          console.log(
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${
+              range.pair
+            } (${getHms(remainingMissingTime)} remaining)`
+          )
+          return totalRecovered
+        }
+      }
+
+      if (range.earliestTradeId) {
+        if (remainingMissingTime > 1000 && earliestTradeTime >= range.from) {
+          range.earliestTradeId = earliestRawTrade.trade_id
+          console.log(
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${
+              range.pair
+            } ... but there's more (${getHms(remainingMissingTime)} remaining)`
+          )
+          await this.waitBeforeContinueRecovery()
+          return this.getMissingTrades(range, totalRecovered)
+        } else {
+          // No more needed or no more available
+          console.log(
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${
+              range.pair
+            } (${getHms(remainingMissingTime)} remaining)`
+          )
+          return totalRecovered
+        }
+      }
+    } catch (err) {
+      console.error(
+        `[${this.id}] failed to get missing trades on ${range.pair}`,
+        err.message
+      )
+      return totalRecovered
+    }
   }
 }
 
