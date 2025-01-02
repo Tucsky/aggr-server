@@ -965,8 +965,14 @@ class Exchange extends EventEmitter {
 
     this.keepAliveIntervals[api.id] = setInterval(() => {
       if (api.readyState === WebSocket.OPEN) {
+        const message = typeof payload === 'function'
+        ? JSON.stringify(payload())
+        : typeof payload === 'string'
+        ? payload
+        : JSON.stringify(payload)
+
         api.send(
-          typeof payload === 'string' ? payload : JSON.stringify(payload)
+          message
         )
       }
     }, every)
