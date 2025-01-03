@@ -143,8 +143,9 @@ class Coinbase extends Exchange {
     }
   }
   async getMissingTrades(range, totalRecovered = 0) {
+    const isIntx = INTX_PAIR_REGEX.test(range.pair)
     let endpoint
-    if (!range.earliestTradeId) {
+    if (isIntx || !range.earliestTradeId) {
       endpoint = `https://api.coinbase.com/api/v3/brokerage/market/products/${
         range.pair
       }/ticker?limit=100&end=${Math.round(range.to / 1000)}&start=${Math.round(
