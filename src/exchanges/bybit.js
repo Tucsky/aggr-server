@@ -74,7 +74,7 @@ class Bybit extends Exchange {
     ]
 
     if (!isSpot) {
-      topics.push(`liquidation.${realPair}`)
+      topics.push(`allLiquidation.${realPair}`)
     }
 
     api.send(
@@ -102,7 +102,7 @@ class Bybit extends Exchange {
     ]
 
     if (!isSpot) {
-      topics.push(`liquidation.${realPair}`)
+      topics.push(`allLiquidation.${realPair}`)
     }
 
     api.send(
@@ -134,19 +134,19 @@ class Bybit extends Exchange {
   }
 
   formatLiquidation(liquidation) {
-    let size = +liquidation.size
+    let size = +liquidation.v
 
-    if (this.types[liquidation.symbol] === 'inverse') {
-      size /= liquidation.price
+    if (this.types[liquidation.s] === 'inverse') {
+      size /= liquidation.p
     }
 
     return {
       exchange: this.id,
-      pair: liquidation.symbol,
-      timestamp: +liquidation.updatedTime || +liquidation.updateTime,
+      pair: liquidation.s,
+      timestamp: +liquidation.T,
       size,
-      price: +liquidation.price,
-      side: liquidation.side === 'Buy' ? 'sell' : 'buy',
+      price: +liquidation.p,
+      side: liquidation.S === 'Buy' ? 'sell' : 'buy',
       liquidation: true
     }
   }
@@ -168,7 +168,7 @@ class Bybit extends Exchange {
     } else {
       return this.emitLiquidations(
         api.id,
-        [this.formatLiquidation(json.data)]
+        json.data.map(liquidation => this.formatLiquidation(liquidation))
       )
     }
   }
