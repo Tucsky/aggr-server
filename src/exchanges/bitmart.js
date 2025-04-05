@@ -5,7 +5,7 @@ const axios = require('axios')
 const { inflateRaw } = require('pako')
 
 const WS_API_SPOT = 'wss://ws-manager-compress.bitmart.com/api?protocol=1.1'
-const WS_API_FUTURES = 'wss://openapi-ws.bitmart.com/api?protocol=1.1'
+const WS_API_FUTURES = 'wss://openapi-ws-v2.bitmart.com/api?protocol=1.1'
 
 /**
  * Bitmart class representing the Bitmart exchange.
@@ -35,7 +35,7 @@ class Bitmart extends Exchange {
        */
       PRODUCTS: [
         'https://api-cloud.bitmart.com/spot/v1/symbols/details',
-        'https://api-cloud.bitmart.com/contract/public/details'
+		'https://api-cloud-v2.bitmart.com/contract/public/details'
       ],
       SPOT: {
         RECENT_TRADES: 'https://api-cloud.bitmart.com/spot/quotation/v3/trades'
@@ -67,13 +67,22 @@ class Bitmart extends Exchange {
     const types = {}
 
     for (const response of responses) {
-      for (const product of response.data.symbols) {
-        products.push(product.symbol)
-
-        if (product.contract_size) {
-          specs[product.symbol] = +product.contract_size
-        }
-      }
+		const {code} = response
+		const {symbols} = response.data
+		
+		if (code !== 1000) {
+			continue
+		}
+		
+		if (Array.isArray(symbols) && symbols.length > 0 ) {
+			for (const product of response.data.symbols) {
+				products.push(product.symbol)
+				
+				if (product.contract_size) {
+					specs[product.symbol] = +product.contract_size
+				}
+			}
+		}
     }
 
     return { products, specs, types }
