@@ -2,7 +2,6 @@ const axios = require('axios')
 const fs = require('fs')
 const { ensureDirectoryExists } = require('../helper')
 
-
 const stablecoins = [
   'USDT',
   'USDC',
@@ -181,7 +180,11 @@ module.exports.parseMarket = function (exchangeId, symbol, noStable = true) {
 
   if (/[HUZ_-]\d{2}/.test(symbol)) {
     type = 'future'
-  } else if (exchangeId === 'BINANCE_FUTURES' || exchangeId === 'DYDX') {
+  } else if (
+    exchangeId === 'BINANCE_FUTURES' ||
+    exchangeId === 'DYDX' ||
+    exchangeId === 'HYPERLIQUID'
+  ) {
     type = 'perp'
   } else if (exchangeId === 'BITFINEX' && /F0$/.test(symbol)) {
     type = 'perp'
@@ -240,6 +243,8 @@ module.exports.parseMarket = function (exchangeId, symbol, noStable = true) {
       .replace(/_.*/, '')
   } else if (exchangeId === 'KUCOIN') {
     localSymbol = localSymbol.replace(/M$/, '')
+  } else if (exchangeId === 'HYPERLIQUID') {
+    localSymbol += 'USDC'
   }
 
   localSymbol = localSymbol
