@@ -214,7 +214,7 @@ class Coinbase extends Exchange {
       }
 
       if (range.earliestTradeId) {
-        if (remainingMissingTime > 1000 && earliestTradeTime >= range.from) {
+        if (trades.length && remainingMissingTime > 1000 && earliestTradeTime >= range.from) {
           range.earliestTradeId = earliestRawTrade.trade_id
           console.log(
             `[${this.id}.recoverMissingTrades] +${trades.length} ${
