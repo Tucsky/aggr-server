@@ -76,6 +76,11 @@ class Coinbase extends Exchange {
             })
       })
     )
+
+    if (isIntx) {
+      // this websocket api have a limit of about 10 messages per second.
+      await sleep(100 * this.apis.length)
+    }
   }
 
   /**
@@ -103,6 +108,11 @@ class Coinbase extends Exchange {
             })
       })
     )
+
+    if (isIntx) {
+      // this websocket api have a limit of about 10 messages per second.
+      await sleep(100 * this.apis.length)
+    }
   }
 
   onMessage(event, api) {
