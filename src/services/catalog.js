@@ -245,6 +245,8 @@ module.exports.parseMarket = function (exchangeId, symbol, noStable = true) {
     localSymbol = localSymbol.replace(/M$/, '')
   } else if (exchangeId === 'HYPERLIQUID') {
     localSymbol = localSymbol.replace(/^k/, '') + 'USD'
+  } else if (exchangeId === 'PHEMEX') {
+    localSymbol = localSymbol.replace(/^[a-z]/, '')
   }
 
   localSymbol = localSymbol
