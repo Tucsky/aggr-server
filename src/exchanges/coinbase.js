@@ -36,6 +36,11 @@ class Coinbase extends Exchange {
           continue
         }
 
+        if (product.alias) {
+          // Skip alias-only products like LTC-USDC
+          continue
+        }
+
         products.push(product.product_id)
       }
     }
@@ -68,12 +73,12 @@ class Coinbase extends Exchange {
         type: 'subscribe',
         ...(isIntx
           ? {
-              channel: 'market_trades',
-              product_ids: [pair]
-            }
+            channel: 'market_trades',
+            product_ids: [pair]
+          }
           : {
-              channels: [{ name: 'matches', product_ids: [pair] }]
-            })
+            channels: [{ name: 'matches', product_ids: [pair] }]
+          })
       })
     )
 
@@ -100,12 +105,12 @@ class Coinbase extends Exchange {
         type: 'unsubscribe',
         ...(isIntx
           ? {
-              channel: 'market_trades',
-              product_ids: [pair]
-            }
+            channel: 'market_trades',
+            product_ids: [pair]
+          }
           : {
-              channels: [{ name: 'matches', product_ids: [pair] }]
-            })
+            channels: [{ name: 'matches', product_ids: [pair] }]
+          })
       })
     )
 
@@ -156,11 +161,10 @@ class Coinbase extends Exchange {
     const isIntx = INTX_PAIR_REGEX.test(range.pair)
     let endpoint
     if (isIntx || !range.earliestTradeId) {
-      endpoint = `https://api.coinbase.com/api/v3/brokerage/market/products/${
-        range.pair
-      }/ticker?limit=100&end=${Math.round(range.to / 1000)}&start=${Math.round(
-        range.from / 1000
-      )}`
+      endpoint = `https://api.coinbase.com/api/v3/brokerage/market/products/${range.pair
+        }/ticker?limit=100&end=${Math.round(range.to / 1000)}&start=${Math.round(
+          range.from / 1000
+        )}`
 
       // If close to current time, wait to allow trades to accumulate
       if (+new Date() - range.to < 10000) {
@@ -205,8 +209,7 @@ class Coinbase extends Exchange {
         ) {
           range.earliestTradeId = parseInt(earliestRawTrade.trade_id, 10)
           console.log(
-            `[${this.id}.recoverMissingTrades] +${trades.length} ${
-              range.pair
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
             } ... switching to Exchange API (${getHms(
               remainingMissingTime
             )} remaining)`
@@ -215,8 +218,7 @@ class Coinbase extends Exchange {
           return this.getMissingTrades(range, totalRecovered)
         } else {
           console.log(
-            `[${this.id}.recoverMissingTrades] +${trades.length} ${
-              range.pair
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
             } (${getHms(remainingMissingTime)} remaining)`
           )
           return totalRecovered
@@ -227,8 +229,7 @@ class Coinbase extends Exchange {
         if (trades.length && remainingMissingTime > 1000 && earliestTradeTime >= range.from) {
           range.earliestTradeId = earliestRawTrade.trade_id
           console.log(
-            `[${this.id}.recoverMissingTrades] +${trades.length} ${
-              range.pair
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
             } ... but there's more (${getHms(remainingMissingTime)} remaining)`
           )
           await this.waitBeforeContinueRecovery()
@@ -236,8 +237,7 @@ class Coinbase extends Exchange {
         } else {
           // No more needed or no more available
           console.log(
-            `[${this.id}.recoverMissingTrades] +${trades.length} ${
-              range.pair
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
             } (${getHms(remainingMissingTime)} remaining)`
           )
           return totalRecovered
