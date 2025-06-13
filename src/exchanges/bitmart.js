@@ -5,7 +5,7 @@ const axios = require('axios')
 const { inflateRaw } = require('pako')
 
 const WS_API_SPOT = 'wss://ws-manager-compress.bitmart.com/api?protocol=1.1'
-const WS_API_FUTURES = 'wss://openapi-ws.bitmart.com/api?protocol=1.1'
+const WS_API_FUTURES = 'wss://openapi-ws-v2.bitmart.com/api?protocol=1.1'
 
 /**
  * Bitmart class representing the Bitmart exchange.
@@ -34,8 +34,8 @@ class Bitmart extends Exchange {
        * @type {string[]}
        */
       PRODUCTS: [
-        'https://api-cloud.bitmart.com/spot/v1/symbols/details',
-        'https://api-cloud.bitmart.com/contract/public/details'
+        'https://api-cloud.bitmart.com/spot/v1/symbols',
+        'https://api-cloud-v2.bitmart.com/contract/public/details'
       ],
       SPOT: {
         RECENT_TRADES: 'https://api-cloud.bitmart.com/spot/quotation/v3/trades'
@@ -50,6 +50,7 @@ class Bitmart extends Exchange {
     if (this.specs[pair]) {
       return WS_API_FUTURES
     }
+
     return WS_API_SPOT
   }
 
@@ -68,10 +69,16 @@ class Bitmart extends Exchange {
 
     for (const response of responses) {
       for (const product of response.data.symbols) {
-        products.push(product.symbol)
+        if (typeof product === 'string') {
+          // spot endpoint
+          products.push(product)
+        } else {
+          // contracts endpoint
+          products.push(product.symbol)
 
-        if (product.contract_size) {
-          specs[product.symbol] = +product.contract_size
+          if (product.contract_size) {
+            specs[product.symbol] = +product.contract_size
+          }
         }
       }
     }
@@ -93,13 +100,13 @@ class Bitmart extends Exchange {
 
     const typeImpl = isContract
       ? {
-          prefix: 'futures',
-          arg: 'action'
-        }
+        prefix: 'futures',
+        arg: 'action'
+      }
       : {
-          prefix: 'spot',
-          arg: 'op'
-        }
+        prefix: 'spot',
+        arg: 'op'
+      }
 
     api.send(
       JSON.stringify({
@@ -125,13 +132,13 @@ class Bitmart extends Exchange {
 
     const typeImpl = isContract
       ? {
-          prefix: 'futures',
-          arg: 'action'
-        }
+        prefix: 'futures',
+        arg: 'action'
+      }
       : {
-          prefix: 'spot',
-          arg: 'op'
-        }
+        prefix: 'spot',
+        arg: 'op'
+      }
 
     api.send(
       JSON.stringify({
@@ -148,12 +155,12 @@ class Bitmart extends Exchange {
       return {
         exchange: this.id,
         pair: trade.symbol,
-        timestamp: trade.create_time_mill,
+        timestamp: +new Date(trade.created_at),
         price: +trade.deal_price,
         size:
           (trade.deal_vol * this.specs[trade.symbol]) /
           (this.specs[trade.symbol] > 1 ? trade.deal_price : 1),
-        side: trade.way < 4 ? 'buy' : 'sell',
+        side: typeof trade.m === 'boolean' ? (trade.m ? 'sell' : 'buy') : (trade.way <= 4 ? 'buy' : 'sell'),
         liquidation: trade.type === 1
       }
     } else {
@@ -175,6 +182,10 @@ class Bitmart extends Exchange {
       data = inflateRaw(message.data, { to: 'string' })
     }
 
+    if (data === 'pong') {
+      return
+    }
+
     const json = JSON.parse(data)
 
     if (!json) {
@@ -194,7 +205,7 @@ class Bitmart extends Exchange {
     const trades = json.data
       .filter(trade => !trade.type || trade.type === 8)
       .map(trade => this.formatTrade(trade))
-    
+
     if (trades.length) {
       this.emitTrades(
         api.id,
@@ -207,7 +218,7 @@ class Bitmart extends Exchange {
     if (this.specs[range.pair]) {
       return 0
     }
-    
+
     // limit to 50 trades and no way to go back further
     let endpoint =
       this.endpoints.SPOT.RECENT_TRADES + `?symbol=${range.pair.toUpperCase()}`
@@ -235,8 +246,7 @@ class Bitmart extends Exchange {
           totalRecovered += trades.length
 
           console.log(
-            `[${this.id}.recoverMissingTrades] +${trades.length} ${
-              range.pair
+            `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
             }`
           )
         }
@@ -256,7 +266,13 @@ class Bitmart extends Exchange {
   onApiCreated(api) {
     if (api.url === WS_API_FUTURES) {
       this.startKeepAlive(api, { action: 'ping' }, 15000)
+    } else if (api.url === WS_API_SPOT) {
+      this.startKeepAlive(api, 'ping', 15000)
     }
+  }
+
+  onApiRemoved(api) {
+    this.stopKeepAlive(api)
   }
 }
 
