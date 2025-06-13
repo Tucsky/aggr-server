@@ -78,6 +78,13 @@ class CryptoCom extends Exchange {
         api.id,
         json.result.data.map(t => this.formatResponse(t))
       )
+    } else if (json.method === 'public/heartbeat') {
+      api.send(
+        JSON.stringify({
+          id: json.id,
+          method: 'public/respond-heartbeat'
+        })
+      )
     }
   }
 
@@ -148,8 +155,7 @@ class CryptoCom extends Exchange {
             earliestTradeTime >= range.from
           ) {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${
-                range.pair
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
               } ... but theres more (${getHms(remainingMissingTime)} remaining)`
             )
             return this.waitBeforeContinueRecovery().then(() =>
@@ -157,8 +163,7 @@ class CryptoCom extends Exchange {
             )
           } else {
             console.log(
-              `[${this.id}.recoverMissingTrades] +${trades.length} ${
-                range.pair
+              `[${this.id}.recoverMissingTrades] +${trades.length} ${range.pair
               } (${getHms(remainingMissingTime)} remaining)`
             )
           }
