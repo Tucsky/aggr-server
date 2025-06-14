@@ -148,6 +148,8 @@ class Bitget extends Exchange {
         } else if (/PERP$/.test(json.arg.instId)) {
           json.arg.instId += '_CMCBL' // USDC perpetual contract
         }
+      } else if (json.arg.instType === 'sp') {
+        json.arg.instId += '_SPBL'
       }
 
       return this.emitTrades(
