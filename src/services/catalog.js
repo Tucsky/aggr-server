@@ -214,7 +214,7 @@ module.exports.parseMarket = function (exchangeId, symbol, noStable = true) {
   } else if (exchangeId === 'KRAKEN' && /_/.test(symbol) && type === 'spot') {
     type = 'perp'
   } else if (
-    (exchangeId === 'BITGET' || exchangeId === 'MEXC') &&
+    (exchangeId === 'BITGET') &&
     symbol.indexOf('_') !== -1
   ) {
     type = 'perp'
