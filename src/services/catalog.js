@@ -213,10 +213,8 @@ module.exports.parseMarket = function (exchangeId, symbol, noStable = true) {
     type = 'perp'
   } else if (exchangeId === 'KRAKEN' && /_/.test(symbol) && type === 'spot') {
     type = 'perp'
-  } else if (
-    (exchangeId === 'BITGET') &&
-    symbol.indexOf('_') !== -1
-  ) {
+  } else if (exchangeId === 'BITGET' && !/-SPOT$/.test(symbol)) {
+    // In V2 API: spot markets have -SPOT suffix, everything else is perp/futures
     type = 'perp'
   } else if (exchangeId === 'KUCOIN' && symbol.indexOf('-') === -1) {
     type = 'perp'
@@ -225,6 +223,8 @@ module.exports.parseMarket = function (exchangeId, symbol, noStable = true) {
   let localSymbol = symbol
 
   if (exchangeId === 'BYBIT') {
+    localSymbol = localSymbol.replace(/-SPOT$/, '')
+  } else if (exchangeId === 'BITGET') {
     localSymbol = localSymbol.replace(/-SPOT$/, '')
   } else if (exchangeId === 'KRAKEN') {
     localSymbol = localSymbol.replace(/(PI|FI|PF)_/, '')
@@ -236,11 +236,6 @@ module.exports.parseMarket = function (exchangeId, symbol, noStable = true) {
     localSymbol = localSymbol.replace(/_CW|_CQ|_NW|_NQ/i, 'USD')
   } else if (exchangeId === 'DERIBIT') {
     localSymbol = localSymbol.replace(/_(\w+)-PERPETUAL/i, '$1')
-  } else if (exchangeId === 'BITGET') {
-    localSymbol = localSymbol
-      .replace('USD_DMCBL', 'USD')
-      .replace('PERP_CMCBL', 'USDC')
-      .replace(/_.*/, '')
   } else if (exchangeId === 'KUCOIN') {
     localSymbol = localSymbol.replace(/M$/, '')
   } else if (exchangeId === 'HYPERLIQUID') {

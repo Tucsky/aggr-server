@@ -2,6 +2,8 @@ const Exchange = require('../exchange')
 const { sleep } = require('../helper')
 const WebSocket = require('websocket').w3cwebsocket
 
+const SPOT_PAIR_REGEX = /-SPOT$/
+
 class Bitget extends Exchange {
   constructor() {
     super()
@@ -11,19 +13,16 @@ class Bitget extends Exchange {
 
     this.endpoints = {
       PRODUCTS: [
-        'https://api.bitget.com/api/spot/v1/public/products',
-        'https://api.bitget.com/api/mix/v1/market/contracts?productType=umcbl',
-        'https://api.bitget.com/api/mix/v1/market/contracts?productType=dmcbl',
-        'https://api.bitget.com/api/mix/v1/market/contracts?productType=cmcbl'
+        'https://api.bitget.com/api/v2/spot/public/symbols',
+        'https://api.bitget.com/api/v2/mix/market/contracts?productType=USDT-FUTURES',
+        'https://api.bitget.com/api/v2/mix/market/contracts?productType=COIN-FUTURES',
+        'https://api.bitget.com/api/v2/mix/market/contracts?productType=USDC-FUTURES'
       ]
     }
 
     this.url = pair => {
-      if (this.types[pair] === 'spot') {
-        return 'wss://ws.bitget.com/spot/v1/stream'
-      }
-
-      return 'wss://ws.bitget.com/mix/v1/stream'
+      // V2 API uses a single WebSocket URL for both spot and futures
+      return 'wss://ws.bitget.com/v2/ws/public'
     }
   }
 
@@ -32,24 +31,21 @@ class Bitget extends Exchange {
     const types = {}
 
     /*
-    umcbl USDT perpetual contract
-    dmcbl Universal margin perpetual contract
-    cmcbl USDC perpetual contract
+    V2 API product types:
+    spot - Spot trading (will add -SPOT suffix)
+    USDT-FUTURES - USDT-M Futures
+    COIN-FUTURES - Coin-M Futures
+    USDC-FUTURES - USDC-M Futures
     */
 
     for (const response of responses) {
-      const type = ['spot', 'umcbl', 'dmcbl', 'cmcbl'][
+      const type = ['spot', 'USDT-FUTURES', 'COIN-FUTURES', 'USDC-FUTURES'][
         responses.indexOf(response)
       ]
 
       for (const product of response.data) {
-        let symbol
-
-        if (type === 'spot') {
-          symbol = product.symbolName
-        } else {
-          symbol = product.symbol
-        }
+        // Add -SPOT suffix for spot pairs to avoid conflicts with futures
+        const symbol = type === 'spot' ? `${product.symbol}-SPOT` : product.symbol
 
         products.push(symbol)
 
@@ -73,14 +69,18 @@ class Bitget extends Exchange {
       return
     }
 
+    const isSpot = this.types[pair] === 'spot'
+    const realPair = isSpot ? pair.replace(SPOT_PAIR_REGEX, '') : pair
+    const instType = isSpot ? 'SPOT' : this.types[pair]
+
     api.send(
       JSON.stringify({
         op: 'subscribe',
         args: [
           {
-            instType: this.types[pair] === 'spot' ? 'sp' : 'mc',
+            instType: instType,
             channel: 'trade',
-            instId: pair.replace(/_.*/, '')
+            instId: realPair
           }
         ]
       })
@@ -100,14 +100,18 @@ class Bitget extends Exchange {
       return
     }
 
+    const isSpot = this.types[pair] === 'spot'
+    const realPair = isSpot ? pair.replace(SPOT_PAIR_REGEX, '') : pair
+    const instType = isSpot ? 'SPOT' : this.types[pair]
+
     api.send(
       JSON.stringify({
         op: 'unsubscribe',
         args: [
           {
-            instType: this.types[pair] === 'spot' ? 'sp' : 'mc',
+            instType: instType,
             channel: 'trade',
-            instId: pair.replace(/_.*/, '')
+            instId: realPair
           }
         ]
       })
@@ -118,13 +122,21 @@ class Bitget extends Exchange {
   }
 
   formatTrade(trade, pair) {
+    // V2 API trade format
+    // spot: { ts: "timestamp", price: "price", size: "size", side: "buy/sell", tradeId: "id" }
+    // futures: { ts: "timestamp", px: "price", sz: "size", side: "buy/sell", tradeId: "id" }
+    
+    // Futures use 'px' and 'sz', spot uses 'price' and 'size'
+    const price = trade.px !== undefined ? trade.px : trade.price
+    const size = trade.sz !== undefined ? trade.sz : trade.size
+    
     return {
       exchange: this.id,
       pair: pair,
-      timestamp: +trade[0],
-      price: +trade[1],
-      size: +trade[2],
-      side: trade[3]
+      timestamp: +trade.ts,
+      price: +price,
+      size: +size,
+      side: trade.side
     }
   }
 
@@ -135,24 +147,22 @@ class Bitget extends Exchange {
 
     const json = JSON.parse(event.data)
 
+    // V2 API uses 'action' field for message type
+    // Only process 'update' events (real-time trades), ignore 'snapshot' (historical trades sent after subscription)
     if (json.action !== 'update') {
       return
     }
 
-    if (json.data.length) {
-      if (json.arg.instType === 'mc') {
-        if (/USDT$/.test(json.arg.instId)) {
-          json.arg.instId += '_UMCBL' // USDT perpetual contract
-        } else if (/USD$/.test(json.arg.instId)) {
-          json.arg.instId += '_DMCBL' // Universal margin perpetual contract
-        } else if (/PERP$/.test(json.arg.instId)) {
-          json.arg.instId += '_CMCBL' // USDC perpetual contract
-        }
-      }
+    if (json.data && json.data.length && json.arg) {
+      const instType = json.arg.instType
+      const instId = json.arg.instId
+      
+      // Add -SPOT suffix for spot trades
+      const pair = instType === 'SPOT' ? `${instId}-SPOT` : instId
 
       return this.emitTrades(
         api.id,
-        json.data.map(trade => this.formatTrade(trade, json.arg.instId))
+        json.data.map(trade => this.formatTrade(trade, pair))
       )
     }
   }
