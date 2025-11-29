@@ -16,7 +16,12 @@ const FilesStorage = require('./src/storage/files')
 if (!config.exchanges || !config.exchanges.length) {
   config.exchanges = []
   fs.readdirSync('./src/exchanges/').forEach(file => {
-    ;/\.js$/.test(file) && config.exchanges.push(file.replace(/\.js$/, ''))
+    // Include .js files and directories (which should have index.js inside)
+    if (/\.js$/.test(file)) {
+      config.exchanges.push(file.replace(/\.js$/, ''))
+    } else if (fs.statSync(`./src/exchanges/${file}`).isDirectory()) {
+      config.exchanges.push(file)
+    }
   })
 }
 
