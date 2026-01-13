@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { getHms } = require('../helper')
 
@@ -19,7 +18,7 @@ class Bitmex extends Exchange {
     }
 
     this.url = () => {
-      return `wss://www.bitmex.com/realtime`
+      return 'wss://www.bitmex.com/realtime'
     }
   }
 
@@ -33,8 +32,8 @@ class Bitmex extends Exchange {
       types[product.symbol] = product.isInverse
         ? 'inverse'
         : product.isQuanto
-        ? 'quanto'
-        : 'linear'
+          ? 'quanto'
+          : 'linear'
       multipliers[product.symbol] = product.multiplier
 
       if (types[product.symbol] === 'linear') {

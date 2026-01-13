@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { getHms } = require('../helper')
 
@@ -15,7 +14,7 @@ class CryptoCom extends Exchange {
   }
 
   async getUrl() {
-    return `wss://stream.crypto.com/v2/market`
+    return 'wss://stream.crypto.com/v2/market'
   }
 
   formatProducts(response) {
@@ -109,14 +108,14 @@ class CryptoCom extends Exchange {
     }
   }
 
-  async getMissingTrades(range, totalRecovered = 0, fromTradeId) {
+  async getMissingTrades(range, totalRecovered = 0, _fromTradeId) {
     // https://exchange-docs.crypto.com/exchange/v1/rest-ws/index.html#public-get-trades
     // Retuns maximum 150 trades per request
 
     const endpoint =
-      `https://api.crypto.com/exchange/v1/public/get-trades?` +
+      'https://api.crypto.com/exchange/v1/public/get-trades?' +
       `instrument_name=${range.pair}&` +
-      `count=1000&` +
+      'count=1000&' +
       `start_ts=${range.from}&` +
       `end_ts=${range.to}`
 

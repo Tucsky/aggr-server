@@ -162,9 +162,9 @@ class Coinbase extends Exchange {
     let endpoint
     if (isIntx || !range.earliestTradeId) {
       endpoint = `https://api.coinbase.com/api/v3/brokerage/market/products/${range.pair
-        }/ticker?limit=100&end=${Math.round(range.to / 1000)}&start=${Math.round(
-          range.from / 1000
-        )}`
+      }/ticker?limit=100&end=${Math.round(range.to / 1000)}&start=${Math.round(
+        range.from / 1000
+      )}`
 
       // If close to current time, wait to allow trades to accumulate
       if (+new Date() - range.to < 10000) {

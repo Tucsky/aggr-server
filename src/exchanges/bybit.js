@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { getHms } = require('../helper')
 
@@ -79,7 +78,7 @@ class Bybit extends Exchange {
 
     api.send(
       JSON.stringify({
-        "op": "subscribe",
+        'op': 'subscribe',
         args: topics
       })
     )
@@ -107,7 +106,7 @@ class Bybit extends Exchange {
 
     api.send(
       JSON.stringify({
-        "op": "unsubscribe",
+        'op': 'unsubscribe',
         args: topics
       })
     )

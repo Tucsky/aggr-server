@@ -1,6 +1,5 @@
 const Exchange = require('../exchange')
 const { sleep } = require('../helper')
-const WebSocket = require('websocket').w3cwebsocket
 
 const SPOT_PAIR_REGEX = /-SPOT$/
 
@@ -20,7 +19,7 @@ class Bitget extends Exchange {
       ]
     }
 
-    this.url = pair => {
+    this.url = _pair => {
       // V2 API uses a single WebSocket URL for both spot and futures
       return 'wss://ws.bitget.com/v2/ws/public'
     }

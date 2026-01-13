@@ -82,7 +82,7 @@ function getConnectionsPersistance() {
           json = JSON.parse(data)
         } catch (parseError) {
           console.error(
-            `[connections] connection.json is corrupted`,
+            '[connections] connection.json is corrupted',
             parseError.message
           )
           json = {}
@@ -106,11 +106,11 @@ function cleanConnection(connection) {
     connection
 
   if (!exchange) {
-    throw new Error(`unknown connection's exchange`)
+    throw new Error('unknown connection\'s exchange')
   }
 
   if (!pair) {
-    throw new Error(`unknown connection's pair`)
+    throw new Error('unknown connection\'s pair')
   }
 
   if (typeof hit === 'undefined') {
@@ -245,10 +245,10 @@ module.exports.restoreConnections = async function () {
         `[connections] couldn't restore ${market}'s connection because ${
           persistance[market].timestamp
             ? `last ping is too old (${getHms(
-                now - persistance[market].timestamp,
-                true
-              )} ago)`
-            : `last ping is unknown`
+              now - persistance[market].timestamp,
+              true
+            )} ago)`
+            : 'last ping is unknown'
         }`
       )
       // connection is to old (too much data to recover)
@@ -313,7 +313,7 @@ module.exports.saveConnections = async function (immediate = false) {
     saveConnectionsTimeout = setTimeout(async () => {
       saveConnectionsTimeout = null
       if (await module.exports.saveConnections(true)) {
-        console.log(`[connections] saved connections`)
+        console.log('[connections] saved connections')
       }
     }, 10000)
 
@@ -411,7 +411,7 @@ module.exports.registerConnection = function (id, exchange, pair) {
  */
 module.exports.updateIndexes = async function (ranges, callback) {
   for (const index of indexes) {
-    const open = index.price
+    const _open = index.price
 
     let high = 0
     let low = 0

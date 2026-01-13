@@ -37,7 +37,7 @@ const stablecoinPairLookup = new RegExp(
     '|'
   )})$|^([A-Z0-9]{3,})[-/:_]?(${reverseStablecoins.join('|')})$`
 )
-const simplePairLookup = new RegExp(`^([A-Z0-9]{2,})[-/_]?([A-Z0-9]{3,})$`)
+const simplePairLookup = new RegExp('^([A-Z0-9]{2,})[-/_]?([A-Z0-9]{3,})$')
 
 const reverseStablecoinPairLookup = new RegExp(
   `(\\w{3,})(${reverseStablecoins.join('|')})$`,

@@ -239,7 +239,7 @@ function findCompleteCandle(trades, intervalMinutes) {
 /**
  * Calculate statistics from API klines
  */
-function calculateKlineStats(klines, isFutures, symbol) {
+function calculateKlineStats(klines, isFutures, _symbol) {
   let totalVolume = 0
   let high = -Infinity
   let low = Infinity
@@ -343,10 +343,10 @@ async function verify() {
         continue
       }
 
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
       console.log(`🕐 ${interval.name.toUpperCase()} CANDLE VERIFICATION`)
       console.log(`   ${new Date(candle.start).toISOString()} → ${new Date(candle.end).toISOString()}`)
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n')
 
       // Calculate local statistics for this candle
       const localStats = calculateTradeStats(trades, candle.start, candle.end)

@@ -3,8 +3,6 @@ const fs = require('fs')
 const {
   getIp,
   getHms,
-  parsePairsFromWsRequest,
-  groupTrades,
   formatAmount
 } = require('./helper')
 const express = require('express')
@@ -46,7 +44,7 @@ class Server extends EventEmitter {
     this.BANNED_IPS = []
 
     if (config.collect) {
-      console.log(`\n[server] collect is enabled`)
+      console.log('\n[server] collect is enabled')
       console.log(`\tconnect to -> ${this.exchanges.map(a => a.id).join(', ')}`)
 
       this.handleExchangesEvents()
@@ -128,7 +126,7 @@ class Server extends EventEmitter {
       this.storages.push(storage)
     }
 
-    console.log(`[storage] all storage ready`)
+    console.log('[storage] all storage ready')
 
     return Promise.all(promises)
   }
@@ -174,7 +172,7 @@ class Server extends EventEmitter {
       })
       .catch(err => {
         console.error(
-          `[server] something went wrong while backuping trades...`,
+          '[server] something went wrong while backuping trades...',
           err
         )
       })
@@ -255,8 +253,7 @@ class Server extends EventEmitter {
 
         if (pairs.length) {
           console.error(
-            `[${exchange.id}] api closed unexpectedly (${apiId}, ${
-              event.code
+            `[${exchange.id}] api closed unexpectedly (${apiId}, ${event.code
             }, ${reason}) (was handling ${pairs.join(',')})`
           )
 
@@ -402,7 +399,13 @@ class Server extends EventEmitter {
           })
         }
 
-        const storage = this.storages[config.storage.indexOf('influx')]
+        const storage = this.storages.find(storage => storage.format === 'point')
+
+        if (!storage) {
+          return res.status(501).json({
+            error: 'no compatible storage'
+          })
+        }
 
         if (isNaN(from) || isNaN(to)) {
           return res.status(400).json({
@@ -410,16 +413,14 @@ class Server extends EventEmitter {
           })
         }
 
-        if (storage.format === 'point') {
-          timeframe = parseInt(timeframe) || 1000 * 60 // default to 1m
+        timeframe = parseInt(timeframe) || 1000 * 60 // default to 1m
 
-          length = (to - from) / timeframe
+        length = (to - from) / timeframe
 
-          if (length > config.maxFetchLength) {
-            return res.status(400).json({
-              error: 'too many bars'
-            })
-          }
+        if (length > config.maxFetchLength) {
+          return res.status(400).json({
+            error: 'too many bars'
+          })
         }
 
         if (from > to) {
@@ -431,13 +432,13 @@ class Server extends EventEmitter {
         this.globalUsage.tick += length * markets.length
         const fetchStartAt = Date.now()
 
-        ;(storage
+          ; (storage
           ? storage.fetch({
-              from,
-              to,
-              timeframe,
-              markets
-            })
+            from,
+            to,
+            timeframe,
+            markets
+          })
           : Promise.resolve([])
         )
           .then(output => {
@@ -449,10 +450,8 @@ class Server extends EventEmitter {
 
             if (output.results.length > 10000) {
               console.log(
-                `[${user}/${req.get('origin')}] ${getHms(to - from)} (${
-                  markets.length
-                } markets, ${getHms(timeframe, true)} tf) -> ${
-                  +length ? parseInt(length) + ' bars into ' : ''
+                `[${user}/${req.get('origin')}] ${getHms(to - from)} (${markets.length
+                } markets, ${getHms(timeframe, true)} tf) -> ${+length ? parseInt(length) + ' bars into ' : ''
                 }${output.results.length} ${storage.format}s, took ${getHms(
                   Date.now() - fetchStartAt
                 )}`
@@ -469,7 +468,7 @@ class Server extends EventEmitter {
       }
     )
 
-    app.use(function (err, req, res, next) {
+    app.use(function (err, req, res, _next) {
       if (err) {
         console.error(err)
 
@@ -652,7 +651,7 @@ class Server extends EventEmitter {
 
     if (!config.configPath) {
       console.warn(
-        `[server] couldn't save config because configPath isn't known`
+        '[server] couldn\'t save config because configPath isn\'t known'
       )
       return Promise.resolve()
     }
@@ -723,7 +722,7 @@ class Server extends EventEmitter {
           watch()
         }
       })
-    } catch (error) {
+    } catch (_error) {
       const _checkForWatchInterval = setInterval(() => {
         fs.access(file, fs.constants.F_OK, err => {
           if (err) {
@@ -817,7 +816,7 @@ class Server extends EventEmitter {
 
     if (apisToReconnect.length) {
       dumpConnections(staleConnections)
-      this.reconnectApis(apisToReconnect, `reconnection threshold reached`)
+      this.reconnectApis(apisToReconnect, 'reconnection threshold reached')
     }
   }
 
@@ -827,7 +826,7 @@ class Server extends EventEmitter {
     for (const exchange of this.exchanges) {
       if (recovering[exchange.id]) {
         console.error(
-          `Exchange is recovering trades, don't quit while it's doing its thing because all will be lost`
+          'Exchange is recovering trades, don\'t quit while it\'s doing its thing because all will be lost'
         )
         output = false
         break
@@ -840,7 +839,7 @@ class Server extends EventEmitter {
       }
       this.exitAttempts++
       if (this.exitAttempts === 3) {
-        console.error(`[server] last warning.`)
+        console.error('[server] last warning.')
       } else if (this.exitAttempts === 4) {
         output = true
       }
