@@ -175,7 +175,10 @@ class Coinbase extends Exchange {
     }
 
     try {
-      const response = await axios.get(endpoint)
+      const response = await this.requestWithRetry(() => axios.get(endpoint), {
+        range,
+        label: 'missing trades'
+      })
       const rawData = Array.isArray(response.data)
         ? response.data
         : response.data.trades || []
@@ -246,7 +249,7 @@ class Coinbase extends Exchange {
     } catch (err) {
       console.error(
         `[${this.id}] failed to get missing trades on ${range.pair}`,
-        err.message
+        this.formatErrorForLog(err)
       )
       return totalRecovered
     }

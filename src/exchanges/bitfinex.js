@@ -194,8 +194,10 @@ class Bitfinex extends Exchange {
       't' + range.pair
     }&start=${startTime + 1}&end=${range.to}&limit=1000&sort=1`
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.length) {
           const trades = response.data.map(trade =>
@@ -232,7 +234,7 @@ class Bitfinex extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
 
         return totalRecovered

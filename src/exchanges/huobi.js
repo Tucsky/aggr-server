@@ -266,8 +266,10 @@ class Huobi extends Exchange {
       endpoint = `https://api.huobi.pro/market/history/trade?symbol=${range.pair}&size=2000`
     }
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.data.length) {
           const trades = response.data.data
@@ -300,7 +302,7 @@ class Huobi extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
 
         return totalRecovered

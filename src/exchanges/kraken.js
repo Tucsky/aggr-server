@@ -210,8 +210,10 @@ class Kraken extends Exchange {
       }`
     }
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         let raw
 
@@ -268,7 +270,7 @@ class Kraken extends Exchange {
       .catch(err => {
         console.error(
           `Failed to get historical trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
       })
   }

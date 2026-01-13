@@ -179,8 +179,10 @@ class Bybit extends Exchange {
     const realPair = isSpot ? range.pair.replace(SPOT_PAIR_REGEX, '') : range.pair
     const endpoint = `${RECENT_TRADE_REST}?category=${this.types[range.pair]}&symbol=${realPair}&limit=${limit}`
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.result.list.length) {
           const trades = response.data.result.list
@@ -223,7 +225,7 @@ class Bybit extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
 
         return totalRecovered

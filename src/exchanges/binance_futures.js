@@ -190,8 +190,10 @@ class BinanceFutures extends Exchange {
       endpoint = 'https://fapi.binance.com/fapi/v1/aggTrades' + endpoint
     }
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.length) {
           const trades = response.data
@@ -232,7 +234,7 @@ class BinanceFutures extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
 
         return totalRecovered

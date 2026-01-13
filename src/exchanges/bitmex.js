@@ -152,8 +152,10 @@ class Bitmex extends Exchange {
 
     const endpoint = `https://www.bitmex.com/api/v1/trade?symbol=${range.pair}&startTime=${startTimeISO}&endTime=${endTimeISO}&count=1000`
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.length) {
           const trades = response.data.map(trade =>
@@ -190,7 +192,7 @@ class Bitmex extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
       })
   }

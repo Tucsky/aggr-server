@@ -284,12 +284,10 @@ class Okex extends Exchange {
     const endpoint = `https://www.okx.com/api/v5/market/history-trades?instId=${range.pair}&type=2&limit=100&after=${range.to}`
 
     try {
-      const response = await this.retryWithDelay(
-        () => axios.get(endpoint),
-        5, // Retry up to 5 times
-        1, // Start with a multiplier of 1
-        range
-      )
+      const response = await this.requestWithRetry(() => axios.get(endpoint), {
+        range,
+        label: 'missing trades'
+      })
 
       if (response.data.data.length) {
         const trades = response.data.data
@@ -328,40 +326,12 @@ class Okex extends Exchange {
     } catch (err) {
       console.error(
         `[${this.id}] failed to get missing trades on ${range.pair} after retries:`,
-        err.message
+        this.formatErrorForLog(err)
       )
       return totalRecovered
     }
   }
 
-  /**
-   * Retry a function with delays between attempts, using backoff
-   * @param {Function} fn The function to execute
-   * @param {number} retries Number of retry attempts
-   * @param {number} multiplier Multiplier for backoff delays (starts at 1)
-   * @param {Object} range The range object for logging retries (optional)
-   * @returns {Promise<any>} The result of the function or an error if retries fail
-   */
-  async retryWithDelay(fn, retries, multiplier = 1, range = {}) {
-    try {
-      return await fn()
-    } catch (err) {
-      if (retries > 0) {
-        console.warn(
-          `[${this.id}] Retrying with delay (${range.pair || 'unknown pair'}) attempt ${multiplier
-          }...`
-        )
-        await this.waitBeforeContinueRecovery(multiplier)
-        return this.retryWithDelay(fn, retries - 1, multiplier + 1, range)
-      }
-      console.error(
-        `[${this.id}] Exceeded retry limit for ${range.pair || 'unknown pair'
-        }:`,
-        err.message
-      )
-      throw err // Propagate the error after exceeding retries
-    }
-  }
 }
 
 module.exports = Okex

@@ -615,6 +615,8 @@ class Exchange extends EventEmitter {
         if (nextRange.pair === range.pair) {
           // range might have been created while this one was recovering
           // ensure no dupes
+          const beforeFrom = nextRange.from
+          const beforeTo = nextRange.to
           nextRange.from = Math.max(nextRange.from, originalRange.to)
           nextRange.to = Math.max(nextRange.to, originalRange.to)
 
@@ -624,7 +626,7 @@ class Exchange extends EventEmitter {
             )
             this.recoveryRanges.splice(i--, 1)
             continue
-          } else {
+          } else if (nextRange.from !== beforeFrom || nextRange.to !== beforeTo) {
             console.log(
               `[${this.id}.registerRangeForRecovery] shrinked range (${nextRange.pair}, #${i}: ${new Date(+nextRange.from).toISOString()}, ${new Date(+nextRange.to).toISOString()})`
             )
@@ -954,6 +956,146 @@ class Exchange extends EventEmitter {
     this.emit('liquidations', trades, source)
 
     return true
+  }
+
+  formatErrorForLog(err) {
+    if (!err) {
+      return err
+    }
+
+    if (typeof err !== 'object') {
+      return { message: String(err) }
+    }
+
+    const details = {
+      message: err.message,
+      name: err.name,
+      code: err.code,
+      status: err.status || err.statusCode
+    }
+
+    if (err.response) {
+      details.status = err.response.status || details.status
+      details.statusText = err.response.statusText
+      details.data = err.response.data
+    }
+
+    if (err.config) {
+      details.method = err.config.method
+      details.params = err.config.params
+
+      const rawUrl = err.config.url || ''
+      const baseUrl = err.config.baseURL || ''
+      if (rawUrl) {
+        details.url =
+          baseUrl && !/^https?:\/\//i.test(rawUrl)
+            ? `${baseUrl.replace(/\/$/, '')}/${rawUrl.replace(/^\//, '')}`
+            : rawUrl
+      } else if (baseUrl) {
+        details.url = baseUrl
+      }
+    }
+
+    if (!details.url && err.request) {
+      details.url = err.request.path || err.request.url
+      details.method = details.method || err.request.method
+    }
+
+    for (const key of Object.keys(details)) {
+      if (typeof details[key] === 'undefined') {
+        delete details[key]
+      }
+    }
+
+    return details
+  }
+
+  getErrorStatus(err) {
+    if (!err || typeof err !== 'object') {
+      return undefined
+    }
+
+    if (err.response && typeof err.response.status !== 'undefined') {
+      return err.response.status
+    }
+
+    if (typeof err.status !== 'undefined') {
+      return err.status
+    }
+
+    if (typeof err.statusCode !== 'undefined') {
+      return err.statusCode
+    }
+
+    return undefined
+  }
+
+  shouldRetryError(err) {
+    const status = this.getErrorStatus(err)
+    if (typeof status === 'number') {
+      return status === 429 || (status >= 500 && status < 600)
+    }
+
+    const code = err && err.code
+    if (!code) {
+      return false
+    }
+
+    return [
+      'ECONNRESET',
+      'ETIMEDOUT',
+      'ECONNABORTED',
+      'ENOTFOUND',
+      'EAI_AGAIN',
+      'ECONNREFUSED',
+      'ENETUNREACH',
+      'EHOSTUNREACH',
+      'EPIPE'
+    ].includes(code)
+  }
+
+  async requestWithRetry(
+    fn,
+    { maxAttempts = 3, range, label = 'request' } = {}
+  ) {
+    let attempt = 1
+
+    while (true) {
+      try {
+        return await fn()
+      } catch (err) {
+        if (!this.shouldRetryError(err) || attempt >= maxAttempts) {
+          throw err
+        }
+
+        const pairLabel = range && range.pair ? ` on ${range.pair}` : ''
+        const status = this.getErrorStatus(err)
+        const meta = {
+          attempt: attempt + 1,
+          maxAttempts
+        }
+
+        if (typeof status !== 'undefined') {
+          meta.status = status
+        }
+
+        if (err && err.code) {
+          meta.code = err.code
+        }
+
+        if (err && err.message) {
+          meta.message = err.message
+        }
+
+        console.warn(
+          `[${this.id}] retrying ${label}${pairLabel} (${attempt + 1}/${maxAttempts})`,
+          meta
+        )
+
+        await this.waitBeforeContinueRecovery(attempt)
+        attempt += 1
+      }
+    }
   }
 
   startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {
