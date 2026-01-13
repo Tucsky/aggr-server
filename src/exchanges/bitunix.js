@@ -1,4 +1,4 @@
-const Exchange = require("../exchange")
+const Exchange = require('../exchange')
 
 class Bitunix extends Exchange {
   constructor() {

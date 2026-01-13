@@ -1,13 +1,14 @@
 {
   "name": "aggr-server",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "pm2-runtime ecosystem.config.js",
     "dev": "pm2-dev ecosystem.config.dev.yaml",
     "generateVapidKeys": "node scripts/web-push/generateVapidKeys",
-    "lint:fix": "npx prettier index.js ./src/* --write",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "clean": "rm -rf node-modules && npm clean cache --force",
     "docker:server:build": "docker-compose build",
     "docker:server:up": "docker-compose up -d"
@@ -46,6 +47,7 @@
     "npm": "9.8.0"
   },
   "devDependencies": {
-    "prettier": "3.0.2"
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0"
   }
 }

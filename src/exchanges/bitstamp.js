@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 
 class Bitstamp extends Exchange {
   constructor() {
@@ -12,7 +11,7 @@ class Bitstamp extends Exchange {
     }
 
     this.url = () => {
-      return `wss://ws.bitstamp.net`
+      return 'wss://ws.bitstamp.net'
     }
   }
 

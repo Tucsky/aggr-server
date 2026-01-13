@@ -183,7 +183,7 @@ class BinanceFutures extends Exchange {
   getMissingTrades(range, totalRecovered = 0) {
     const startTime = range.from
     let endpoint = `?symbol=${range.pair.toUpperCase()}&startTime=${startTime + 1
-      }&endTime=${range.to}&limit=1000`
+    }&endTime=${range.to}&limit=1000`
     if (this.dapi[range.pair]) {
       endpoint = 'https://dapi.binance.com/dapi/v1/aggTrades' + endpoint
     } else {

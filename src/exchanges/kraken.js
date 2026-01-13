@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { getHms } = require('../helper')
 

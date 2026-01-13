@@ -56,21 +56,21 @@ class Huobi extends Exchange {
         let pair
 
         switch (type) {
-          case 'spot':
-            pair = product.symbol
-            break
-          case 'futures':
-            pair =
+        case 'spot':
+          pair = product.symbol
+          break
+        case 'futures':
+          pair =
               product.symbol +
               '_' +
               this.contractTypesAliases[product.contract_type]
-            specs[pair] = product.contract_size
-            break
-          case 'swap':
-          case 'linear':
-            pair = product.contract_code
-            specs[pair] = product.contract_size
-            break
+          specs[pair] = product.contract_size
+          break
+        case 'swap':
+        case 'linear':
+          pair = product.contract_code
+          specs[pair] = product.contract_size
+          break
         }
 
         types[pair] = type

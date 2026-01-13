@@ -13,7 +13,7 @@ class BinanceUs extends Exchange {
       PRODUCTS: 'https://api.binance.us/api/v3/exchangeInfo'
     }
 
-    this.url = () => `wss://stream.binance.us:9443/ws`
+    this.url = () => 'wss://stream.binance.us:9443/ws'
   }
 
   formatProducts(data) {

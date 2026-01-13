@@ -1,6 +1,5 @@
 const Influx = require('influx')
-const { getHms, sleep, ID, ago } = require('../helper')
-const net = require('net')
+const { getHms, sleep, ID } = require('../helper')
 const config = require('../config')
 const socketService = require('../services/socket')
 const alertService = require('../services/alert')
@@ -43,7 +42,7 @@ class InfluxStorage {
   }
 
   async connect() {
-    if (/\-/.test(config.influxDatabase)) {
+    if (/-/.test(config.influxDatabase)) {
       throw new Error('dashes not allowed inside influxdb database')
     }
 
@@ -82,8 +81,8 @@ class InfluxStorage {
       console.error(
         [
           `[storage/influx] Error: ${error.message}... retrying in 1s`,
-          `Please ensure that the environment variable INFLUX_HOST is correctly set or that InfluxDB is running.`,
-          `Refer to the README.md file for more instructions.`
+          'Please ensure that the environment variable INFLUX_HOST is correctly set or that InfluxDB is running.',
+          'Refer to the README.md file for more instructions.'
         ].join('\n')
       )
 
@@ -262,7 +261,7 @@ class InfluxStorage {
       .map(market => `market = '${market}'`)
       .join(' OR ')})`
 
-    query += `GROUP BY "market" ORDER BY time DESC LIMIT 1`
+    query += 'GROUP BY "market" ORDER BY time DESC LIMIT 1'
 
     this.influx.query(query).then(data => {
       for (let bar of data) {
@@ -581,9 +580,9 @@ class InfluxStorage {
 
           if (bar.close !== null) {
             ;(fields.open = bar.open),
-              (fields.high = bar.high),
-              (fields.low = bar.low),
-              (fields.close = bar.close)
+            (fields.high = bar.high),
+            (fields.low = bar.low),
+            (fields.close = bar.close)
           }
 
           return {
@@ -640,10 +639,10 @@ class InfluxStorage {
           attempt === 1
             ? 'st'
             : attempt === 2
-            ? 'nd'
-            : attempt === 3
-            ? 'rd'
-            : 'th'
+              ? 'nd'
+              : attempt === 3
+                ? 'rd'
+                : 'th'
         } attempt)`,
         error.message
       )
@@ -812,10 +811,10 @@ class InfluxStorage {
           attempt === 1
             ? 'st'
             : attempt === 2
-            ? 'nd'
-            : attempt === 3
-            ? 'rd'
-            : 'th'
+              ? 'nd'
+              : attempt === 3
+                ? 'rd'
+                : 'th'
         } attempt)`,
         error.message
       )

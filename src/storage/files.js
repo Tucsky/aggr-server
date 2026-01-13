@@ -3,8 +3,7 @@ const zlib = require('zlib')
 const {
   groupTrades,
   ensureDirectoryExists,
-  getHms,
-  humanFileSize
+  getHms
 } = require('../helper')
 const config = require('../config')
 
@@ -306,7 +305,7 @@ class FilesStorage {
           `[storage/file] insert ${getHms(
             lastTradeTimestampInsert - firstTradeTimestampInsert
           )} of trades into ${path} (${
-            stat ? 'file exists' : "file doesn't exists"
+            stat ? 'file exists' : 'file doesn\'t exists'
           })`
         )
 
@@ -398,7 +397,7 @@ class FilesStorage {
           await this.writeFile(path, tradesFile.join('\n') + '\n')
         } else {
           // new file
-          console.log(`\t create new file`)
+          console.log('\t create new file')
           await this.writeFile(path, output[market][fileTimestamp].data)
         }
       }
@@ -422,14 +421,14 @@ class FilesStorage {
     return new Promise((resolve, reject) => {
       fs.readFile(path, (err, data) => {
         if (err) {
-          console.error(`[storage/file] failed to read file`, path)
+          console.error('[storage/file] failed to read file', path)
           throw err
         }
 
         if (/\.gz$/.test(path)) {
           zlib.gunzip(data, (err, buffer) => {
             if (err) {
-              console.error(`[storage/file] failed to unzip file`, path)
+              console.error('[storage/file] failed to unzip file', path)
               return reject(err)
             }
             resolve(buffer.toString())
@@ -448,10 +447,10 @@ class FilesStorage {
       rawPath = rawPath.replace(/\.gz$/, '')
     }
 
-    return new Promise((resolve, reject) => {
-      fs.writeFile(rawPath, content, (err, data) => {
+    return new Promise((resolve, _reject) => {
+      fs.writeFile(rawPath, content, (err, _data) => {
         if (err) {
-          console.error(`[storage/file] failed to write file`, path)
+          console.error('[storage/file] failed to write file', path)
           throw err
         }
 

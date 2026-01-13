@@ -1,6 +1,5 @@
 const Exchange = require('../exchange')
 const axios = require('axios')
-const fs = require('fs')
 const { getHms } = require('../helper')
 
 class Bitfinex extends Exchange {

@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 
 class Poloniex extends Exchange {
   constructor() {

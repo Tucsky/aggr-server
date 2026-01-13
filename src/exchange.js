@@ -228,7 +228,7 @@ class Exchange extends EventEmitter {
     return api
   }
 
-  createWs(url, pair) {
+  createWs(url, _pair) {
     const api = new WebSocket(url)
     api.id = ID()
 
@@ -424,7 +424,7 @@ class Exchange extends EventEmitter {
 
     if (api.readyState !== WebSocket.CLOSED) {
       if (api._connected.length) {
-        throw new Error(`cannot unbind api that still has pairs linked to it`)
+        throw new Error('cannot unbind api that still has pairs linked to it')
       }
 
       console.debug(`[${this.id}.removeWs] close api ${api.id}`)
@@ -697,7 +697,7 @@ class Exchange extends EventEmitter {
   async getProductsAndConnect(pairs, forceRefreshProducts = false) {
     try {
       await this.getProducts(forceRefreshProducts)
-    } catch (error) {
+    } catch (_error) {
       this.scheduledOperationsDelays.getProducts = this.schedule(
         () => {
           this.getProductsAndConnect(pairs, forceRefreshProducts)
@@ -762,7 +762,7 @@ class Exchange extends EventEmitter {
     if (formatedProducts) {
       if (
         typeof formatedProducts === 'object' &&
-        formatedProducts.hasOwnProperty('products')
+        Object.prototype.hasOwnProperty.call(formatedProducts, 'products')
       ) {
         for (let key in formatedProducts) {
           this[key] = formatedProducts[key]
@@ -783,7 +783,7 @@ class Exchange extends EventEmitter {
    * Fire when a new websocket connection is created
    * @param {WebSocket} api WebSocket instance
    */
-  onApiCreated(api) {
+  onApiCreated(_api) {
     // should be overrided by exchange class
   }
 
@@ -791,7 +791,7 @@ class Exchange extends EventEmitter {
    * Fire when a new websocket connection has been removed
    * @param {WebSocket} api WebSocket instance
    */
-  onApiRemoved(api) {
+  onApiRemoved(_api) {
     // should be overrided by exchange class
   }
 
@@ -800,7 +800,7 @@ class Exchange extends EventEmitter {
    * @param {Event} event
    * @param {WebSocket} api WebSocket instance
    */
-  onMessage(event, api) {
+  onMessage(_event, _api) {
     // should be overrided by exchange class
   }
 
@@ -966,10 +966,10 @@ class Exchange extends EventEmitter {
     this.keepAliveIntervals[api.id] = setInterval(() => {
       if (api.readyState === WebSocket.OPEN) {
         const message = typeof payload === 'function'
-        ? JSON.stringify(payload())
-        : typeof payload === 'string'
-        ? payload
-        : JSON.stringify(payload)
+          ? JSON.stringify(payload())
+          : typeof payload === 'string'
+            ? payload
+            : JSON.stringify(payload)
 
         api.send(
           message
@@ -1085,12 +1085,12 @@ class Exchange extends EventEmitter {
    * @returns {Promise<void>}
    */
   waitBeforeContinueRecovery(multiplier = 1) {
-    const delay = config.recoveryRequestDelay * multiplier;
+    const delay = config.recoveryRequestDelay * multiplier
     if (!delay) {
-      return Promise.resolve();
+      return Promise.resolve()
     }
 
-    return sleep(delay);
+    return sleep(delay)
   }
 }
 

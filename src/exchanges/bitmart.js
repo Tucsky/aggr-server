@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const { sleep, getHms } = require('../helper')
 const axios = require('axios')
 
 const { inflateRaw } = require('pako')
@@ -110,7 +109,7 @@ class Bitmart extends Exchange {
 
     api.send(
       JSON.stringify({
-        [typeImpl.arg]: `subscribe`,
+        [typeImpl.arg]: 'subscribe',
         args: [`${typeImpl.prefix}/trade:${pair}`]
       })
     )
@@ -142,7 +141,7 @@ class Bitmart extends Exchange {
 
     api.send(
       JSON.stringify({
-        [typeImpl.arg]: `unsubscribe`,
+        [typeImpl.arg]: 'unsubscribe',
         args: [`${typeImpl.prefix}/trade:${pair}`]
       })
     )

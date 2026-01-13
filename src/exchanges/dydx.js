@@ -1,6 +1,4 @@
 const Exchange = require('../exchange')
-const { sleep } = require('../helper')
-const WebSocket = require('websocket').w3cwebsocket
 
 class Dydx extends Exchange {
   constructor() {
@@ -13,7 +11,7 @@ class Dydx extends Exchange {
     }
 
     this.url = () => {
-      return `wss://indexer.dydx.trade/v4/ws`
+      return 'wss://indexer.dydx.trade/v4/ws'
     }
   }
 

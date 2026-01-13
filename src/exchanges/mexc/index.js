@@ -169,7 +169,7 @@ class Mexc extends Exchange {
       if (spotResult) {
         return true
       }
-    } catch (e) {
+    } catch (_e) {
       // Skip non-JSON messages or parse errors
     }
   }
@@ -200,7 +200,7 @@ class Mexc extends Exchange {
       if (trades.length > 0) {
         return this.emitTrades(api.id, trades)
       }
-    } catch (e) {
+    } catch (_e) {
       // Silent fail for protobuf decode errors
       return true
     }
