@@ -299,9 +299,11 @@ if (config.storage) {
   }
 
   for (let storage of config.storage) {
-    const storagePath = path.resolve(__dirname, 'storage/' + storage + '.js')
-    if (!fs.existsSync(storagePath)) {
-      throw new Error(`Unknown storage solution "${storagePath}"`)
+    const storageFilePath = path.resolve(__dirname, 'storage/' + storage + '.js')
+    const storageDirPath = path.resolve(__dirname, 'storage/' + storage)
+    // Check for single file (e.g., influx.js) or directory with index.js (e.g., binaries/index.js)
+    if (!fs.existsSync(storageFilePath) && !fs.statSync(storageDirPath, { throwIfNoEntry: false })?.isDirectory()) {
+      throw new Error(`Unknown storage solution "${storage}"`)
     }
   }
 } else {
