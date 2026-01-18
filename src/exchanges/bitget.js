@@ -5,9 +5,8 @@ const SPOT_PAIR_REGEX = /-SPOT$/
 
 class Bitget extends Exchange {
   constructor() {
-    super()
+    super('BITGET')
 
-    this.id = 'BITGET'
     this.maxConnectionsPerApi = 50
 
     this.endpoints = {

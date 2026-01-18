@@ -2,9 +2,7 @@ const Exchange = require('../exchange')
 
 class Bitunix extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'BITUNIX'
+    super('BITUNIX')
 
     this.endpoints = {
       PRODUCTS: 'https://fapi.bitunix.com/api/v1/futures/market/trading_pairs'

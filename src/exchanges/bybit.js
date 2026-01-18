@@ -11,9 +11,7 @@ const RECENT_TRADE_REST = 'https://api.bybit.com/v5/market/recent-trade'
 
 class Bybit extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'BYBIT'
+    super('BYBIT')
 
     this.endpoints = {
       PRODUCTS: [

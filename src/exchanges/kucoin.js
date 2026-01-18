@@ -6,9 +6,7 @@ const KUCOIN_TOKEN_EXPIRATION = 1000 * 60 * 5
 
 class Kucoin extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'KUCOIN'
+    super('KUCOIN')
 
     this.promiseOfToken = null
     this.token = null

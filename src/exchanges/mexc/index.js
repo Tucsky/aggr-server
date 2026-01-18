@@ -9,9 +9,8 @@ const {
 
 class Mexc extends Exchange {
   constructor() {
-    super()
+    super('MEXC')
 
-    this.id = 'MEXC'
     this.maxConnectionsPerApi = 50
     this.contractSizes = {}
     this.inversed = {}

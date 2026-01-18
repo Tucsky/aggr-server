@@ -2,9 +2,7 @@ const Exchange = require('../exchange')
 
 class Dydx extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'DYDX'
+    super('DYDX')
 
     this.endpoints = {
       PRODUCTS: 'https://indexer.dydx.trade/v4/perpetualMarkets'

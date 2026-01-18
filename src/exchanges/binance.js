@@ -4,9 +4,7 @@ const axios = require('axios')
 
 class Binance extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'BINANCE'
+    super('BINANCE')
     this.lastSubscriptionId = 0
     this.maxConnectionsPerApi = 16
     this.subscriptions = {}

@@ -5,9 +5,8 @@ const WebSocket = require('websocket').w3cwebsocket
 
 class BinanceFutures extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'BINANCE_FUTURES'
+    super('BINANCE_FUTURES')
+    
     this.lastSubscriptionId = 0
     this.subscriptions = {}
 

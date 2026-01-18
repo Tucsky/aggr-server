@@ -12,12 +12,7 @@ const WS_API_FUTURES = 'wss://openapi-ws-v2.bitmart.com/api?protocol=1.1'
  */
 class Bitmart extends Exchange {
   constructor() {
-    super()
-
-    /**
-     * @type {string}
-     */
-    this.id = 'BITMART'
+    super('BITMART')
 
     /**
      * @type {object}

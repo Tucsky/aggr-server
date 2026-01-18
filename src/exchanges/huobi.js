@@ -6,9 +6,7 @@ const { getHms } = require('../helper')
 
 class Huobi extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'HUOBI'
+    super('HUOBI')
 
     this.receivedInitialData = {}
     this.liquidationOrdersSubscriptions = {}

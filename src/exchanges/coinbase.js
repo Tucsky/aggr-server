@@ -5,9 +5,7 @@ const INTX_PAIR_REGEX = /-INTX$/
 
 class Coinbase extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'COINBASE'
+    super('COINBASE')
 
     this.endpoints = {
       PRODUCTS: [

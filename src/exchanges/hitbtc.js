@@ -2,9 +2,7 @@ const Exchange = require('../exchange')
 
 class HitBtc extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'HITBTC'
+    super('HITBTC')
 
     this.endpoints = {
       PRODUCTS: 'https://api.hitbtc.com/api/2/public/symbol'

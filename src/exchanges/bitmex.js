@@ -4,9 +4,8 @@ const { getHms } = require('../helper')
 
 class Bitmex extends Exchange {
   constructor() {
-    super()
+    super('BITMEX')
 
-    this.id = 'BITMEX'
     this.pairCurrencies = {}
     this.xbtPrice = 48000
     this.types = {}

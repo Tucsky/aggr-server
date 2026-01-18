@@ -17,8 +17,14 @@ const {
 require('./typedef')
 
 class Exchange extends EventEmitter {
-  constructor() {
+  /**
+   * @param {string} id exchange identifier (e.g. 'BINANCE')
+   */
+  constructor(id) {
     super()
+    
+    /** @type {string} */
+    this.id = id
 
     /**
      * ping timers

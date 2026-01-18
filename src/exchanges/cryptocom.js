@@ -4,9 +4,7 @@ const { getHms } = require('../helper')
 
 class CryptoCom extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'CRYPTOCOM'
+    super('CRYPTOCOM')
 
     this.endpoints = {
       PRODUCTS: 'https://api.crypto.com/exchange/v1/public/get-instruments'

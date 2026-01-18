@@ -2,9 +2,8 @@ const Exchange = require('../exchange')
 
 class Poloniex extends Exchange {
   constructor() {
-    super()
+    super('POLONIEX')
 
-    this.id = 'POLONIEX'
     this.channels = {}
 
     this.endpoints = {

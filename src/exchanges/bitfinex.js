@@ -4,9 +4,8 @@ const { getHms } = require('../helper')
 
 class Bitfinex extends Exchange {
   constructor() {
-    super()
+    super('BITFINEX')
 
-    this.id = 'BITFINEX'
     this.channels = {}
     this.prices = {}
 

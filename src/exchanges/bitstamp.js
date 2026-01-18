@@ -2,9 +2,7 @@ const Exchange = require('../exchange')
 
 class Bitstamp extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'BITSTAMP'
+    super('BITMART')
 
     this.endpoints = {
       PRODUCTS: 'https://www.bitstamp.net/api/v2/trading-pairs-info'

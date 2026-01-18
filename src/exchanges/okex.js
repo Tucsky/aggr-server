@@ -4,9 +4,7 @@ const { getHms } = require('../helper')
 
 class Okex extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'OKEX'
+    super('OKEX')
 
     this.endpoints = {
       LIQUIDATIONS: 'https://www.okx.com/api/v5/public/liquidation-orders',

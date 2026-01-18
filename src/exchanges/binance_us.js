@@ -3,9 +3,8 @@ const { sleep } = require('../helper')
 
 class BinanceUs extends Exchange {
   constructor() {
-    super()
+    super('BINANCE_US')
 
-    this.id = 'BINANCE_US'
     this.lastSubscriptionId = 0
     this.subscriptions = {}
 

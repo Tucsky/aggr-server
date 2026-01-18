@@ -4,9 +4,8 @@ const { getHms } = require('../helper')
 
 class Kraken extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'KRAKEN'
+    super('KRAKEN')
+    
     this.keepAliveIntervals = {}
 
     this.endpoints = {

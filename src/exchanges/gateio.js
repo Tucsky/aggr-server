@@ -5,8 +5,8 @@ const IS_USDT_SETTLEMENT_REGEX = /USDT$/
 
 class Gateio extends Exchange {
   constructor() {
-    super()
-    this.id = 'GATEIO'
+    super('GATEIO')
+
     this.liquidationApi = {}
     this.maxConnectionsPerApi = 100
 
