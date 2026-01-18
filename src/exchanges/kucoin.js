@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { sleep } = require('../helper')
 
@@ -7,9 +6,7 @@ const KUCOIN_TOKEN_EXPIRATION = 1000 * 60 * 5
 
 class Kucoin extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'KUCOIN'
+    super('KUCOIN')
 
     this.promiseOfToken = null
     this.token = null

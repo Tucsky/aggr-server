@@ -1,11 +1,9 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 
 class Poloniex extends Exchange {
   constructor() {
-    super()
+    super('POLONIEX')
 
-    this.id = 'POLONIEX'
     this.channels = {}
 
     this.endpoints = {

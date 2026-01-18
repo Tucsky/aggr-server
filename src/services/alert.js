@@ -517,7 +517,7 @@ class AlertService extends EventEmitter {
   queueAlert(alert, market, timestamp, direction) {
     if (!this.alertEndpoints[alert.endpoint]) {
       console.error(
-        `[alert/send] attempted to send alert without matching endpoint`,
+        '[alert/send] attempted to send alert without matching endpoint',
         alert
       )
       return
@@ -584,7 +584,7 @@ class AlertService extends EventEmitter {
   async processQueue() {
     if (!this.alertsQueue.length) {
       this.isProcessingQueue = false
-      console.log(`[alert.queue] no more alerts in queue`)
+      console.log('[alert.queue] no more alerts in queue')
       return
     }
 

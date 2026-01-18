@@ -1,13 +1,10 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { getHms } = require('../helper')
 
 class CryptoCom extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'CRYPTOCOM'
+    super('CRYPTOCOM')
 
     this.endpoints = {
       PRODUCTS: 'https://api.crypto.com/exchange/v1/public/get-instruments'
@@ -15,7 +12,7 @@ class CryptoCom extends Exchange {
   }
 
   async getUrl() {
-    return `wss://stream.crypto.com/v2/market`
+    return 'wss://stream.crypto.com/v2/market'
   }
 
   formatProducts(response) {
@@ -109,19 +106,21 @@ class CryptoCom extends Exchange {
     }
   }
 
-  async getMissingTrades(range, totalRecovered = 0, fromTradeId) {
+  async getMissingTrades(range, totalRecovered = 0, _fromTradeId) {
     // https://exchange-docs.crypto.com/exchange/v1/rest-ws/index.html#public-get-trades
     // Retuns maximum 150 trades per request
 
     const endpoint =
-      `https://api.crypto.com/exchange/v1/public/get-trades?` +
+      'https://api.crypto.com/exchange/v1/public/get-trades?' +
       `instrument_name=${range.pair}&` +
-      `count=1000&` +
+      'count=1000&' +
       `start_ts=${range.from}&` +
       `end_ts=${range.to}`
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         const data = response.data.result.data
 
@@ -174,7 +173,7 @@ class CryptoCom extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
 
         return totalRecovered

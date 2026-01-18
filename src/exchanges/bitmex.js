@@ -1,13 +1,11 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { getHms } = require('../helper')
 
 class Bitmex extends Exchange {
   constructor() {
-    super()
+    super('BITMEX')
 
-    this.id = 'BITMEX'
     this.pairCurrencies = {}
     this.xbtPrice = 48000
     this.types = {}
@@ -19,7 +17,7 @@ class Bitmex extends Exchange {
     }
 
     this.url = () => {
-      return `wss://www.bitmex.com/realtime`
+      return 'wss://www.bitmex.com/realtime'
     }
   }
 
@@ -33,8 +31,8 @@ class Bitmex extends Exchange {
       types[product.symbol] = product.isInverse
         ? 'inverse'
         : product.isQuanto
-        ? 'quanto'
-        : 'linear'
+          ? 'quanto'
+          : 'linear'
       multipliers[product.symbol] = product.multiplier
 
       if (types[product.symbol] === 'linear') {
@@ -153,8 +151,10 @@ class Bitmex extends Exchange {
 
     const endpoint = `https://www.bitmex.com/api/v1/trade?symbol=${range.pair}&startTime=${startTimeISO}&endTime=${endTimeISO}&count=1000`
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.length) {
           const trades = response.data.map(trade =>
@@ -191,7 +191,7 @@ class Bitmex extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
       })
   }

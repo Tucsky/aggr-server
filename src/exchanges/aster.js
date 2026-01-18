@@ -3,8 +3,7 @@ const Exchange = require('../exchange')
 
 class Aster extends Exchange {
   constructor() {
-    super()
-    this.id = 'ASTER'
+    super('ASTER')
 
     this.endpoints = {
       // Binance-futures style exchangeInfo

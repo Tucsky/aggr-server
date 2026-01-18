@@ -3,9 +3,7 @@ const Exchange = require('../exchange')
 
 class Deribit extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'DERIBIT'
+    super('DERIBIT')
 
     this.endpoints = {
       PRODUCTS: [
@@ -15,7 +13,7 @@ class Deribit extends Exchange {
       ]
     }
 
-    this.url = `wss://www.deribit.com/ws/api/v2`
+    this.url = 'wss://www.deribit.com/ws/api/v2'
   }
 
   formatProducts(response) {

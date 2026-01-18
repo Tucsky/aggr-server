@@ -5,9 +5,8 @@ const WebSocket = require('websocket').w3cwebsocket
 
 class BinanceFutures extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'BINANCE_FUTURES'
+    super('BINANCE_FUTURES')
+    
     this.lastSubscriptionId = 0
     this.subscriptions = {}
 
@@ -183,15 +182,17 @@ class BinanceFutures extends Exchange {
   getMissingTrades(range, totalRecovered = 0) {
     const startTime = range.from
     let endpoint = `?symbol=${range.pair.toUpperCase()}&startTime=${startTime + 1
-      }&endTime=${range.to}&limit=1000`
+    }&endTime=${range.to}&limit=1000`
     if (this.dapi[range.pair]) {
       endpoint = 'https://dapi.binance.com/dapi/v1/aggTrades' + endpoint
     } else {
       endpoint = 'https://fapi.binance.com/fapi/v1/aggTrades' + endpoint
     }
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.length) {
           const trades = response.data
@@ -232,7 +233,7 @@ class BinanceFutures extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
 
         return totalRecovered

@@ -6,9 +6,7 @@ const { getHms } = require('../helper')
 
 class Huobi extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'HUOBI'
+    super('HUOBI')
 
     this.receivedInitialData = {}
     this.liquidationOrdersSubscriptions = {}
@@ -56,21 +54,21 @@ class Huobi extends Exchange {
         let pair
 
         switch (type) {
-          case 'spot':
-            pair = product.symbol
-            break
-          case 'futures':
-            pair =
+        case 'spot':
+          pair = product.symbol
+          break
+        case 'futures':
+          pair =
               product.symbol +
               '_' +
               this.contractTypesAliases[product.contract_type]
-            specs[pair] = product.contract_size
-            break
-          case 'swap':
-          case 'linear':
-            pair = product.contract_code
-            specs[pair] = product.contract_size
-            break
+          specs[pair] = product.contract_size
+          break
+        case 'swap':
+        case 'linear':
+          pair = product.contract_code
+          specs[pair] = product.contract_size
+          break
         }
 
         types[pair] = type
@@ -266,8 +264,10 @@ class Huobi extends Exchange {
       endpoint = `https://api.huobi.pro/market/history/trade?symbol=${range.pair}&size=2000`
     }
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.data.length) {
           const trades = response.data.data
@@ -300,7 +300,7 @@ class Huobi extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
 
         return totalRecovered

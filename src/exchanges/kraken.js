@@ -1,13 +1,11 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { getHms } = require('../helper')
 
 class Kraken extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'KRAKEN'
+    super('KRAKEN')
+    
     this.keepAliveIntervals = {}
 
     this.endpoints = {
@@ -211,8 +209,10 @@ class Kraken extends Exchange {
       }`
     }
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         let raw
 
@@ -269,7 +269,7 @@ class Kraken extends Exchange {
       .catch(err => {
         console.error(
           `Failed to get historical trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
       })
   }

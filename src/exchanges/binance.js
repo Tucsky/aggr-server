@@ -4,9 +4,7 @@ const axios = require('axios')
 
 class Binance extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'BINANCE'
+    super('BINANCE')
     this.lastSubscriptionId = 0
     this.maxConnectionsPerApi = 16
     this.subscriptions = {}
@@ -15,7 +13,7 @@ class Binance extends Exchange {
       PRODUCTS: 'https://data-api.binance.vision/api/v3/exchangeInfo'
     }
 
-    this.url = () => `wss://data-stream.binance.vision:9443/ws`
+    this.url = () => 'wss://data-stream.binance.vision:9443/ws'
   }
 
   formatProducts(data) {
@@ -103,8 +101,10 @@ class Binance extends Exchange {
       startTime + 1
     }&endTime=${below1HEndTime}&limit=1000`
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.length) {
           const trades = response.data.map(trade => ({
@@ -143,7 +143,7 @@ class Binance extends Exchange {
       .catch(err => {
         console.error(
           `Failed to get historical trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
       })
   }

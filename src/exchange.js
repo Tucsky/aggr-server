@@ -17,8 +17,14 @@ const {
 require('./typedef')
 
 class Exchange extends EventEmitter {
-  constructor() {
+  /**
+   * @param {string} id exchange identifier (e.g. 'BINANCE')
+   */
+  constructor(id) {
     super()
+    
+    /** @type {string} */
+    this.id = id
 
     /**
      * ping timers
@@ -228,7 +234,7 @@ class Exchange extends EventEmitter {
     return api
   }
 
-  createWs(url, pair) {
+  createWs(url, _pair) {
     const api = new WebSocket(url)
     api.id = ID()
 
@@ -424,7 +430,7 @@ class Exchange extends EventEmitter {
 
     if (api.readyState !== WebSocket.CLOSED) {
       if (api._connected.length) {
-        throw new Error(`cannot unbind api that still has pairs linked to it`)
+        throw new Error('cannot unbind api that still has pairs linked to it')
       }
 
       console.debug(`[${this.id}.removeWs] close api ${api.id}`)
@@ -615,6 +621,8 @@ class Exchange extends EventEmitter {
         if (nextRange.pair === range.pair) {
           // range might have been created while this one was recovering
           // ensure no dupes
+          const beforeFrom = nextRange.from
+          const beforeTo = nextRange.to
           nextRange.from = Math.max(nextRange.from, originalRange.to)
           nextRange.to = Math.max(nextRange.to, originalRange.to)
 
@@ -624,7 +632,7 @@ class Exchange extends EventEmitter {
             )
             this.recoveryRanges.splice(i--, 1)
             continue
-          } else {
+          } else if (nextRange.from !== beforeFrom || nextRange.to !== beforeTo) {
             console.log(
               `[${this.id}.registerRangeForRecovery] shrinked range (${nextRange.pair}, #${i}: ${new Date(+nextRange.from).toISOString()}, ${new Date(+nextRange.to).toISOString()})`
             )
@@ -697,7 +705,7 @@ class Exchange extends EventEmitter {
   async getProductsAndConnect(pairs, forceRefreshProducts = false) {
     try {
       await this.getProducts(forceRefreshProducts)
-    } catch (error) {
+    } catch (_error) {
       this.scheduledOperationsDelays.getProducts = this.schedule(
         () => {
           this.getProductsAndConnect(pairs, forceRefreshProducts)
@@ -762,7 +770,7 @@ class Exchange extends EventEmitter {
     if (formatedProducts) {
       if (
         typeof formatedProducts === 'object' &&
-        formatedProducts.hasOwnProperty('products')
+        Object.prototype.hasOwnProperty.call(formatedProducts, 'products')
       ) {
         for (let key in formatedProducts) {
           this[key] = formatedProducts[key]
@@ -783,7 +791,7 @@ class Exchange extends EventEmitter {
    * Fire when a new websocket connection is created
    * @param {WebSocket} api WebSocket instance
    */
-  onApiCreated(api) {
+  onApiCreated(_api) {
     // should be overrided by exchange class
   }
 
@@ -791,7 +799,7 @@ class Exchange extends EventEmitter {
    * Fire when a new websocket connection has been removed
    * @param {WebSocket} api WebSocket instance
    */
-  onApiRemoved(api) {
+  onApiRemoved(_api) {
     // should be overrided by exchange class
   }
 
@@ -800,7 +808,7 @@ class Exchange extends EventEmitter {
    * @param {Event} event
    * @param {WebSocket} api WebSocket instance
    */
-  onMessage(event, api) {
+  onMessage(_event, _api) {
     // should be overrided by exchange class
   }
 
@@ -956,6 +964,146 @@ class Exchange extends EventEmitter {
     return true
   }
 
+  formatErrorForLog(err) {
+    if (!err) {
+      return err
+    }
+
+    if (typeof err !== 'object') {
+      return { message: String(err) }
+    }
+
+    const details = {
+      message: err.message,
+      name: err.name,
+      code: err.code,
+      status: err.status || err.statusCode
+    }
+
+    if (err.response) {
+      details.status = err.response.status || details.status
+      details.statusText = err.response.statusText
+      details.data = err.response.data
+    }
+
+    if (err.config) {
+      details.method = err.config.method
+      details.params = err.config.params
+
+      const rawUrl = err.config.url || ''
+      const baseUrl = err.config.baseURL || ''
+      if (rawUrl) {
+        details.url =
+          baseUrl && !/^https?:\/\//i.test(rawUrl)
+            ? `${baseUrl.replace(/\/$/, '')}/${rawUrl.replace(/^\//, '')}`
+            : rawUrl
+      } else if (baseUrl) {
+        details.url = baseUrl
+      }
+    }
+
+    if (!details.url && err.request) {
+      details.url = err.request.path || err.request.url
+      details.method = details.method || err.request.method
+    }
+
+    for (const key of Object.keys(details)) {
+      if (typeof details[key] === 'undefined') {
+        delete details[key]
+      }
+    }
+
+    return details
+  }
+
+  getErrorStatus(err) {
+    if (!err || typeof err !== 'object') {
+      return undefined
+    }
+
+    if (err.response && typeof err.response.status !== 'undefined') {
+      return err.response.status
+    }
+
+    if (typeof err.status !== 'undefined') {
+      return err.status
+    }
+
+    if (typeof err.statusCode !== 'undefined') {
+      return err.statusCode
+    }
+
+    return undefined
+  }
+
+  shouldRetryError(err) {
+    const status = this.getErrorStatus(err)
+    if (typeof status === 'number') {
+      return status === 429 || (status >= 500 && status < 600)
+    }
+
+    const code = err && err.code
+    if (!code) {
+      return false
+    }
+
+    return [
+      'ECONNRESET',
+      'ETIMEDOUT',
+      'ECONNABORTED',
+      'ENOTFOUND',
+      'EAI_AGAIN',
+      'ECONNREFUSED',
+      'ENETUNREACH',
+      'EHOSTUNREACH',
+      'EPIPE'
+    ].includes(code)
+  }
+
+  async requestWithRetry(
+    fn,
+    { maxAttempts = 3, range, label = 'request' } = {}
+  ) {
+    let attempt = 1
+
+    while (true) {
+      try {
+        return await fn()
+      } catch (err) {
+        if (!this.shouldRetryError(err) || attempt >= maxAttempts) {
+          throw err
+        }
+
+        const pairLabel = range && range.pair ? ` on ${range.pair}` : ''
+        const status = this.getErrorStatus(err)
+        const meta = {
+          attempt: attempt + 1,
+          maxAttempts
+        }
+
+        if (typeof status !== 'undefined') {
+          meta.status = status
+        }
+
+        if (err && err.code) {
+          meta.code = err.code
+        }
+
+        if (err && err.message) {
+          meta.message = err.message
+        }
+
+        console.warn(
+          `[${this.id}] retrying ${label}${pairLabel} (${attempt + 1}/${maxAttempts})`,
+          meta
+        )
+
+        await this.waitBeforeContinueRecovery(attempt)
+        attempt += 1
+      }
+    }
+  }
+
   startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {
     if (this.keepAliveIntervals[api.id]) {
       this.stopKeepAlive(api.id)
@@ -966,10 +1114,10 @@ class Exchange extends EventEmitter {
     this.keepAliveIntervals[api.id] = setInterval(() => {
       if (api.readyState === WebSocket.OPEN) {
         const message = typeof payload === 'function'
-        ? JSON.stringify(payload())
-        : typeof payload === 'string'
-        ? payload
-        : JSON.stringify(payload)
+          ? JSON.stringify(payload())
+          : typeof payload === 'string'
+            ? payload
+            : JSON.stringify(payload)
 
         api.send(
           message
@@ -1085,12 +1233,12 @@ class Exchange extends EventEmitter {
    * @returns {Promise<void>}
    */
   waitBeforeContinueRecovery(multiplier = 1) {
-    const delay = config.recoveryRequestDelay * multiplier;
+    const delay = config.recoveryRequestDelay * multiplier
     if (!delay) {
-      return Promise.resolve();
+      return Promise.resolve()
     }
 
-    return sleep(delay);
+    return sleep(delay)
   }
 }
 

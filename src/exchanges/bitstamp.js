@@ -1,18 +1,15 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 
 class Bitstamp extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'BITSTAMP'
+    super('BITMART')
 
     this.endpoints = {
       PRODUCTS: 'https://www.bitstamp.net/api/v2/trading-pairs-info'
     }
 
     this.url = () => {
-      return `wss://ws.bitstamp.net`
+      return 'wss://ws.bitstamp.net'
     }
   }
 

@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const WebSocket = require('websocket').w3cwebsocket
 const axios = require('axios')
 const { getHms } = require('../helper')
 
@@ -12,9 +11,7 @@ const RECENT_TRADE_REST = 'https://api.bybit.com/v5/market/recent-trade'
 
 class Bybit extends Exchange {
   constructor() {
-    super()
-
-    this.id = 'BYBIT'
+    super('BYBIT')
 
     this.endpoints = {
       PRODUCTS: [
@@ -79,7 +76,7 @@ class Bybit extends Exchange {
 
     api.send(
       JSON.stringify({
-        "op": "subscribe",
+        'op': 'subscribe',
         args: topics
       })
     )
@@ -107,7 +104,7 @@ class Bybit extends Exchange {
 
     api.send(
       JSON.stringify({
-        "op": "unsubscribe",
+        'op': 'unsubscribe',
         args: topics
       })
     )
@@ -180,8 +177,10 @@ class Bybit extends Exchange {
     const realPair = isSpot ? range.pair.replace(SPOT_PAIR_REGEX, '') : range.pair
     const endpoint = `${RECENT_TRADE_REST}?category=${this.types[range.pair]}&symbol=${realPair}&limit=${limit}`
 
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.result.list.length) {
           const trades = response.data.result.list
@@ -224,7 +223,7 @@ class Bybit extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
 
         return totalRecovered

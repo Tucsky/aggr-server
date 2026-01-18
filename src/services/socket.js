@@ -2,7 +2,7 @@ const { statSync, unlinkSync } = require('fs')
 const net = require('net')
 const EventEmitter = require('events')
 const config = require('../config')
-const { indexes, getActiveConnections } = require('./connections')
+const { indexes } = require('./connections')
 const { v4: uuidv4 } = require('uuid')
 
 require('../typedef')
@@ -76,14 +76,14 @@ class SocketService extends EventEmitter {
           this.emit(data.opId, data)
         })
       )
-      .on('close', hadError => {
+      .on('close', _hadError => {
         // collector never close connection with cluster by itself
         // console[hadError ? 'error' : 'log'](`[socket/collector] cluster closed`)
 
         // schedule reconnection
         this.reconnectCluster()
       })
-      .on('error', error => {
+      .on('error', _error => {
         // the close even destroy the previous strem and may trigger error
         // reconnect in this situation as well
         this.reconnectCluster()
@@ -155,11 +155,11 @@ class SocketService extends EventEmitter {
     try {
       if (statSync(config.influxCollectorsClusterSocketPath)) {
         console.debug(
-          `[socket/cluster] unix socket was not closed properly last time`
+          '[socket/cluster] unix socket was not closed properly last time'
         )
         unlinkSync(config.influxCollectorsClusterSocketPath)
       }
-    } catch (error) {}
+    } catch (_error) { /* ignored */ }
 
     this.serverSocket = net.createServer(socket => {
       console.log('[socket/cluster] collector connected successfully')
@@ -219,7 +219,7 @@ class SocketService extends EventEmitter {
     })
 
     this.serverSocket.on('error', error => {
-      console.error(`[socket/cluster] server socket error`, error)
+      console.error('[socket/cluster] server socket error', error)
     })
 
     this.serverSocket.listen(config.influxCollectorsClusterSocketPath)

@@ -1,5 +1,4 @@
 const Exchange = require('../exchange')
-const { sleep, getHms } = require('../helper')
 const axios = require('axios')
 
 const { inflateRaw } = require('pako')
@@ -13,12 +12,7 @@ const WS_API_FUTURES = 'wss://openapi-ws-v2.bitmart.com/api?protocol=1.1'
  */
 class Bitmart extends Exchange {
   constructor() {
-    super()
-
-    /**
-     * @type {string}
-     */
-    this.id = 'BITMART'
+    super('BITMART')
 
     /**
      * @type {object}
@@ -110,7 +104,7 @@ class Bitmart extends Exchange {
 
     api.send(
       JSON.stringify({
-        [typeImpl.arg]: `subscribe`,
+        [typeImpl.arg]: 'subscribe',
         args: [`${typeImpl.prefix}/trade:${pair}`]
       })
     )
@@ -142,7 +136,7 @@ class Bitmart extends Exchange {
 
     api.send(
       JSON.stringify({
-        [typeImpl.arg]: `unsubscribe`,
+        [typeImpl.arg]: 'unsubscribe',
         args: [`${typeImpl.prefix}/trade:${pair}`]
       })
     )
@@ -233,8 +227,10 @@ class Bitmart extends Exchange {
         side: trade[4]
       }
     }
-    return axios
-      .get(endpoint)
+    return this.requestWithRetry(() => axios.get(endpoint), {
+      range,
+      label: 'missing trades'
+    })
       .then(response => {
         if (response.data.data && response.data.data.length) {
           const trades = response.data.data.map(trade =>
@@ -256,7 +252,7 @@ class Bitmart extends Exchange {
       .catch(err => {
         console.error(
           `[${this.id}] failed to get missing trades on ${range.pair}`,
-          err.message
+          this.formatErrorForLog(err)
         )
 
         return totalRecovered

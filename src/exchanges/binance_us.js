@@ -3,9 +3,8 @@ const { sleep } = require('../helper')
 
 class BinanceUs extends Exchange {
   constructor() {
-    super()
+    super('BINANCE_US')
 
-    this.id = 'BINANCE_US'
     this.lastSubscriptionId = 0
     this.subscriptions = {}
 
@@ -13,7 +12,7 @@ class BinanceUs extends Exchange {
       PRODUCTS: 'https://api.binance.us/api/v3/exchangeInfo'
     }
 
-    this.url = () => `wss://stream.binance.us:9443/ws`
+    this.url = () => 'wss://stream.binance.us:9443/ws'
   }
 
   formatProducts(data) {

@@ -8,7 +8,6 @@ const Server = require('./src/server')
 const alertService = require('./src/services/alert')
 const { saveConnections } = require('./src/services/connections')
 const socketService = require('./src/services/socket')
-const FilesStorage = require('./src/storage/files')
 
 /* Load available exchanges
  */
@@ -53,34 +52,34 @@ process.on('SIGINT', async function () {
     if (alertService.enabled) {
       try {
         await alertService.persistAlerts()
-        console.log(`[exit] saved alerts ✓`)
+        console.log('[exit] saved alerts ✓')
       } catch (error) {
-        console.error(`[exit] failed to save alerts`, error.message)
+        console.error('[exit] failed to save alerts', error.message)
       }
     }
 
     if (config.persistConnections) {
       try {
         await saveConnections(true)
-        console.log(`[exit] saved connections ✓`)
+        console.log('[exit] saved connections ✓')
       } catch (error) {
-        console.error(`[exit] failed to save connections`, error.message)
+        console.error('[exit] failed to save connections', error.message)
       }
     }
 
     try {
       await server.backupTrades(true)
-      console.log(`[exit] saved trades ✓`)
+      console.log('[exit] saved trades ✓')
     } catch (error) {
-      console.error(`[exit] failed to save trades`, error.message)
+      console.error('[exit] failed to save trades', error.message)
     }
   }
 
   try {
     await socketService.close()
-    console.log(`[exit] closed sockets ✓`)
+    console.log('[exit] closed sockets ✓')
   } catch (error) {
-    console.error(`[exit] failed to close sockets`, error.message)
+    console.error('[exit] failed to close sockets', error.message)
   }
 
   console.log('[init] goodbye')
@@ -150,7 +149,7 @@ if (process.env.pmx) {
         if (recoveredCount) {
           reply(`${recoveredCount} trades recovered`)
         } else {
-          reply(`no trade were recovered`)
+          reply('no trade were recovered')
         }
       } catch (error) {
         const message = `[${id}.recoverTrades] something went wrong while recovering ${pair}'s missing trades`

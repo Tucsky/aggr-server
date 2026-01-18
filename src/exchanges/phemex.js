@@ -2,9 +2,8 @@ const Exchange = require('../exchange')
 
 class Phemex extends Exchange {
   constructor() {
-    super()
+    super('PHEMEX')
 
-    this.id = 'PHEMEX'
     this.isInverse = {}
     this.isV1 = {}
     this.priceScales = {}

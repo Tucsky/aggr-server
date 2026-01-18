@@ -4,8 +4,7 @@ const axios = require('axios')
 
 class Hyperliquid extends Exchange {
   constructor() {
-    super()
-    this.id = 'HYPERLIQUID'
+    super('HYPERLIQUID')
 
     this.endpoints = {
       PRODUCTS: 'https://api.hyperliquid.xyz/info'

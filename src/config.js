@@ -6,7 +6,7 @@ require('dotenv').config({
 })
 
 
-console.log(`[init] reading config.json...`)
+console.log('[init] reading config.json...')
 
 /* Default configuration (its not ok to change here!, use config.json.)
  */
@@ -261,8 +261,8 @@ if (process.env.RUNNING_IN_DOCKER) {
   */
 
   Object.keys(config).forEach(k => {
-    config_to_env_key = decamelize(k, '_').toUpperCase()
-    config_env_value = process.env[config_to_env_key]
+    const config_to_env_key = decamelize(k, '_').toUpperCase()
+    const config_env_value = process.env[config_to_env_key]
     if (config_env_value) {
       config[k] = config_env_value
       console.log(
@@ -299,9 +299,11 @@ if (config.storage) {
   }
 
   for (let storage of config.storage) {
-    const storagePath = path.resolve(__dirname, 'storage/' + storage + '.js')
-    if (!fs.existsSync(storagePath)) {
-      throw new Error(`Unknown storage solution "${storagePath}"`)
+    const storageFilePath = path.resolve(__dirname, 'storage/' + storage + '.js')
+    const storageDirPath = path.resolve(__dirname, 'storage/' + storage)
+    // Check for single file (e.g., influx.js) or directory with index.js (e.g., binaries/index.js)
+    if (!fs.existsSync(storageFilePath) && !fs.statSync(storageDirPath, { throwIfNoEntry: false })?.isDirectory()) {
+      throw new Error(`Unknown storage solution "${storage}"`)
     }
   }
 } else {
@@ -374,17 +376,17 @@ if (config.exchanges && typeof config.exchanges === 'string') {
 
 if (!config.storage && config.collect) {
   console.warn(
-    `[warning!] server will not persist any of the data it is receiving`
+    '[warning!] server will not persist any of the data it is receiving'
   )
 }
 
 if (!config.collect && !config.api) {
-  console.warn(`[warning!] server has no purpose`)
+  console.warn('[warning!] server has no purpose')
 }
 
 if (!config.storage && !config.collect && config.api) {
   console.warn(
-    `[warning!] api is enabled but neither storage or collect is enabled (may be useless)`
+    '[warning!] api is enabled but neither storage or collect is enabled (may be useless)'
   )
 }
 
