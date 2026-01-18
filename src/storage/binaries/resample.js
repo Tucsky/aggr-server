@@ -1,8 +1,8 @@
 const fs = require('fs')
 const { ensureDirectoryExists, getHms } = require('../../helper')
 const { RECORD_SIZE, PRICE_SCALE, VOLUME_SCALE, getSegmentStartTs, getSegmentSpanMs, getSegmentRecords } = require('./constants')
-const { getFilePath, getSegmentPaths, readRecord, writeRecord, readMeta, writeMeta } = require('./io')
-const { createNullBar, upsertBarsToSegment } = require('./write')
+const { getSegmentPaths, readRecord, isNullRecord, writeRecord, readMeta, writeMeta, openFdCached } = require('./io')
+const { createNullBar } = require('./write')
 
 /**
  * Triggers resampling from base timeframe to all configured higher timeframes.
@@ -66,7 +66,7 @@ async function resampleRangeToTimeframe(exchange, symbol, baseTimeframe, fromTs,
   for (let segmentStartTs = firstBaseSegment; segmentStartTs <= lastBaseSegment; segmentStartTs += baseSegmentSpanMs) {
     const paths = getSegmentPaths(exchange, symbol, baseTimeframe, segmentStartTs)
     const meta = readMeta(paths.json)
-    if (!meta || !fs.existsSync(paths.bin)) continue
+    if (!meta) continue
 
     // Calculate which records from this segment we need
     const segmentEndTs = segmentStartTs + baseSegmentSpanMs
@@ -87,16 +87,19 @@ async function resampleRangeToTimeframe(exchange, symbol, baseTimeframe, fromTs,
     const byteOffset = startIndex * RECORD_SIZE
     const byteLength = count * RECORD_SIZE
 
+    // Compute max bytes from meta.records (avoids fstatSync)
+    const maxBytesFromMeta = meta.records * RECORD_SIZE
+    const maxBytes = Math.min(byteLength, maxBytesFromMeta - byteOffset)
+    if (maxBytes <= 0) continue
+
+    // Use cached fd (avoids openSync/closeSync per segment)
+    const fd = openFdCached(paths.bin, 'r')
+    if (fd === null) continue
+
     let buffer
     try {
-      const fd = fs.openSync(paths.bin, 'r')
-      const stat = fs.fstatSync(fd)
-      const maxBytes = Math.min(byteLength, stat.size - byteOffset)
-      if (maxBytes > 0) {
-        buffer = Buffer.alloc(maxBytes)
-        fs.readSync(fd, buffer, 0, maxBytes, byteOffset)
-      }
-      fs.closeSync(fd)
+      buffer = Buffer.alloc(maxBytes)
+      fs.readSync(fd, buffer, 0, maxBytes, byteOffset)
     } catch (_e) {
       buffer = null
     }
@@ -104,12 +107,13 @@ async function resampleRangeToTimeframe(exchange, symbol, baseTimeframe, fromTs,
     if (buffer) {
       const recordCount = Math.floor(buffer.length / RECORD_SIZE)
       for (let i = 0; i < recordCount; i++) {
-        const record = readRecord(buffer, i * RECORD_SIZE, meta)
+        const offset = i * RECORD_SIZE
         const barTime = segmentStartTs + (startIndex + i) * baseTimeframe
 
-        // Skip null records
-        if (record.open === 0 && record.high === 0 && record.low === 0 && record.close === 0) continue
+        // Fast null-bar check (only reads 16 bytes, no decode)
+        if (isNullRecord(buffer, offset)) continue
 
+        const record = readRecord(buffer, offset, meta)
         baseBarsByTime[barTime] = record
       }
     }
@@ -173,7 +177,6 @@ async function resampleRangeToTimeframe(exchange, symbol, baseTimeframe, fromTs,
   if (barsToWrite.length === 0) return
 
   // Group bars by target segment and upsert each segment
-  const targetSegmentSpanMs = getSegmentSpanMs(targetTimeframe)
   const barsBySegment = {}
 
   for (const bar of barsToWrite) {

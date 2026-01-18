@@ -357,6 +357,50 @@ The `fetch()` method returns data in the same format as InfluxDB storage:
 
 **Note**: Time is returned in **seconds** (not milliseconds) to match InfluxDB's `precision: 's'` setting.
 
+## Performance Optimizations
+
+### In-Memory Caches
+
+The storage engine uses two LRU caches to reduce syscall overhead on hot paths:
+
+#### Metadata Cache
+
+Caches parsed JSON metadata files with mtime-based validation:
+
+```javascript
+{
+  "binariesMetaCacheMax": 5000  // Max cached metadata entries (default)
+}
+```
+
+- **Key**: Absolute path to `.json` file
+- **Value**: `{ meta, mtime }` tuple
+- **Invalidation**: Re-read if file mtime changes or on explicit invalidation
+- **Eviction**: LRU when cache exceeds `binariesMetaCacheMax`
+
+#### File Descriptor Cache
+
+Caches open file descriptors for read-mode access:
+
+```javascript
+{
+  "binariesFdCacheMax": 256  // Max cached file descriptors (default)
+}
+```
+
+- **Key**: Absolute path to `.bin` file
+- **Value**: `{ fd, mode }` tuple
+- **Eviction**: LRU with `fs.closeSync()` on eviction
+- **Cleanup**: Call `closeAllFds()` on graceful shutdown
+
+### Fast Null-Bar Check
+
+Uses `isNullRecord(buffer, offset)` which only reads the first 16 bytes (OHLC int32s) to detect null bars without full decode.
+
+### Positioned Reads
+
+Uses `fs.readSync()` with offset parameter (pread) for single-record lookups, avoiding file seek state.
+
 ## Performance Characteristics
 
 | Operation | Complexity | Notes |
@@ -365,6 +409,15 @@ The `fetch()` method returns data in the same format as InfluxDB storage:
 | Write (overwrite) | O(n) | Positioned writes, batched by contiguous indices |
 | Read (fetch) | O(n + s) | n=records, s=segments in range |
 | Resample | O(n) | Reads base segments, writes target segments |
+
+### Syscall Reduction
+
+| Operation | Before | After (with caches) |
+|-----------|--------|---------------------|
+| Metadata read | `readFileSync` + `JSON.parse` | Cached lookup + mtime check |
+| File open | `openSync` per read | Cached FD reuse |
+| File stat | `fstatSync` per read | Uses `meta.records` from cache |
+| File close | `closeSync` per read | Deferred until eviction |
 
 ### Advantages over InfluxDB
 

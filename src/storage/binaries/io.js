@@ -2,7 +2,121 @@ const fs = require('fs')
 const path = require('path')
 const config = require('../../config')
 const { getHms } = require('../../helper')
-const { RECORD_SIZE, getSegmentStartTs, getSegmentSpanMs, getSegmentRecords } = require('./constants')
+const { RECORD_SIZE, getSegmentStartTs, getSegmentSpanMs } = require('./constants')
+
+// ============================================================================
+// Caches for performance optimization
+// ============================================================================
+
+/**
+ * Metadata cache to avoid repeated JSON reads.
+ * Key: jsonPath, Value: { mtimeMs: number, meta: object }
+ * @type {Map<string, {mtimeMs: number, meta: object}>}
+ */
+const metaCache = new Map()
+
+/**
+ * Maximum entries in metadata cache before eviction.
+ * @type {number}
+ */
+const META_CACHE_MAX = config.binariesMetaCacheMax || 5000
+
+/**
+ * LRU file descriptor cache for .bin files.
+ * Key: binPath, Value: fd (number)
+ * Map maintains insertion order; we use this for LRU eviction.
+ * @type {Map<string, number>}
+ */
+const fdCache = new Map()
+
+/**
+ * Maximum open file descriptors to cache.
+ * @type {number}
+ */
+const FD_CACHE_MAX = config.binariesFdCacheMax || 256
+
+/**
+ * Opens a file descriptor with LRU caching.
+ * On cache hit, moves entry to end (most recently used).
+ * On cache miss, opens file and evicts LRU if needed.
+ * 
+ * @param {string} binPath - Path to binary file
+ * @param {string} [flags='r'] - File open flags
+ * @returns {number|null} File descriptor or null if file doesn't exist
+ */
+function openFdCached(binPath, flags = 'r') {
+  // Check cache first
+  if (fdCache.has(binPath)) {
+    const fd = fdCache.get(binPath)
+    // Move to end (most recently used) by deleting and re-inserting
+    fdCache.delete(binPath)
+    fdCache.set(binPath, fd)
+    return fd
+  }
+
+  // Open new fd
+  let fd
+  try {
+    fd = fs.openSync(binPath, flags)
+  } catch (e) {
+    if (e.code === 'ENOENT') return null
+    throw e
+  }
+
+  // Evict LRU if at capacity
+  if (fdCache.size >= FD_CACHE_MAX) {
+    // First entry is least recently used
+    const lruKey = fdCache.keys().next().value
+    const lruFd = fdCache.get(lruKey)
+    fdCache.delete(lruKey)
+    try {
+      fs.closeSync(lruFd)
+    } catch (_) { /* ignore close errors */ }
+  }
+
+  fdCache.set(binPath, fd)
+  return fd
+}
+
+/**
+ * Closes all cached file descriptors.
+ * Call this on shutdown to avoid fd leaks.
+ */
+function closeAllFds() {
+  for (const [_path, fd] of fdCache) {
+    try {
+      fs.closeSync(fd)
+    } catch (_) { /* ignore */ }
+  }
+  fdCache.clear()
+}
+
+/**
+ * Invalidates a cached file descriptor (e.g., after write).
+ * @param {string} binPath - Path to invalidate
+ */
+function invalidateFdCache(binPath) {
+  if (fdCache.has(binPath)) {
+    const fd = fdCache.get(binPath)
+    fdCache.delete(binPath)
+    try {
+      fs.closeSync(fd)
+    } catch (_) { /* ignore */ }
+  }
+}
+
+/**
+ * Invalidates metadata cache for a path (call after writes).
+ * @param {string} jsonPath - Path to invalidate
+ */
+function invalidateMetaCache(jsonPath) {
+  metaCache.delete(jsonPath)
+}
+
+// Register cleanup on process exit
+process.on('exit', closeAllFds)
+process.on('SIGINT', () => { closeAllFds(); process.exit(0) })
+process.on('SIGTERM', () => { closeAllFds(); process.exit(0) })
 
 /**
  * Generates file paths for a market's binary and metadata files (legacy single-file format).
@@ -154,16 +268,68 @@ function readRecord(buffer, offset, meta) {
 }
 
 /**
- * Reads metadata JSON file for a market/timeframe.
+ * Fast null-bar check that only reads the first 16 bytes (OHLC int32s).
+ * This avoids the cost of reading BigInt64 fields for null records.
+ * 
+ * @param {Buffer} buffer - Source buffer
+ * @param {number} offset - Byte offset in buffer
+ * @returns {boolean} True if this is a null bar (all OHLC are zero)
+ */
+function isNullRecord(buffer, offset) {
+  // Check if all 16 bytes of OHLC are zero
+  // This is faster than reading and comparing 4 separate Int32LE values
+  return (
+    buffer.readInt32LE(offset) === 0 &&
+    buffer.readInt32LE(offset + 4) === 0 &&
+    buffer.readInt32LE(offset + 8) === 0 &&
+    buffer.readInt32LE(offset + 12) === 0
+  )
+}
+
+/**
+ * Reads metadata JSON file for a market/timeframe with caching.
+ * Uses mtime-based cache invalidation to avoid stale reads.
  * 
  * @param {string} jsonPath - Path to the JSON metadata file
  * @returns {import('./constants').BinaryMeta|null} Parsed metadata or null if not found
  */
 function readMeta(jsonPath) {
   try {
-    if (!fs.existsSync(jsonPath)) return null
+    // Get file stat (also checks existence)
+    let stat
+    try {
+      stat = fs.statSync(jsonPath)
+    } catch (e) {
+      if (e.code === 'ENOENT') {
+        // File doesn't exist, clear any stale cache entry
+        metaCache.delete(jsonPath)
+        return null
+      }
+      throw e
+    }
+
+    const mtimeMs = stat.mtimeMs
+
+    // Check cache
+    const cached = metaCache.get(jsonPath)
+    if (cached && cached.mtimeMs === mtimeMs) {
+      return cached.meta
+    }
+
+    // Read and parse
     const content = fs.readFileSync(jsonPath, 'utf8')
-    return JSON.parse(content)
+    const meta = JSON.parse(content)
+
+    // Evict oldest entries if at capacity (simple FIFO eviction)
+    if (metaCache.size >= META_CACHE_MAX) {
+      const firstKey = metaCache.keys().next().value
+      metaCache.delete(firstKey)
+    }
+
+    // Cache the result
+    metaCache.set(jsonPath, { mtimeMs, meta })
+
+    return meta
   } catch (_e) {
     return null
   }
@@ -171,6 +337,7 @@ function readMeta(jsonPath) {
 
 /**
  * Writes metadata JSON file atomically (write to temp, then rename).
+ * Invalidates the metadata cache for this path.
  * 
  * @param {string} jsonPath - Path to the JSON metadata file
  * @param {import('./constants').BinaryMeta} meta - Metadata to write
@@ -179,11 +346,14 @@ function writeMeta(jsonPath, meta) {
   const tmpPath = jsonPath + '.tmp'
   fs.writeFileSync(tmpPath, JSON.stringify(meta, null, 2))
   fs.renameSync(tmpPath, jsonPath)
+  // Invalidate cache so next read gets fresh data
+  invalidateMetaCache(jsonPath)
 }
 
 /**
  * Reads a single record from a segment file at a specific bucket timestamp.
  * Uses positioned read (pread) to read only the needed 56 bytes.
+ * Uses cached file descriptor to avoid open/close syscalls on hot paths.
  * 
  * This is used as a disk fallback when processing trades for buckets
  * that exist on disk but not in memory caches.
@@ -201,7 +371,6 @@ function readSingleRecordAtTs(exchange, symbol, timeframe, bucketTs) {
   const meta = readMeta(paths.json)
   
   if (!meta) return null
-  if (!fs.existsSync(paths.bin)) return null
 
   // Compute the segment span and validate bucket is within segment bounds
   const segmentSpanMs = getSegmentSpanMs(timeframe)
@@ -213,33 +382,30 @@ function readSingleRecordAtTs(exchange, symbol, timeframe, bucketTs) {
   const index = Math.floor((bucketTs - segmentStartTs) / timeframe)
   if (index < 0 || index >= meta.records) return null
 
+  // Use meta.records to validate bounds (avoids fstatSync)
+  const maxBytes = meta.records * RECORD_SIZE
   const byteOffset = index * RECORD_SIZE
+  if (byteOffset + RECORD_SIZE > maxBytes) return null
+
   const buffer = Buffer.alloc(RECORD_SIZE)
 
-  let fd
+  // Use cached fd (avoids openSync/closeSync per read)
+  const fd = openFdCached(paths.bin, 'r')
+  if (fd === null) return null
+
   try {
-    fd = fs.openSync(paths.bin, 'r')
-    const stat = fs.fstatSync(fd)
-    if (byteOffset + RECORD_SIZE > stat.size) {
-      fs.closeSync(fd)
-      return null
-    }
     // Positioned read - only reads the single record we need
     fs.readSync(fd, buffer, 0, RECORD_SIZE, byteOffset)
-    fs.closeSync(fd)
   } catch (_e) {
-    if (fd !== undefined) {
-      try { fs.closeSync(fd) } catch (_) { /* ignored */ }
-    }
+    return null
+  }
+
+  // Fast null-bar check (only reads 16 bytes from buffer, no decode)
+  if (isNullRecord(buffer, 0)) {
     return null
   }
 
   const record = readRecord(buffer, 0, meta)
-
-  // Check if this is a null record (all OHLC are zero)
-  if (record.open === 0 && record.high === 0 && record.low === 0 && record.close === 0) {
-    return null
-  }
 
   return {
     time: bucketTs,
@@ -283,9 +449,15 @@ module.exports = {
   parseMarket,
   writeRecord,
   readRecord,
+  isNullRecord,
   readMeta,
   writeMeta,
   readSingleRecordAtTs,
   readSegmentMeta,
-  writeSegmentMeta
+  writeSegmentMeta,
+  // Cache management exports
+  openFdCached,
+  closeAllFds,
+  invalidateFdCache,
+  invalidateMetaCache
 }

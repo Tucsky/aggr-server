@@ -5,7 +5,7 @@ const { updateIndexes } = require('../../services/connections')
 const { getHms } = require('../../helper')
 
 const { RECORD_SIZE, getSegmentStartTs, getSegmentSpanMs } = require('./constants')
-const { getSegmentPaths, parseMarket, readRecord, readMeta, readSingleRecordAtTs } = require('./io')
+const { getSegmentPaths, parseMarket, readRecord, isNullRecord, readMeta, readSingleRecordAtTs, openFdCached } = require('./io')
 const { upsertBars } = require('./write')
 const { resampleToHigherTimeframes } = require('./resample')
 
@@ -390,7 +390,6 @@ class BinariesStorage {
         const paths = getSegmentPaths(parsed.exchange, parsed.symbol, timeframe, segmentStartTs)
         const meta = readMeta(paths.json)
         if (!meta) continue
-        if (!fs.existsSync(paths.bin)) continue
 
         // Calculate index range within this segment for the requested time window
         const segmentEndTs = segmentStartTs + segmentSpanMs
@@ -402,7 +401,7 @@ class BinariesStorage {
         let startIndex = Math.floor((readFromTs - segmentStartTs) / timeframe)
         let endIndex = Math.ceil((readToTs - segmentStartTs) / timeframe)
 
-        // Clamp to valid range
+        // Clamp to valid range (use meta.records, avoids fstatSync)
         if (startIndex < 0) startIndex = 0
         if (endIndex > meta.records) endIndex = meta.records
         if (startIndex >= endIndex) continue
@@ -411,34 +410,32 @@ class BinariesStorage {
         const byteOffset = startIndex * RECORD_SIZE
         const byteLength = count * RECORD_SIZE
 
-        // Read the range from disk
+        // Compute max bytes from meta.records (avoids fstatSync)
+        const maxBytesFromMeta = meta.records * RECORD_SIZE
+        const maxBytes = Math.min(byteLength, maxBytesFromMeta - byteOffset)
+        if (maxBytes <= 0) continue
+
+        // Use cached fd (avoids openSync/closeSync per segment)
+        const fd = openFdCached(paths.bin, 'r')
+        if (fd === null) continue
+
         let buffer
-        let fd
         try {
-          fd = fs.openSync(paths.bin, 'r')
-          const stat = fs.fstatSync(fd)
-          const maxBytes = Math.min(byteLength, stat.size - byteOffset)
-          if (maxBytes <= 0) {
-            fs.closeSync(fd)
-            continue
-          }
           buffer = Buffer.alloc(maxBytes)
           fs.readSync(fd, buffer, 0, maxBytes, byteOffset)
-          fs.closeSync(fd)
         } catch (_e) {
-          if (fd !== undefined) {
-            try { fs.closeSync(fd) } catch (_) { /* ignored */ }
-          }
           continue
         }
 
         // Decode records and add to results
         const recordCount = Math.floor(buffer.length / RECORD_SIZE)
         for (let i = 0; i < recordCount; i++) {
-          const record = readRecord(buffer, i * RECORD_SIZE, meta)
+          const offset = i * RECORD_SIZE
 
-          // Skip null bars (gaps) - check before computing barTime for efficiency
-          if (record.open === 0 && record.high === 0 && record.low === 0 && record.close === 0) continue
+          // Fast null-bar check (only reads 16 bytes, no decode)
+          if (isNullRecord(buffer, offset)) continue
+
+          const record = readRecord(buffer, offset, meta)
 
           const barTime = segmentStartTs + (startIndex + i) * timeframe
 
