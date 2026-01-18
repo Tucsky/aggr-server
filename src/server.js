@@ -45,7 +45,7 @@ class Server extends EventEmitter {
 
     if (config.collect) {
       console.log('\n[server] collect is enabled')
-      console.log(`\tconnect to -> ${this.exchanges.map(a => a.id).join(', ')}`)
+      // console.log(`\t loading exchanges -> ${this.exchanges.map(a => a.id).join(', ')}`)
 
       this.handleExchangesEvents()
 

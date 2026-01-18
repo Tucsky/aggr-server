@@ -2,11 +2,12 @@ const fs = require('fs')
 const path = require('path')
 const config = require('../../config')
 const { getHms } = require('../../helper')
-const { RECORD_SIZE } = require('./constants')
+const { RECORD_SIZE, getSegmentStartTs, getSegmentSpanMs, getSegmentRecords } = require('./constants')
 
 /**
- * Generates file paths for a market's binary and metadata files.
+ * Generates file paths for a market's binary and metadata files (legacy single-file format).
  * 
+ * @deprecated Use getSegmentPaths for segmented storage
  * @param {string} exchange - Exchange name
  * @param {string} symbol - Trading pair symbol (will be sanitized)
  * @param {number} timeframe - Timeframe in milliseconds
@@ -21,6 +22,43 @@ function getFilePath(exchange, symbol, timeframe) {
     bin: path.join(dir, `${tfLabel}.bin`),
     json: path.join(dir, `${tfLabel}.json`)
   }
+}
+
+/**
+ * Generates file paths for a segment's binary and metadata files.
+ * 
+ * New directory structure:
+ *   data/{exchange}/{symbol}/{timeframe}/{segmentStartTs}.bin|json
+ * 
+ * @param {string} exchange - Exchange name
+ * @param {string} symbol - Trading pair symbol (will be sanitized)
+ * @param {number} timeframe - Timeframe in milliseconds
+ * @param {number} segmentStartTs - Segment start timestamp
+ * @returns {import('./constants').FilePaths} Object with bin and json file paths
+ */
+function getSegmentPaths(exchange, symbol, timeframe, segmentStartTs) {
+  const sanitizedSymbol = symbol.replace(/[/:]/g, '-')
+  const tfLabel = getHms(timeframe)
+  const segmentId = String(segmentStartTs)
+  const dir = path.join(config.filesLocation, exchange, sanitizedSymbol, tfLabel)
+  return {
+    bin: path.join(dir, `${segmentId}.bin`),
+    json: path.join(dir, `${segmentId}.json`)
+  }
+}
+
+/**
+ * Gets the timeframe directory path (contains all segments for a timeframe).
+ * 
+ * @param {string} exchange - Exchange name
+ * @param {string} symbol - Trading pair symbol (will be sanitized)
+ * @param {number} timeframe - Timeframe in milliseconds
+ * @returns {string} Directory path
+ */
+function getTimeframeDir(exchange, symbol, timeframe) {
+  const sanitizedSymbol = symbol.replace(/[/:]/g, '-')
+  const tfLabel = getHms(timeframe)
+  return path.join(config.filesLocation, exchange, sanitizedSymbol, tfLabel)
 }
 
 /**
@@ -144,7 +182,7 @@ function writeMeta(jsonPath, meta) {
 }
 
 /**
- * Reads a single record from the binary file at a specific bucket timestamp.
+ * Reads a single record from a segment file at a specific bucket timestamp.
  * Uses positioned read (pread) to read only the needed 56 bytes.
  * 
  * This is used as a disk fallback when processing trades for buckets
@@ -157,16 +195,22 @@ function writeMeta(jsonPath, meta) {
  * @returns {import('./constants').Bar|null} Bar data if found and non-null, otherwise null
  */
 function readSingleRecordAtTs(exchange, symbol, timeframe, bucketTs) {
-  const paths = getFilePath(exchange, symbol, timeframe)
+  // Compute which segment this bucket belongs to
+  const segmentStartTs = getSegmentStartTs(bucketTs, timeframe)
+  const paths = getSegmentPaths(exchange, symbol, timeframe, segmentStartTs)
   const meta = readMeta(paths.json)
+  
   if (!meta) return null
   if (!fs.existsSync(paths.bin)) return null
 
-  // Check if bucketTs is within the file's range
-  if (bucketTs < meta.startTs || bucketTs >= meta.endTs) return null
+  // Compute the segment span and validate bucket is within segment bounds
+  const segmentSpanMs = getSegmentSpanMs(timeframe)
+  const segmentEndTs = segmentStartTs + segmentSpanMs
+  
+  if (bucketTs < segmentStartTs || bucketTs >= segmentEndTs) return null
 
-  // Calculate record index and byte offset
-  const index = Math.floor((bucketTs - meta.startTs) / meta.timeframeMs)
+  // Calculate record index within the segment
+  const index = Math.floor((bucketTs - segmentStartTs) / timeframe)
   if (index < 0 || index >= meta.records) return null
 
   const byteOffset = index * RECORD_SIZE
@@ -212,12 +256,36 @@ function readSingleRecordAtTs(exchange, symbol, timeframe, bucketTs) {
   }
 }
 
+/**
+ * Read segment metadata JSON file.
+ * 
+ * @param {string} jsonPath - Path to the JSON metadata file
+ * @returns {import('./constants').SegmentMeta|null} Parsed metadata or null if not found
+ */
+function readSegmentMeta(jsonPath) {
+  return readMeta(jsonPath)
+}
+
+/**
+ * Writes segment metadata JSON file atomically (write to temp, then rename).
+ * 
+ * @param {string} jsonPath - Path to the JSON metadata file
+ * @param {import('./constants').SegmentMeta} meta - Metadata to write
+ */
+function writeSegmentMeta(jsonPath, meta) {
+  writeMeta(jsonPath, meta)
+}
+
 module.exports = {
   getFilePath,
+  getSegmentPaths,
+  getTimeframeDir,
   parseMarket,
   writeRecord,
   readRecord,
   readMeta,
   writeMeta,
-  readSingleRecordAtTs
+  readSingleRecordAtTs,
+  readSegmentMeta,
+  writeSegmentMeta
 }

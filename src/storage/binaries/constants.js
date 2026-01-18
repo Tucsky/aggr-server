@@ -1,3 +1,5 @@
+const config = require('../../config')
+
 /**
  * Size in bytes of a single OHLCV record in the binary file.
  * Layout (56 bytes total):
@@ -31,6 +33,90 @@ const PRICE_SCALE = 10000
 const VOLUME_SCALE = 1000000
 
 /**
+ * Default number of records per segment file.
+ * Each segment stores exactly this many records (dense indexing).
+ * segmentSpanMs = timeframeMs * SEGMENT_RECORDS
+ * 
+ * Can be overridden via config.binariesSegmentRecords (number or per-timeframe object)
+ * @constant {number}
+ */
+const DEFAULT_SEGMENT_RECORDS = 4096
+
+/**
+ * Get segment records count for a specific timeframe.
+ * Supports both single value and per-timeframe configuration.
+ * 
+ * @param {number} timeframeMs - Timeframe in milliseconds
+ * @returns {number} Number of records per segment
+ */
+function getSegmentRecords(timeframeMs) {
+  const configValue = config.binariesSegmentRecords
+  if (!configValue) return DEFAULT_SEGMENT_RECORDS
+  if (typeof configValue === 'number') return configValue
+  if (typeof configValue === 'object') {
+    // Check for timeframe-specific override (keys can be ms or human-readable)
+    const msKey = String(timeframeMs)
+    if (configValue[msKey]) return configValue[msKey]
+    // Try human-readable key lookup (e.g., "10s", "1m")
+    const { getHms } = require('../../helper')
+    const hmsKey = getHms(timeframeMs)
+    if (configValue[hmsKey]) return configValue[hmsKey]
+    return DEFAULT_SEGMENT_RECORDS
+  }
+  return DEFAULT_SEGMENT_RECORDS
+}
+
+/**
+ * Compute the segment span in milliseconds for a given timeframe.
+ * 
+ * @param {number} timeframeMs - Timeframe in milliseconds
+ * @returns {number} Segment span in milliseconds
+ */
+function getSegmentSpanMs(timeframeMs) {
+  return timeframeMs * getSegmentRecords(timeframeMs)
+}
+
+/**
+ * Compute the segment start timestamp for a given bar timestamp.
+ * 
+ * @param {number} ts - Bar timestamp in milliseconds
+ * @param {number} timeframeMs - Timeframe in milliseconds
+ * @returns {number} Segment start timestamp
+ */
+function getSegmentStartTs(ts, timeframeMs) {
+  const segmentSpanMs = getSegmentSpanMs(timeframeMs)
+  return Math.floor(ts / segmentSpanMs) * segmentSpanMs
+}
+
+/**
+ * Compute the segment ID (string) for a given bar timestamp.
+ * The segment ID is the segment start timestamp as a string.
+ * 
+ * @param {number} ts - Bar timestamp in milliseconds
+ * @param {number} timeframeMs - Timeframe in milliseconds
+ * @returns {string} Segment ID
+ */
+function getSegmentId(ts, timeframeMs) {
+  return String(getSegmentStartTs(ts, timeframeMs))
+}
+
+/**
+ * @typedef {Object} SegmentMeta
+ * @property {string} exchange - Exchange name
+ * @property {string} symbol - Trading pair symbol
+ * @property {string} timeframe - Human-readable timeframe label (e.g., "5s", "1m")
+ * @property {number} timeframeMs - Timeframe in milliseconds
+ * @property {number} segmentStartTs - Segment start timestamp (first record time)
+ * @property {number} segmentEndTs - Segment end timestamp (segmentStartTs + segmentSpanMs)
+ * @property {number} segmentSpanMs - Total time span of segment in ms
+ * @property {number} segmentRecords - Fixed number of records in this segment
+ * @property {number} priceScale - Price scaling factor used
+ * @property {number} volumeScale - Volume scaling factor used
+ * @property {number} records - Current number of records written (may be less than segmentRecords)
+ * @property {number} lastInputStartTs - Last input bar timestamp processed
+ */
+
+/**
  * @typedef {Object} BinaryMeta
  * @property {string} exchange - Exchange name
  * @property {string} symbol - Trading pair symbol
@@ -42,6 +128,7 @@ const VOLUME_SCALE = 1000000
  * @property {number} volumeScale - Volume scaling factor used
  * @property {number} records - Total number of records in the binary file
  * @property {number} lastInputStartTs - Last input bar timestamp processed
+ * @deprecated Use SegmentMeta for segmented storage
  */
 
 /**
@@ -95,5 +182,10 @@ const VOLUME_SCALE = 1000000
 module.exports = {
   RECORD_SIZE,
   PRICE_SCALE,
-  VOLUME_SCALE
+  VOLUME_SCALE,
+  DEFAULT_SEGMENT_RECORDS,
+  getSegmentRecords,
+  getSegmentSpanMs,
+  getSegmentStartTs,
+  getSegmentId
 }

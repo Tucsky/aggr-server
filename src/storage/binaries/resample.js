@@ -1,11 +1,12 @@
 const fs = require('fs')
 const { ensureDirectoryExists, getHms } = require('../../helper')
-const { RECORD_SIZE, PRICE_SCALE, VOLUME_SCALE } = require('./constants')
-const { getFilePath, readRecord, writeRecord, readMeta, writeMeta } = require('./io')
-const { createNullBar } = require('./write')
+const { RECORD_SIZE, PRICE_SCALE, VOLUME_SCALE, getSegmentStartTs, getSegmentSpanMs, getSegmentRecords } = require('./constants')
+const { getFilePath, getSegmentPaths, readRecord, writeRecord, readMeta, writeMeta } = require('./io')
+const { createNullBar, upsertBarsToSegment } = require('./write')
 
 /**
  * Triggers resampling from base timeframe to all configured higher timeframes.
+ * Now reads from segmented base timeframe files and writes to segmented target files.
  * 
  * @param {Object} storage - BinariesStorage instance
  * @param {string} exchange - Exchange name
@@ -20,23 +21,15 @@ async function resampleToHigherTimeframes(storage, exchange, symbol, fromTs, toT
 
   if (higherTimeframes.length === 0) return
 
-  const basePaths = getFilePath(exchange, symbol, baseTimeframe)
-  const baseMeta = readMeta(basePaths.json)
-  if (!baseMeta || !fs.existsSync(basePaths.bin)) return
-
   // Resample each higher timeframe
   for (const targetTimeframe of higherTimeframes) {
-    await resampleRangeToTimeframe(exchange, symbol, baseMeta, basePaths.bin, fromTs, toTs, targetTimeframe)
+    await resampleRangeToTimeframe(exchange, symbol, baseTimeframe, fromTs, toTs, targetTimeframe)
   }
 }
 
 /**
  * Resamples a range of base timeframe data into a higher target timeframe.
- * 
- * Unlike append-only resampling, this supports upsert semantics:
- * - Overwrites existing target buckets that were affected by base changes
- * - Appends new target buckets as needed
- * - Maintains dense indexing (null bars fill gaps)
+ * Now reads from segmented base files and writes to segmented target files.
  * 
  * Aggregation rules:
  * - open: first non-null value in bucket (by base bar time order)
@@ -46,66 +39,57 @@ async function resampleToHigherTimeframes(storage, exchange, symbol, fromTs, toT
  * 
  * @param {string} exchange - Exchange name
  * @param {string} symbol - Trading pair symbol
- * @param {import('./constants').BinaryMeta} baseMeta - Metadata for base timeframe file
- * @param {string} baseBinPath - Path to base timeframe binary file
+ * @param {number} baseTimeframe - Base timeframe in milliseconds
  * @param {number} fromTs - Start of dirty range (base bucket time)
  * @param {number} toTs - End of dirty range (base bucket time)
  * @param {number} targetTimeframe - Target timeframe in milliseconds
  * @returns {Promise<void>}
  */
-async function resampleRangeToTimeframe(exchange, symbol, baseMeta, baseBinPath, fromTs, toTs, targetTimeframe) {
-  const baseTimeframe = baseMeta.timeframeMs
-  const paths = getFilePath(exchange, symbol, targetTimeframe)
-  await ensureDirectoryExists(paths.bin)
-
-  let meta = readMeta(paths.json)
-
+async function resampleRangeToTimeframe(exchange, symbol, baseTimeframe, fromTs, toTs, targetTimeframe) {
   // Compute dirty target bucket range (inclusive)
-  // A target bucket is dirty if any of its contributing base buckets were modified
   const firstTargetBucket = Math.floor(fromTs / targetTimeframe) * targetTimeframe
   const lastTargetBucket = Math.floor(toTs / targetTimeframe) * targetTimeframe
 
-  // Initialize metadata if this is a new file
-  if (!meta) {
-    meta = {
-      exchange: exchange,
-      symbol: symbol,
-      timeframe: getHms(targetTimeframe),
-      timeframeMs: targetTimeframe,
-      startTs: firstTargetBucket,
-      endTs: firstTargetBucket,
-      priceScale: PRICE_SCALE,
-      volumeScale: VOLUME_SCALE,
-      records: 0,
-      lastInputStartTs: firstTargetBucket
-    }
-  }
+  // Determine which base segments need to be read
+  // We need to read all base bars that contribute to [firstTargetBucket, lastTargetBucket + targetTimeframe)
+  const baseReadFrom = firstTargetBucket
+  const baseReadTo = lastTargetBucket + targetTimeframe - 1 // Last base bar we might need
 
-  // Skip buckets before meta.startTs (no prepend allowed)
-  const startBucket = Math.max(firstTargetBucket, meta.startTs)
-  if (startBucket > lastTargetBucket) return
+  // Collect all base segments that intersect this range
+  const baseSegmentSpanMs = getSegmentSpanMs(baseTimeframe)
+  const firstBaseSegment = getSegmentStartTs(baseReadFrom, baseTimeframe)
+  const lastBaseSegment = getSegmentStartTs(baseReadTo, baseTimeframe)
 
-  // Calculate base record index range covering the dirty target buckets
-  // Need to read all base bars that contribute to [startBucket, lastTargetBucket + targetTimeframe)
-  const baseStartIndex = Math.floor((startBucket - baseMeta.startTs) / baseTimeframe)
-  const baseEndIndex = Math.ceil((lastTargetBucket + targetTimeframe - baseMeta.startTs) / baseTimeframe)
+  // Read base bars from all relevant segments
+  const baseBarsByTime = {} // ts -> record
 
-  // Clamp to valid index range within the base file
-  const clampedStartIndex = Math.max(0, baseStartIndex)
-  const clampedEndIndex = Math.min(baseMeta.records, baseEndIndex)
+  for (let segmentStartTs = firstBaseSegment; segmentStartTs <= lastBaseSegment; segmentStartTs += baseSegmentSpanMs) {
+    const paths = getSegmentPaths(exchange, symbol, baseTimeframe, segmentStartTs)
+    const meta = readMeta(paths.json)
+    if (!meta || !fs.existsSync(paths.bin)) continue
 
-  // Aggregate base bars into target buckets
-  // Key: target bucket timestamp, Value: aggregated bar data
-  const aggregated = {}
+    // Calculate which records from this segment we need
+    const segmentEndTs = segmentStartTs + baseSegmentSpanMs
+    const readFromTs = Math.max(baseReadFrom, segmentStartTs)
+    const readToTs = Math.min(baseReadTo, segmentEndTs - 1)
 
-  if (clampedStartIndex < clampedEndIndex) {
-    const count = clampedEndIndex - clampedStartIndex
-    const byteOffset = clampedStartIndex * RECORD_SIZE
+    if (readFromTs > readToTs) continue
+
+    const startIndex = Math.floor((readFromTs - segmentStartTs) / baseTimeframe)
+    const endIndex = Math.min(
+      Math.ceil((readToTs + 1 - segmentStartTs) / baseTimeframe),
+      meta.records
+    )
+
+    if (startIndex >= endIndex) continue
+
+    const count = endIndex - startIndex
+    const byteOffset = startIndex * RECORD_SIZE
     const byteLength = count * RECORD_SIZE
 
     let buffer
     try {
-      const fd = fs.openSync(baseBinPath, 'r')
+      const fd = fs.openSync(paths.bin, 'r')
       const stat = fs.fstatSync(fd)
       const maxBytes = Math.min(byteLength, stat.size - byteOffset)
       if (maxBytes > 0) {
@@ -119,111 +103,187 @@ async function resampleRangeToTimeframe(exchange, symbol, baseMeta, baseBinPath,
 
     if (buffer) {
       const recordCount = Math.floor(buffer.length / RECORD_SIZE)
-
-      // Process each base record and aggregate into target buckets
       for (let i = 0; i < recordCount; i++) {
-        const record = readRecord(buffer, i * RECORD_SIZE, baseMeta)
-        const barTime = baseMeta.startTs + (clampedStartIndex + i) * baseTimeframe
+        const record = readRecord(buffer, i * RECORD_SIZE, meta)
+        const barTime = segmentStartTs + (startIndex + i) * baseTimeframe
 
-        // Skip null records (gaps in base data)
+        // Skip null records
         if (record.open === 0 && record.high === 0 && record.low === 0 && record.close === 0) continue
 
-        // Determine which target bucket this base bar contributes to
-        const targetBucketTime = Math.floor(barTime / targetTimeframe) * targetTimeframe
-        if (targetBucketTime < startBucket || targetBucketTime > lastTargetBucket) continue
-
-        if (!aggregated[targetBucketTime]) {
-          // First contributing base bar for this target bucket
-          aggregated[targetBucketTime] = {
-            time: targetBucketTime,
-            open: record.open,
-            high: record.high,
-            low: record.low,
-            close: record.close,
-            vbuy: record.vbuy,
-            vsell: record.vsell,
-            cbuy: record.cbuy,
-            csell: record.csell,
-            lbuy: record.lbuy,
-            lsell: record.lsell,
-            _firstBarTime: barTime // Track earliest base bar for open determination
-          }
-        } else {
-          // Merge subsequent base bars into the aggregate
-          const agg = aggregated[targetBucketTime]
-
-          // Open comes from the earliest base bar (by time, not arrival order)
-          if (barTime < agg._firstBarTime) {
-            agg.open = record.open
-            agg._firstBarTime = barTime
-          }
-
-          // High/low are extrema, close comes from the last bar processed
-          agg.high = Math.max(agg.high, record.high)
-          agg.low = Math.min(agg.low, record.low)
-          agg.close = record.close
-
-          // Volumes and counts are summed
-          agg.vbuy += record.vbuy
-          agg.vsell += record.vsell
-          agg.cbuy += record.cbuy
-          agg.csell += record.csell
-          agg.lbuy += record.lbuy
-          agg.lsell += record.lsell
-        }
+        baseBarsByTime[barTime] = record
       }
     }
   }
 
-  // Build complete list of bars to upsert (dense: one per target bucket in range)
-  const barsToUpsert = []
-  for (let bucketTs = startBucket; bucketTs <= lastTargetBucket; bucketTs += targetTimeframe) {
-    if (aggregated[bucketTs]) {
-      barsToUpsert.push(aggregated[bucketTs])
+  // Aggregate base bars into target buckets
+  const aggregated = {}
+
+  for (const barTimeStr in baseBarsByTime) {
+    const barTime = Number(barTimeStr)
+    const record = baseBarsByTime[barTime]
+    const targetBucketTime = Math.floor(barTime / targetTimeframe) * targetTimeframe
+
+    if (targetBucketTime < firstTargetBucket || targetBucketTime > lastTargetBucket) continue
+
+    if (!aggregated[targetBucketTime]) {
+      aggregated[targetBucketTime] = {
+        time: targetBucketTime,
+        open: record.open,
+        high: record.high,
+        low: record.low,
+        close: record.close,
+        vbuy: record.vbuy,
+        vsell: record.vsell,
+        cbuy: record.cbuy,
+        csell: record.csell,
+        lbuy: record.lbuy,
+        lsell: record.lsell,
+        _firstBarTime: barTime
+      }
     } else {
-      // No contributing base bars - write null bar for dense indexing
-      barsToUpsert.push(createNullBar(bucketTs))
+      const agg = aggregated[targetBucketTime]
+      if (barTime < agg._firstBarTime) {
+        agg.open = record.open
+        agg._firstBarTime = barTime
+      }
+      agg.high = Math.max(agg.high, record.high)
+      agg.low = Math.min(agg.low, record.low)
+      agg.close = record.close
+      agg.vbuy += record.vbuy
+      agg.vsell += record.vsell
+      agg.cbuy += record.cbuy
+      agg.csell += record.csell
+      agg.lbuy += record.lbuy
+      agg.lsell += record.lsell
     }
   }
 
-  if (barsToUpsert.length === 0) return
+  // Build list of bars to write (fill gaps with null bars)
+  const barsToWrite = []
+  for (let bucketTs = firstTargetBucket; bucketTs <= lastTargetBucket; bucketTs += targetTimeframe) {
+    if (aggregated[bucketTs]) {
+      const bar = aggregated[bucketTs]
+      delete bar._firstBarTime // Remove internal tracking field
+      barsToWrite.push(bar)
+    } else {
+      barsToWrite.push(createNullBar(bucketTs))
+    }
+  }
 
-  // Separate bars into overwrites (existing records) vs appends (new records)
+  if (barsToWrite.length === 0) return
+
+  // Group bars by target segment and upsert each segment
+  const targetSegmentSpanMs = getSegmentSpanMs(targetTimeframe)
+  const barsBySegment = {}
+
+  for (const bar of barsToWrite) {
+    const segmentStartTs = getSegmentStartTs(bar.time, targetTimeframe)
+    if (!barsBySegment[segmentStartTs]) {
+      barsBySegment[segmentStartTs] = []
+    }
+    barsBySegment[segmentStartTs].push(bar)
+  }
+
+  // Upsert each target segment
+  for (const segmentStartTsStr in barsBySegment) {
+    const segmentStartTs = Number(segmentStartTsStr)
+    const segmentBars = barsBySegment[segmentStartTs]
+    
+    // Filter out null-only bar sets (don't create segment files just for nulls)
+    const hasNonNull = segmentBars.some(b => b.close !== null)
+    
+    // For resampling, we need to write even null bars to maintain consistency
+    // But only if there's existing data or non-null bars
+    const paths = getSegmentPaths(exchange, symbol, targetTimeframe, segmentStartTs)
+    const existingMeta = readMeta(paths.json)
+    
+    if (hasNonNull || existingMeta) {
+      await upsertBarsToSegmentForResample(exchange, symbol, targetTimeframe, segmentStartTs, segmentBars)
+    }
+  }
+}
+
+/**
+ * Upserts bars to a segment for resampling purposes.
+ * Unlike regular upsert, this handles null bars for dense indexing in resampled data.
+ * 
+ * @param {string} exchange - Exchange name
+ * @param {string} symbol - Trading pair symbol
+ * @param {number} timeframe - Timeframe in milliseconds
+ * @param {number} segmentStartTs - Segment start timestamp
+ * @param {import('./constants').Bar[]} bars - Array of bars (may include null bars)
+ * @returns {Promise<void>}
+ */
+async function upsertBarsToSegmentForResample(exchange, symbol, timeframe, segmentStartTs, bars) {
+  const paths = getSegmentPaths(exchange, symbol, timeframe, segmentStartTs)
+  await ensureDirectoryExists(paths.bin)
+
+  let meta = readMeta(paths.json)
+  const segmentRecords = getSegmentRecords(timeframe)
+  const segmentSpanMs = getSegmentSpanMs(timeframe)
+  const segmentEndTs = segmentStartTs + segmentSpanMs
+
+  // Initialize segment metadata if new file
+  if (!meta) {
+    meta = {
+      exchange: exchange,
+      symbol: symbol,
+      timeframe: getHms(timeframe),
+      timeframeMs: timeframe,
+      segmentStartTs: segmentStartTs,
+      segmentEndTs: segmentEndTs,
+      segmentSpanMs: segmentSpanMs,
+      segmentRecords: segmentRecords,
+      priceScale: PRICE_SCALE,
+      volumeScale: VOLUME_SCALE,
+      records: 0,
+      lastInputStartTs: segmentStartTs
+    }
+  }
+
+  // Build map of index to bar
+  const barsMap = {}
+  let maxBarTime = segmentStartTs
+
+  for (const bar of bars) {
+    const alignedTime = Math.floor(bar.time / timeframe) * timeframe
+    if (alignedTime < segmentStartTs || alignedTime >= segmentEndTs) continue
+    const index = Math.floor((alignedTime - segmentStartTs) / timeframe)
+    if (index < 0 || index >= segmentRecords) continue
+    barsMap[index] = { ...bar, time: alignedTime }
+    if (alignedTime > maxBarTime) maxBarTime = alignedTime
+  }
+
+  const indices = Object.keys(barsMap).map(Number).sort((a, b) => a - b)
+  if (indices.length === 0) return
+
+  // Categorize as overwrites or appends
   const overwrites = []
   const appends = []
 
-  for (const bar of barsToUpsert) {
-    const index = Math.floor((bar.time - meta.startTs) / targetTimeframe)
-    if (index < 0) continue // No prepend allowed
+  for (const index of indices) {
     if (index < meta.records) {
-      overwrites.push({ index, bar })
+      overwrites.push({ index, bar: barsMap[index] })
     } else {
-      appends.push({ index, bar })
+      appends.push({ index, bar: barsMap[index] })
     }
   }
 
-  // Handle overwrites (positioned writes to existing records)
+  // Handle overwrites
   if (overwrites.length > 0) {
     let fd = null
     try {
-      // Open in read-write mode for in-place updates
       fd = fs.openSync(paths.bin, 'r+')
-
-      // Sort by index for sequential access and batch contiguous writes
       overwrites.sort((a, b) => a.index - b.index)
       let groupStart = 0
 
-      // Group contiguous indices for efficient batch writes
       while (groupStart < overwrites.length) {
         let groupEnd = groupStart
-
-        // Find end of contiguous run
         while (groupEnd + 1 < overwrites.length && 
                overwrites[groupEnd + 1].index === overwrites[groupEnd].index + 1) {
           groupEnd++
         }
 
-        // Write contiguous group in single syscall
         const groupSize = groupEnd - groupStart + 1
         const buffer = Buffer.alloc(groupSize * RECORD_SIZE)
         let bufferOffset = 0
@@ -235,25 +295,23 @@ async function resampleRangeToTimeframe(exchange, symbol, baseMeta, baseBinPath,
 
         const fileOffset = overwrites[groupStart].index * RECORD_SIZE
         fs.writeSync(fd, buffer, 0, buffer.length, fileOffset)
-
         groupStart = groupEnd + 1
       }
     } finally {
-      if (fd !== null) {
-        fs.closeSync(fd)
-      }
+      if (fd !== null) fs.closeSync(fd)
     }
   }
 
-  // Handle appends (extend file with new records)
+  // Handle appends
   if (appends.length > 0) {
     appends.sort((a, b) => a.index - b.index)
-    const lastAppendIndex = appends[appends.length - 1].index
+    const lastAppendIndex = Math.min(appends[appends.length - 1].index, segmentRecords - 1)
 
-    // Build lookup map for sparse appends
     const appendMap = {}
     for (const a of appends) {
-      appendMap[a.index] = a.bar
+      if (a.index <= lastAppendIndex) {
+        appendMap[a.index] = a.bar
+      }
     }
 
     const BATCH_SIZE = 10000
@@ -261,10 +319,8 @@ async function resampleRangeToTimeframe(exchange, symbol, baseMeta, baseBinPath,
     let fd = null
 
     try {
-      // Open in append mode
       fd = fs.openSync(paths.bin, 'a')
 
-      // Write records from current end to last append index (dense, filling gaps with null)
       while (currentIndex <= lastAppendIndex) {
         const batchRecords = []
         const batchEndIndex = Math.min(currentIndex + BATCH_SIZE, lastAppendIndex + 1)
@@ -273,8 +329,7 @@ async function resampleRangeToTimeframe(exchange, symbol, baseMeta, baseBinPath,
           if (appendMap[currentIndex]) {
             batchRecords.push(appendMap[currentIndex])
           } else {
-            // Fill gap with null bar
-            batchRecords.push(createNullBar(meta.startTs + currentIndex * targetTimeframe))
+            batchRecords.push(createNullBar(segmentStartTs + currentIndex * timeframe))
           }
           currentIndex++
         }
@@ -293,16 +348,11 @@ async function resampleRangeToTimeframe(exchange, symbol, baseMeta, baseBinPath,
         }
       }
     } finally {
-      if (fd !== null) {
-        fs.closeSync(fd)
-      }
+      if (fd !== null) fs.closeSync(fd)
     }
-
-    // Update endTs after extending file
-    meta.endTs = meta.startTs + meta.records * targetTimeframe
   }
 
-  meta.lastInputStartTs = lastTargetBucket
+  meta.lastInputStartTs = maxBarTime
   writeMeta(paths.json, meta)
 }
 

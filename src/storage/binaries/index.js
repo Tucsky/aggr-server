@@ -4,8 +4,8 @@ const alertService = require('../../services/alert')
 const { updateIndexes } = require('../../services/connections')
 const { getHms } = require('../../helper')
 
-const { RECORD_SIZE } = require('./constants')
-const { getFilePath, parseMarket, readRecord, readMeta, readSingleRecordAtTs } = require('./io')
+const { RECORD_SIZE, getSegmentStartTs, getSegmentSpanMs } = require('./constants')
+const { getSegmentPaths, parseMarket, readRecord, readMeta, readSingleRecordAtTs } = require('./io')
 const { upsertBars } = require('./write')
 const { resampleToHigherTimeframes } = require('./resample')
 
@@ -335,6 +335,9 @@ class BinariesStorage {
    * Null bars (gaps) are skipped in the response.
    * Pending bars near "now" are injected to provide real-time data.
    * 
+   * Now reads from segmented files: computes which segments intersect [from, to)
+   * and reads only the required records from each segment.
+   * 
    * @param {Object} params - Query parameters
    * @param {number} params.from - Start timestamp (inclusive)
    * @param {number} params.to - End timestamp (exclusive)
@@ -372,80 +375,93 @@ class BinariesStorage {
     const now = Date.now()
     const needsPendingBars = to > now - config.influxResampleInterval
 
+    // Compute segment range for the query
+    const segmentSpanMs = getSegmentSpanMs(timeframe)
+    const firstSegmentStartTs = getSegmentStartTs(from, timeframe)
+    const lastSegmentStartTs = getSegmentStartTs(to - 1, timeframe) // to is exclusive
+
     // Read data from disk for each market
     for (const market of markets) {
       const parsed = parseMarket(market)
       if (!parsed) continue
 
-      const paths = getFilePath(parsed.exchange, parsed.symbol, timeframe)
-      const meta = readMeta(paths.json)
-      if (!meta) continue
+      // Iterate through all segments that intersect [from, to)
+      for (let segmentStartTs = firstSegmentStartTs; segmentStartTs <= lastSegmentStartTs; segmentStartTs += segmentSpanMs) {
+        const paths = getSegmentPaths(parsed.exchange, parsed.symbol, timeframe, segmentStartTs)
+        const meta = readMeta(paths.json)
+        if (!meta) continue
+        if (!fs.existsSync(paths.bin)) continue
 
-      if (!fs.existsSync(paths.bin)) continue
+        // Calculate index range within this segment for the requested time window
+        const segmentEndTs = segmentStartTs + segmentSpanMs
+        const readFromTs = Math.max(from, segmentStartTs)
+        const readToTs = Math.min(to, segmentEndTs)
 
-      // Calculate index range for requested time window
-      let startIndex = Math.floor((from - meta.startTs) / meta.timeframeMs)
-      let endIndex = Math.ceil((to - meta.startTs) / meta.timeframeMs)
+        if (readFromTs >= readToTs) continue
 
-      // Clamp to valid range
-      if (startIndex < 0) startIndex = 0
-      if (endIndex > meta.records) endIndex = meta.records
-      if (startIndex >= endIndex) continue
+        let startIndex = Math.floor((readFromTs - segmentStartTs) / timeframe)
+        let endIndex = Math.ceil((readToTs - segmentStartTs) / timeframe)
 
-      const count = endIndex - startIndex
-      const byteOffset = startIndex * RECORD_SIZE
-      const byteLength = count * RECORD_SIZE
+        // Clamp to valid range
+        if (startIndex < 0) startIndex = 0
+        if (endIndex > meta.records) endIndex = meta.records
+        if (startIndex >= endIndex) continue
 
-      // Read the range from disk
-      let buffer
-      let fd
-      try {
-        fd = fs.openSync(paths.bin, 'r')
-        const stat = fs.fstatSync(fd)
-        const maxBytes = Math.min(byteLength, stat.size - byteOffset)
-        if (maxBytes <= 0) {
+        const count = endIndex - startIndex
+        const byteOffset = startIndex * RECORD_SIZE
+        const byteLength = count * RECORD_SIZE
+
+        // Read the range from disk
+        let buffer
+        let fd
+        try {
+          fd = fs.openSync(paths.bin, 'r')
+          const stat = fs.fstatSync(fd)
+          const maxBytes = Math.min(byteLength, stat.size - byteOffset)
+          if (maxBytes <= 0) {
+            fs.closeSync(fd)
+            continue
+          }
+          buffer = Buffer.alloc(maxBytes)
+          fs.readSync(fd, buffer, 0, maxBytes, byteOffset)
           fs.closeSync(fd)
+        } catch (_e) {
+          if (fd !== undefined) {
+            try { fs.closeSync(fd) } catch (_) { /* ignored */ }
+          }
           continue
         }
-        buffer = Buffer.alloc(maxBytes)
-        fs.readSync(fd, buffer, 0, maxBytes, byteOffset)
-        fs.closeSync(fd)
-      } catch (_e) {
-        if (fd !== undefined) {
-          try { fs.closeSync(fd) } catch (_) { /* ignored */ }
+
+        // Decode records and add to results
+        const recordCount = Math.floor(buffer.length / RECORD_SIZE)
+        for (let i = 0; i < recordCount; i++) {
+          const record = readRecord(buffer, i * RECORD_SIZE, meta)
+
+          // Skip null bars (gaps) - check before computing barTime for efficiency
+          if (record.open === 0 && record.high === 0 && record.low === 0 && record.close === 0) continue
+
+          const barTime = segmentStartTs + (startIndex + i) * timeframe
+
+          // Filter by time range
+          if (barTime < from || barTime >= to) continue
+
+          // Add as array matching column order (includes market)
+          // Time is converted to seconds to match InfluxDB format (precision: 's')
+          results.push([
+            Math.floor(barTime / 1000),
+            market,
+            record.open,
+            record.high,
+            record.low,
+            record.close,
+            record.vbuy,
+            record.vsell,
+            record.cbuy,
+            record.csell,
+            record.lbuy,
+            record.lsell
+          ])
         }
-        continue
-      }
-
-      // Decode records and add to results
-      const recordCount = Math.floor(buffer.length / RECORD_SIZE)
-      for (let i = 0; i < recordCount; i++) {
-        const record = readRecord(buffer, i * RECORD_SIZE, meta)
-
-        // Skip null bars (gaps) - check before computing barTime for efficiency
-        if (record.open === 0 && record.high === 0 && record.low === 0 && record.close === 0) continue
-
-        const barTime = meta.startTs + (startIndex + i) * meta.timeframeMs
-
-        // Filter by time range
-        if (barTime < from || barTime >= to) continue
-
-        // Add as array matching column order (includes market)
-        // Time is converted to seconds to match InfluxDB format (precision: 's')
-        results.push([
-          Math.floor(barTime / 1000),
-          market,
-          record.open,
-          record.high,
-          record.low,
-          record.close,
-          record.vbuy,
-          record.vsell,
-          record.cbuy,
-          record.csell,
-          record.lbuy,
-          record.lsell
-        ])
       }
     }
 
