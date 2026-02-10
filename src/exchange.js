@@ -177,9 +177,9 @@ class Exchange extends EventEmitter {
       this.on('connected', connectedEventHandler)
 
       timeout = setTimeout(() => {
-        console.error(
+        /*console.error(
           `[${this.id}/link] ${pair} connected event never fired`
-        )
+        )*/
         connectedEventHandler(pair)
       }, 10000)
     })
