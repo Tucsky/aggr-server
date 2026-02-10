@@ -1,7 +1,6 @@
 const Exchange = require('../exchange')
 const { sleep, getHms } = require('../helper')
 const axios = require('axios')
-const WebSocket = require('websocket').w3cwebsocket
 
 class BinanceFutures extends Exchange {
   constructor() {
@@ -77,7 +76,7 @@ class BinanceFutures extends Exchange {
 
     this.subscriptions[pair] = ++this.lastSubscriptionId
 
-    const params = [pair + '@trade']
+    const params = [pair + '@trade', pair + '@forceOrder']
 
     api.send(
       JSON.stringify({
@@ -89,12 +88,6 @@ class BinanceFutures extends Exchange {
 
     // this websocket api have a limit of about 5 messages per second.
     await sleep(500 * this.apis.length)
-
-    // get liquidations from a separate stream
-    // trade stream might lag because of the amount of trades or even disconnect depending on network
-    // trades can be recovered through REST api, liquidations doesn't
-    // this is a test to see if liquidation stream remain stable as trades stream lag behind
-    this.subscribeLiquidations(api, pair)
   }
 
   /**
@@ -104,10 +97,11 @@ class BinanceFutures extends Exchange {
    */
   async unsubscribe(api, pair) {
     if (!(await super.unsubscribe.apply(this, arguments))) {
+      delete this.subscriptions[pair]
       return
     }
 
-    const params = [pair + '@trade']
+    const params = [pair + '@trade', pair + '@forceOrder']
 
     api.send(
       JSON.stringify({
@@ -121,8 +115,6 @@ class BinanceFutures extends Exchange {
 
     // this websocket api have a limit of about 5 messages per second.
     await sleep(500 * this.apis.length)
-
-    this.subscribeLiquidations(api, pair, true)
   }
 
   onMessage(event, api) {
@@ -237,80 +229,6 @@ class BinanceFutures extends Exchange {
 
         return totalRecovered
       })
-  }
-
-  openLiquidationApi(api) {
-    console.log(`[${this.id}] openLiquidationApi`, api.id)
-    api._liquidationApi = new WebSocket(api.url)
-
-    api._liquidationApi.onopen = () => {
-      console.log(`[${this.id}] liquidation api opened`, api.id)
-
-      for (const pair of api._connected) {
-        this.subscribeLiquidations(api, pair)
-      }
-    }
-    api._liquidationApi.onmessage = event => this.onMessage(event, api)
-    api._liquidationApi.onclose = () => {
-      console.log(
-        `[${this.id}]`,
-        'liquidation stream closed',
-        api.id,
-        api.readyState,
-        WebSocket.OPEN
-      )
-      if (api.readyState === WebSocket.OPEN) {
-        console.log(
-          `[${this.id}] liquidation api closed unexpectedly, reopen now`
-        )
-
-        this.openLiquidationApi(api)
-      }
-    }
-    api._liquidationApi.onerror = () => {
-      console.log(`[${this.id}]`, 'liquidation stream errored')
-    }
-  }
-
-  subscribeLiquidations(api, pair, unsubscribe = false) {
-    if (
-      !api._liquidationApi ||
-      api._liquidationApi.readyState !== WebSocket.OPEN
-    ) {
-      return
-    }
-
-    const param = pair + '@forceOrder'
-
-    if (!unsubscribe) {
-      this.subscriptions[param] = ++this.lastSubscriptionId
-    }
-
-    console.log(
-      `[${this.id}.liquidationApi] ${unsubscribe ? 'un' : ''}subscribing ${unsubscribe ? 'from' : 'to'
-      } ${pair}`
-    )
-
-    api._liquidationApi.send(
-      JSON.stringify({
-        method: unsubscribe ? 'UNSUBSCRIBE' : 'SUBSCRIBE',
-        params: [param],
-        id: this.subscriptions[param]
-      })
-    )
-  }
-
-  onApiCreated(api) {
-    this.openLiquidationApi(api)
-  }
-
-  onApiRemoved(api) {
-    if (api._liquidationApi) {
-      if (api._liquidationApi.readyState === WebSocket.OPEN) {
-        console.log(`[${this.id}.liquidationApi] close lost api`)
-        api._liquidationApi.close()
-      }
-    }
   }
 }
 
