@@ -281,12 +281,12 @@ module.exports.restoreConnections = async function () {
 
     const ping = now - connections[market].timestamp
 
-    console.log(
+    /*console.log(
       `[connections] restored ${market}'s connection state (last trade was ${getHms(
         ping,
         true
       )} ago)`
-    )
+    )*/
 
     pings.push(now - connections[market].timestamp)
   }
