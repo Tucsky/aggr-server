@@ -32,7 +32,7 @@ class AlertService extends EventEmitter {
     if (config.publicVapidKey && config.privateVapidKey) {
       this.enabled = true
       webPush.setVapidDetails(
-        'mailto: contact@aggr.trade',
+        'mailto:contact@aggr.trade',
         config.publicVapidKey,
         config.privateVapidKey
       )
@@ -639,7 +639,7 @@ class AlertService extends EventEmitter {
   sendAlert(subscription, payload) {
     return webPush.sendNotification(subscription, payload, {
       vapidDetails: {
-        subject: 'mailto: contact@aggr.trade',
+        subject: 'mailto:contact@aggr.trade',
         publicKey: config.publicVapidKey,
         privateKey: config.privateVapidKey
       },
