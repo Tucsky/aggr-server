@@ -767,7 +767,6 @@ class Server extends EventEmitter {
   dispatchRawTrades(trades) {
     for (let i = 0; i < trades.length; i++) {
       const trade = trades[i]
-
       if (!trade.size) {
         continue
       }

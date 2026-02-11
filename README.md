@@ -76,6 +76,19 @@ To start using InfluxDB, set `storage=[ 'influx' ]` in `config.json`. You can al
 
 Please note that InfluxDB auth is disabled, and connecting to a remote InfluxDB has not yet been tested.
 
+## TimescaleDB
+
+To use TimescaleDB storage, set `storage=[ 'timescaledb' ]` (or `['files', 'timescaledb']`) in `config.json`.
+
+Before starting the server, apply SQL migrations:
+
+```bash
+psql "$TIMESCALE_DSN" -f migrations/timescaledb/001_init.sql
+psql "$TIMESCALE_DSN" -f migrations/timescaledb/002_updated_at_trigger.sql
+```
+
+Default table is `public.aggr_bars`. You can override it via `timescaleSchema` and `timescaleTable` in `config.json`.
+
 ## Installation with Docker
 
 To install the application with Docker, follow these steps:

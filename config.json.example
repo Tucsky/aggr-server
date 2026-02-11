@@ -43,6 +43,14 @@
   "storage": [
     "files"
   ],
+  "timescaleHost": "localhost",
+  "timescalePort": 5432,
+  "timescaleDatabase": "aggr",
+  "timescaleUser": "postgres",
+  "timescalePassword": "",
+  "timescaleSchema": "public",
+  "timescaleTable": "aggr_bars",
+  "timescaleSsl": false,
   "origin": ".*",
   "filesLocation": "./data"
 }

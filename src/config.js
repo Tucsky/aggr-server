@@ -96,6 +96,7 @@ const defaultConfig = {
   // false | null (no storage)
   // "files" (periodical text file),
   // "influx" (timeserie database),
+  // "timescaledb" (postgres + timescaledb hypertable),
 
   // NB: use array or comma separated storage names for multiple storage solution
   // default = "files" just store in text files, no further installation required.
@@ -119,7 +120,10 @@ const defaultConfig = {
   // this is lowest timeframe that influx will use to group the trades
   influxTimeframe: 10000,
 
-  // downsampling
+  // downsampling target timeframes (in ms)
+  // used by influx storage to aggregate base bars (influxTimeframe) into higher timeframes
+  // default list: 30s, 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d
+  // keep this sorted from smallest to largest for predictable resample behavior
   influxResampleTo: [
     1000 * 30,
     1000 * 60,
@@ -142,6 +146,20 @@ const defaultConfig = {
 
   // prefix aggr retention policies with this (unused rp using that prefix get automaticaly removed)
   influxRetentionPrefix: 'aggr_',
+
+  // TimescaleDB server to use when storage is set to "timescaledb"
+  timescaleHost: 'localhost',
+  timescalePort: 5432,
+  timescaleDatabase: 'aggr',
+  timescaleUser: 'postgres',
+  timescalePassword: '',
+  timescaleSchema: 'public',
+  timescaleTable: 'aggr_bars',
+  timescaleSsl: false,
+  timescaleSslRejectUnauthorized: true,
+  timescalePoolMax: 20,
+  timescaleStatementTimeout: 0,
+  timescaleApplicationName: 'aggr-server',
 
   // create new text file every N ms when storage is set to "file" (default 1h)
   filesInterval: 3600000,
@@ -187,6 +205,9 @@ const defaultConfig = {
   alertEndpointExpiresAfter: 1000 * 60 * 60 * 24 * 30,
   indexExchangeBlacklist: [],
   indexQuoteWhitelist: ['USD', 'USDT', 'FDUSD', 'USDC'],
+
+  // proxy url (e.g. socks5://127.0.0.1:9050)
+  proxy: null,
 
   // verbose
   debug: false
@@ -244,8 +265,7 @@ try {
   userSettings = require(configPath) || {}
 } catch (error) {
   throw new Error(
-    `Unable to parse ${
-      configPath !== '../config.json' ? 'specified ' : ''
+    `Unable to parse ${configPath !== '../config.json' ? 'specified ' : ''
     }configuration file\n\n${error.message}`
   )
 }
@@ -280,11 +300,11 @@ if (process.env.PUBLIC_VAPID_KEY && process.env.PRIVATE_VAPID_KEY) {
   if (!config.publicVapidKey) {
     config.publicVapidKey = process.env.PUBLIC_VAPID_KEY
   }
-  
+
   if (!config.privateVapidKey) {
     config.privateVapidKey = process.env.PRIVATE_VAPID_KEY
   }
-} 
+}
 
 /* Validate storage
  */
@@ -389,7 +409,7 @@ if (!config.storage && !config.collect && config.api) {
 }
 
 if (!config.debug) {
-  console.debug = function () {}
+  console.debug = function () { }
 } else {
   console.debug = console.log
 }

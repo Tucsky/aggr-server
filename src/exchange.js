@@ -1,6 +1,18 @@
 const EventEmitter = require('events')
 const WebSocket = require('websocket').w3cwebsocket
 const config = require('./config')
+const { SocksProxyAgent } = require('socks-proxy-agent')
+const axios = require('axios')
+
+if (config.proxy) {
+  const httpsAgent = new SocksProxyAgent(config.proxy)
+  const httpAgent = new SocksProxyAgent(config.proxy)
+
+  axios.defaults.httpAgent = httpAgent
+  axios.defaults.httpsAgent = httpsAgent
+
+  console.log(`[proxy] setup socks proxy ${config.proxy}`)
+}
 
 const { ID, getHms, sleep, humanReadyState } = require('./helper')
 const {
@@ -229,7 +241,14 @@ class Exchange extends EventEmitter {
   }
 
   createWs(url, _pair) {
-    const api = new WebSocket(url)
+    let api
+
+    if (config.proxy) {
+      const agent = new SocksProxyAgent(config.proxy)
+      api = new WebSocket(url, undefined, undefined, undefined, { agent })
+    } else {
+      api = new WebSocket(url)
+    }
     api.id = ID()
 
     console.log(
@@ -255,8 +274,7 @@ class Exchange extends EventEmitter {
 
       if (!/ping|pong/i.test(data)) {
         console.debug(
-          `[${this.id}.createWs] sending ${data.substring(0, 64)}${
-            data.length > 64 ? '...' : ''
+          `[${this.id}.createWs] sending ${data.substring(0, 64)}${data.length > 64 ? '...' : ''
           } to ${api.url}`
         )
       }
@@ -320,8 +338,7 @@ class Exchange extends EventEmitter {
 
   async subscribePendingPairs(api) {
     console.debug(
-      `[${this.id}.subscribePendingPairs] subscribe to ${
-        api._pending.length
+      `[${this.id}.subscribePendingPairs] subscribe to ${api._pending.length
       } pairs of api ${api.url} (${api._pending.join(', ')})`
     )
 
@@ -362,8 +379,7 @@ class Exchange extends EventEmitter {
     }
 
     console.debug(
-      `[${this.id}.unlink] disconnecting ${pair} ${
-        skipSending ? '(skip sending)' : ''
+      `[${this.id}.unlink] disconnecting ${pair} ${skipSending ? '(skip sending)' : ''
       }`
     )
 
@@ -407,7 +423,7 @@ class Exchange extends EventEmitter {
         this.apis[i].url === url &&
         (!this.maxConnectionsPerApi ||
           this.apis[i]._connected.length + this.apis[i]._pending.length <
-            this.maxConnectionsPerApi)
+          this.maxConnectionsPerApi)
       ) {
         return this.apis[i]
       }
@@ -476,8 +492,7 @@ class Exchange extends EventEmitter {
     api.onmessage = null
 
     console.debug(
-      `[${this.id}.reconnectApi] reconnect api ${api.id}${
-        reason ? ' reason: ' + reason : ''
+      `[${this.id}.reconnectApi] reconnect api ${api.id}${reason ? ' reason: ' + reason : ''
       } (url: ${api.url}, _connected: ${api._connected.join(
         ', '
       )}, _pending: ${api._pending.join(', ')})`
@@ -502,8 +517,7 @@ class Exchange extends EventEmitter {
       pairsToReconnect
     ).then(() => {
       console.log(
-        `[${this.id}.reconnectApi] done reconnecting api (was ${api.id}${
-          reason ? ' because of ' + reason : ''
+        `[${this.id}.reconnectApi] done reconnecting api (was ${api.id}${reason ? ' because of ' + reason : ''
         })`
       )
       delete this.promisesOfApiReconnections[api.id]
@@ -573,8 +587,7 @@ class Exchange extends EventEmitter {
     const missingTime = range.to - range.from
 
     console.log(
-      `[${this.id}.recoverTrades] get missing trades for ${
-        range.pair
+      `[${this.id}.recoverTrades] get missing trades for ${range.pair
       } (expecting ${range.missEstimate} on a ${getHms(
         missingTime
       )} blackout going from ${new Date(range.from)
@@ -590,8 +603,7 @@ class Exchange extends EventEmitter {
 
       if (recoveredCount) {
         console.info(
-          `[${this.id}.recoverTrades] recovered ${recoveredCount} (expected ${
-            range.missEstimate
+          `[${this.id}.recoverTrades] recovered ${recoveredCount} (expected ${range.missEstimate
           }) trades on ${this.id}:${range.pair} (${getHms(
             missingTime - (range.to - range.from)
           )} recovered out of ${getHms(missingTime)} | ${getHms(
@@ -600,8 +612,7 @@ class Exchange extends EventEmitter {
         )
       } else {
         console.info(
-          `[${this.id}.recoverTrades] 0 trade recovered on ${
-            range.pair
+          `[${this.id}.recoverTrades] 0 trade recovered on ${range.pair
           } (expected ${range.missEstimate} for ${getHms(
             missingTime
           )} blackout)`
@@ -861,8 +872,7 @@ class Exchange extends EventEmitter {
       this.failedConnections++
       const delay = 1000 * this.failedConnections
       console.debug(
-        `[${this.id}] api refused connection, sleeping ${
-          delay / 1000
+        `[${this.id}] api refused connection, sleeping ${delay / 1000
         }s before trying again`
       )
       await sleep(delay)
