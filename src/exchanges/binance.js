@@ -88,7 +88,7 @@ class Binance extends Exchange {
     return {
       exchange: this.id,
       pair: symbol,
-      timestamp: trade.E,
+      timestamp: trade.T,
       price: +trade.p,
       size: +trade.q,
       side: trade.m ? 'sell' : 'buy'
