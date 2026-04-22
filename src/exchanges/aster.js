@@ -1,5 +1,6 @@
 // src/exchanges/aster.js
 const Exchange = require('../exchange')
+const { sleep } = require('../helper')
 
 class Aster extends Exchange {
   constructor() {
@@ -53,6 +54,9 @@ class Aster extends Exchange {
       })
     )
 
+    // this websocket api have a limit of about 5 messages per second.
+    await sleep(250 * this.apis.length)
+
     return true
   }
 
@@ -73,6 +77,9 @@ class Aster extends Exchange {
         id: Date.now()
       })
     )
+
+    // this websocket api have a limit of about 5 messages per second.
+    await sleep(250 * this.apis.length)
 
     return true
   }
