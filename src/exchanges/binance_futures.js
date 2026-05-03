@@ -1,6 +1,7 @@
 const Exchange = require('../exchange')
 const { sleep, getHms } = require('../helper')
 const axios = require('axios')
+const WebSocket = require('websocket').w3cwebsocket
 
 class BinanceFutures extends Exchange {
   constructor() {
@@ -21,10 +22,14 @@ class BinanceFutures extends Exchange {
     this.url = pair => {
       if (this.dapi[pair]) {
         return 'wss://dstream.binance.com/ws'
-      } else {
-        return 'wss://fstream.binance.com/ws'
       }
+
+      return 'wss://fstream.binance.com/public/ws'
     }
+  }
+
+  isDapiApi(api) {
+    return api.url.includes('dstream.binance.com')
   }
 
   formatProducts(response) {
@@ -76,7 +81,9 @@ class BinanceFutures extends Exchange {
 
     this.subscriptions[pair] = ++this.lastSubscriptionId
 
-    const params = [pair + '@trade', pair + '@forceOrder']
+    const params = this.dapi[pair]
+      ? [pair + '@trade', pair + '@forceOrder']
+      : [pair + '@trade']
 
     api.send(
       JSON.stringify({
@@ -86,7 +93,11 @@ class BinanceFutures extends Exchange {
       })
     )
 
-    // this websocket api have a limit of about 5 messages per second.
+    if (!this.dapi[pair]) {
+      this.subscribeLiquidations(api, pair)
+    }
+
+    // this websocket api has a limit of about 5 messages per second.
     await sleep(500 * this.apis.length)
   }
 
@@ -98,10 +109,17 @@ class BinanceFutures extends Exchange {
   async unsubscribe(api, pair) {
     if (!(await super.unsubscribe.apply(this, arguments))) {
       delete this.subscriptions[pair]
+
+      if (!this.dapi[pair]) {
+        this.unsubscribeLiquidations(api, pair)
+      }
+
       return
     }
 
-    const params = [pair + '@trade', pair + '@forceOrder']
+    const params = this.dapi[pair]
+      ? [pair + '@trade', pair + '@forceOrder']
+      : [pair + '@trade']
 
     api.send(
       JSON.stringify({
@@ -113,7 +131,11 @@ class BinanceFutures extends Exchange {
 
     delete this.subscriptions[pair]
 
-    // this websocket api have a limit of about 5 messages per second.
+    if (!this.dapi[pair]) {
+      this.unsubscribeLiquidations(api, pair)
+    }
+
+    // this websocket api has a limit of about 5 messages per second.
     await sleep(500 * this.apis.length)
   }
 
@@ -122,11 +144,23 @@ class BinanceFutures extends Exchange {
 
     if (!json) {
       return
-    } else if (json.T && (!json.X || json.X === 'MARKET')) {
+    }
+
+    // Binance SUBSCRIBE / UNSUBSCRIBE ack
+    if (json.result === null && typeof json.id !== 'undefined') {
+      return true
+    }
+
+    if (
+      json.e === 'trade' &&
+      (!json.X || json.X === 'MARKET' || json.X === 'RPI')
+    ) {
       return this.emitTrades(api.id, [
         this.formatTrade(json, json.s.toLowerCase())
       ])
-    } else if (json.e === 'forceOrder') {
+    }
+
+    if (json.e === 'forceOrder') {
       return this.emitLiquidations(api.id, [this.formatLiquidation(json)])
     }
   }
@@ -174,8 +208,8 @@ class BinanceFutures extends Exchange {
 
   getMissingTrades(range, totalRecovered = 0) {
     const startTime = range.from
-    let endpoint = `?symbol=${range.pair.toUpperCase()}&startTime=${startTime + 1
-    }&endTime=${range.to}&limit=1000`
+    let endpoint = `?symbol=${range.pair.toUpperCase()}&startTime=${startTime + 1}&endTime=${range.to}&limit=1000`
+
     if (this.dapi[range.pair]) {
       endpoint = 'https://dapi.binance.com/dapi/v1/aggTrades' + endpoint
     } else {
@@ -192,7 +226,7 @@ class BinanceFutures extends Exchange {
               ...this.formatTrade(trade, range.pair),
               count: trade.l - trade.f + 1
             }))
-          
+
           if (trades.length) {
             this.emitTrades(null, trades)
 
@@ -229,6 +263,135 @@ class BinanceFutures extends Exchange {
 
         return totalRecovered
       })
+  }
+
+  openLiquidationApi(api) {
+    if (this.isDapiApi(api)) {
+      return
+    }
+
+    if (
+      api._liquidationApi &&
+      (
+        api._liquidationApi.readyState === WebSocket.OPEN ||
+        api._liquidationApi.readyState === WebSocket.CONNECTING
+      )
+    ) {
+      return
+    }
+
+    api._liquidationApiClosing = false
+    api._liquidationApi = new WebSocket('wss://fstream.binance.com/market/ws')
+
+    api._liquidationApi.onopen = () => {
+      for (const pair of api._connected) {
+        this.subscribeLiquidations(api, pair)
+      }
+    }
+
+    api._liquidationApi.onmessage = event => this.onMessage(event, api)
+
+    api._liquidationApi.onclose = () => {
+      api._liquidationApi = null
+
+      for (const pair of api._connected || []) {
+        delete this.subscriptions[pair + '@forceOrder']
+      }
+
+      if (api._liquidationApiClosing) {
+        return
+      }
+
+      if (api.readyState === WebSocket.OPEN) {
+        console.log(
+          `[${this.id}] liquidation api closed unexpectedly, reopen now`
+        )
+
+        this.openLiquidationApi(api)
+      }
+    }
+
+    api._liquidationApi.onerror = event => {
+      console.error(
+        `[${this.id}] liquidation api errored`,
+        event.message || ''
+      )
+    }
+  }
+
+  subscribeLiquidations(api, pair) {
+    if (this.dapi[pair]) {
+      return
+    }
+
+    if (
+      !api._liquidationApi ||
+      api._liquidationApi.readyState !== WebSocket.OPEN
+    ) {
+      return
+    }
+
+    const param = pair + '@forceOrder'
+
+    if (this.subscriptions[param]) {
+      return
+    }
+
+    this.subscriptions[param] = ++this.lastSubscriptionId
+
+    api._liquidationApi.send(
+      JSON.stringify({
+        method: 'SUBSCRIBE',
+        params: [param],
+        id: this.subscriptions[param]
+      })
+    )
+  }
+
+  unsubscribeLiquidations(api, pair) {
+    if (this.dapi[pair]) {
+      return
+    }
+
+    const param = pair + '@forceOrder'
+
+    if (
+      !this.subscriptions[param] ||
+      !api._liquidationApi ||
+      api._liquidationApi.readyState !== WebSocket.OPEN
+    ) {
+      delete this.subscriptions[param]
+      return
+    }
+
+    api._liquidationApi.send(
+      JSON.stringify({
+        method: 'UNSUBSCRIBE',
+        params: [param],
+        id: this.subscriptions[param]
+      })
+    )
+
+    delete this.subscriptions[param]
+  }
+
+  onApiCreated(api) {
+    api._liquidationApiClosing = false
+    this.openLiquidationApi(api)
+  }
+
+  onApiRemoved(api) {
+    api._liquidationApiClosing = true
+
+    if (
+      api._liquidationApi &&
+      (
+        api._liquidationApi.readyState === WebSocket.OPEN ||
+        api._liquidationApi.readyState === WebSocket.CONNECTING
+      )
+    ) {
+      api._liquidationApi.close()
+    }
   }
 }
 
